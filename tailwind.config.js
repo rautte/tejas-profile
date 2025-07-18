@@ -5,7 +5,17 @@ module.exports = {
       "./public/index.html"
     ],
     theme: {
-      extend: {},
+      extend: {
+        fontFamily: {
+          space: ['Space Grotesk', 'sans-serif'],
+          spline: ['Spline Sans', 'sans-serif'],
+          cabinet: ['Cabinet Grotesk', 'sans-serif'],
+          jakarta: ['Plus Jakarta Sans', 'sans-serif'],
+          epilogue: ['Epilogue', 'sans-serif'],
+          general: ['General Sans', 'sans-serif'],
+          bevietnam: ['Be Vietnam Pro', 'sans-serif'],
+        },
+      },
     },
     plugins: [],
   }
