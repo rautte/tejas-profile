@@ -9,7 +9,7 @@ export default function Contact() {
 
   return (
     <section className="py-16 text-center bg-white">
-      <h2 className="text-3xl font-bold text-purple-700 mb-4">Contact</h2>
+      <h2 className="text-3xl font-bold text-purple-700 mb-4 font-epilogue">Contact</h2>
       <div className="flex justify-center gap-10 mt-6">
         {/* LinkedIn */}
         <a

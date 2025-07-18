@@ -1,8 +1,8 @@
 export default function Fun() {
   return (
     <section className="py-16 bg-white text-center">
-      <h2 className="text-3xl font-bold mb-4 text-purple-700">🎮 Fun Zone</h2>
-      <p className="mb-10 text-gray-600">If you've reached this far, you deserve to play some simple games I've coded just for fun!</p>
+      <h2 className="text-3xl font-bold mb-4 text-purple-700 font-epilogue">🎮 Fun Zone</h2>
+      <p className="mb-10 text-gray-600 font-epilogue">If you've reached this far, you deserve to play some simple games I've coded just for fun!</p>
 
       <div className="flex flex-wrap justify-center gap-8 px-4">
 
@@ -13,7 +13,7 @@ export default function Fun() {
             href="/games/minesweeper.html"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block bg-purple-600 text-white px-4 py-2 rounded-lg shadow hover:bg-purple-700 transition"
+            className="inline-block bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 transition"
           >
             ▶️ Play Game
           </a>
@@ -32,7 +32,7 @@ export default function Fun() {
               href="./games/tictactoe-ai.html"
               target="_blank"
               rel="noopener noreferrer"
-              className="block w-full bg-purple-600 text-white px-4 py-2 rounded-lg shadow hover:bg-purple-700 transition"
+              className="block w-full bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 transition"
             >
               ▶️ Play Game
             </a>
@@ -47,7 +47,7 @@ export default function Fun() {
             <a
               href="./downloads/TicTacToe_AI.zip"
               download
-              className="block w-full bg-green-600 text-white px-4 py-2 rounded-lg shadow hover:bg-green-700 transition"
+              className="block w-full bg-purple-600 text-white px-4 py-2 rounded-lg shadow hover:bg-purple-700 transition"
             >
               ⬇️ Download Game Code
             </a>
