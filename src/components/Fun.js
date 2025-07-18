@@ -35,7 +35,7 @@ export default function Fun() {
         <div className="bg-gray-100 p-6 rounded-xl shadow-md w-72">
         <h3 className="text-xl font-semibold mb-2">Tic Tac Toe (AI)</h3>
         <img
-          src="/images/tictactoe_demo.png"
+          src="./images/tictactoe_demo.png"
           alt="Tic Tac Toe Demo"
           className="rounded mb-2"
         />
@@ -56,7 +56,7 @@ export default function Fun() {
           View on GitHub
         </a>
         <a
-          href="/downloads/TicTacToe_AI.zip"
+          href="./downloads/TicTacToe_AI.zip"
           className="text-blue-600 underline block"
           download
         >
