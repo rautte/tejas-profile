@@ -1,21 +1,19 @@
 import logo from './logo.svg';
 import './App.css';
+import Hero from "./components/Hero";
+import About from "./components/About";
+import Projects from "./components/Projects";
+import Fun from "./components/Fun";
+import Contact from "./components/Contact";
 
 function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-500 text-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Hi, I'm Tejas 👋</h1>
-        <p className="text-lg mb-4">Welcome to my personal site!</p>
-        <a
-          href="https://github.com/rautte"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-block bg-white text-purple-700 px-4 py-2 rounded-full shadow hover:bg-purple-100 transition"
-        >
-          Visit my GitHub
-        </a>
-      </div>
+    <div className="bg-gradient-to-br from-purple-100 to-blue-100 min-h-screen font-sans">
+      <Hero />
+      <About />
+      <Projects />
+      <Fun />         {/* 👈 New section for your games */}
+      <Contact />
     </div>
   );
 }
