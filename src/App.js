@@ -3,23 +3,22 @@ import './App.css';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-500 to-blue-500 text-white">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold mb-4">Hi, I'm Tejas 👋</h1>
+        <p className="text-lg mb-4">Welcome to my personal site!</p>
         <a
-          className="App-link"
-          href="https://reactjs.org"
+          href="https://github.com/rautte"
           target="_blank"
-          rel="noopener noreferrer"
+          rel="noreferrer"
+          className="inline-block bg-white text-purple-700 px-4 py-2 rounded-full shadow hover:bg-purple-100 transition"
         >
-          Learn React
+          Visit my GitHub
         </a>
-      </header>
+      </div>
     </div>
   );
 }
 
 export default App;
+
