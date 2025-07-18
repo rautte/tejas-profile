@@ -2,7 +2,7 @@
 export default function Resume() {
   return (
     <section className="py-16 px-4 bg-gray-100 text-center">
-      <h2 className="text-4xl font-bold text-purple-700 mb-6 font-epilogue">Resume</h2>
+      <h2 className="text-3xl font-bold text-purple-700 mb-6 font-epilogue">Resume</h2>
       
       <p className="text-gray-700 mb-8 font-epilogue">You can view or download my resume below 👇</p>
 
