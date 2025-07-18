@@ -33,28 +33,36 @@ export default function Fun() {
 
         {/* Tic Tac Toe (AI - Pygame) */}
         <div className="bg-gray-100 p-6 rounded-xl shadow-md w-72">
-          <h3 className="text-xl font-semibold mb-2">Tic Tac Toe (AI)</h3>
-          {/* <img
-            src="/images/tictactoe_demo.gif"
-            alt="Tic Tac Toe Demo"
-            className="rounded mb-2"
-          /> */}
-          <a
-            href="https://github.com/rautte/TicTacToe_AI"
-            className="text-blue-600 underline block"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View on GitHub
-          </a>
-          <a
-            href="/downloads/TicTacToe_AI.zip"
-            className="text-blue-600 underline block"
-            download
-          >
-            Download Game
-          </a>
-        </div>
+        <h3 className="text-xl font-semibold mb-2">Tic Tac Toe (AI)</h3>
+        <img
+          src="/images/tictactoe_demo.gif"
+          alt="Tic Tac Toe Demo"
+          className="rounded mb-2"
+        />
+        <a
+          href="/games/tictactoe-ai.html"
+          className="text-blue-600 underline block"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Play Game
+        </a>
+        <a
+          href="https://github.com/rautte/TicTacToe_AI"
+          className="text-blue-600 underline block"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          View on GitHub
+        </a>
+        <a
+          href="/downloads/TicTacToe_AI.zip"
+          className="text-blue-600 underline block"
+          download
+        >
+          Download Game
+        </a>
+      </div>
       </div>
     </section>
   );
