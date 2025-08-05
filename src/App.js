@@ -1,6 +1,4 @@
 // src/App.js
-// https://rautte.github.io/my-profile/
-
 import './App.css';
 import './index.css';
 import Hero from "./components/Hero";
@@ -14,10 +12,14 @@ import Project from "./components/Project";
 import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
 import Contact from "./components/Contact";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // ✅ Icon imports
-import { FaUser, FaRegCalendarAlt, FaFileAlt, FaBriefcase, FaTools, FaGraduationCap, FaProjectDiagram, FaTrophy, FaGamepad, FaEnvelope } from 'react-icons/fa';
+import {
+  FaUser, FaRegCalendarAlt, FaFileAlt, FaBriefcase,
+  FaTools, FaGraduationCap, FaProjectDiagram, FaTrophy,
+  FaGamepad, FaEnvelope, FaMoon, FaSun
+} from 'react-icons/fa';
 
 const sections = {
   "About Me": <AboutMe />,
@@ -48,22 +50,54 @@ const icons = {
 function App() {
   const [selectedSection, setSelectedSection] = useState("About Me");
 
+  // ✅ Dark mode state (load from localStorage if set)
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem('theme') === 'dark';
+  });
+
+  // ✅ Apply or remove `dark` class on <html>
+  useEffect(() => {
+    const root = document.documentElement;
+    if (darkMode) {
+      root.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      root.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
+
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white transition-all">
+      {/* 🔘 Dark Mode Toggle (top-right corner) */}
+      <div className="absolute top-4 right-4 z-50">
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="p-2 bg-gray-200 dark:bg-gray-800 border border-gray-400 dark:border-gray-600 rounded-full shadow transition-all"
+          title="Toggle dark mode"
+        >
+          {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-700" />}
+        </button>
+      </div>
+
       {/* Top Hero Section */}
-      <div className="w-full h-22 bg-gradient-to-r from-purple-300 to-blue-300 shadow-md">
+      <div className="w-full h-22 bg-gradient-to-r from-purple-300 to-blue-300 dark:from-purple-900 dark:to-blue-900 shadow-md">
         <Hero />
       </div>
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar Navigation */}
-        <nav className="w-1/4 bg-white shadow-lg p-4 overflow-y-auto">
+        <nav className="w-1/4 bg-white dark:bg-gray-800 shadow-lg p-4 overflow-y-auto transition-colors">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
               <li key={section}>
                 <button
-                  className={`w-full text-left px-2 py-1 rounded hover:bg-purple-100 font-medium text-xl font-epilogue flex items-center gap-2 ${selectedSection === section ? 'bg-purple-200' : ''}`}
+                  className={`w-full text-left px-2 py-1 rounded font-medium text-xl font-epilogue flex items-center gap-2 transition-all ${
+                    selectedSection === section
+                      ? 'bg-purple-200 dark:bg-purple-700 text-black dark:text-white'
+                      : 'hover:bg-purple-100 dark:hover:bg-purple-900'
+                  }`}
                   onClick={() => setSelectedSection(section)}
                 >
                   {icons[section]}
@@ -75,7 +109,7 @@ function App() {
         </nav>
 
         {/* Scrollable Section */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50">
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-950 transition-colors">
           {sections[selectedSection]}
         </main>
       </div>
