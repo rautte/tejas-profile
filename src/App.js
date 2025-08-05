@@ -68,13 +68,13 @@ function App() {
   }, [darkMode]);
 
   return (
-    // <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white transition-all">
-    <div className="flex flex-col min-h-screen bg-white dark:bg-black text-black dark:text-white transition-all">
+    <div className="flex flex-col min-h-screen bg-white dark:bg-black text-black dark:text-white transition-all duration-300">
+      
       {/* 🔘 Dark Mode Toggle (top-right corner) */}
       <div className="absolute top-4 right-4 z-50">
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className="p-2 bg-gray-200 dark:bg-gray-800 border border-gray-400 dark:border-gray-600 rounded-full shadow transition-all"
+          className="p-2 bg-gray-200 dark:bg-gray-800 border border-gray-400 dark:border-gray-600 rounded-full shadow transition"
           title="Toggle dark mode"
         >
           {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-700" />}
@@ -86,10 +86,13 @@ function App() {
         <Hero />
       </div>
 
+      {/* 🎨 Soft fade divider between Hero and Main content */}
+      <div className="w-full h-4 bg-gradient-to-b from-purple-800 via-purple-900 to-gray-950 dark:from-purple-900 dark:via-black dark:to-gray-950" />
+
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
+        
         {/* Left Sidebar Navigation */}
-        {/* <nav className="w-1/4 bg-white dark:bg-gray-800 shadow-lg p-4 overflow-y-auto transition-colors"> */}
         <nav className="w-1/4 bg-white dark:bg-gray-900 shadow-lg p-4 overflow-y-auto transition-colors">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
@@ -110,8 +113,8 @@ function App() {
           </ul>
         </nav>
 
-        {/* Scrollable Section */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-950 transition-colors">
+        {/* Right Scrollable Section */}
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gradient-to-b dark:from-transparent dark:to-gray-950 transition-colors duration-300">
           {sections[selectedSection]}
         </main>
       </div>
