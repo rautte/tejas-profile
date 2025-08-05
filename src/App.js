@@ -77,22 +77,28 @@ function App() {
           </button>
         </div>
         <Hero />
-        <div className="w-full h-px bg-gray-300 dark:bg-gray-700" />
+        {/* <div className="w-full h-px bg-gray-300 dark:bg-gray-700" /> */}
       </div>
 
       {/* Main content layout with top padding for fixed hero */}
-      <div className="flex flex-1 pt-[180px] overflow-hidden">
+      <div className="flex flex-1 pt-[175px] overflow-hidden">
         {/* Sidebar */}
-        <nav className="w-[300px] bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto transition-colors">
-          <ul className="space-y-4">
-            {Object.keys(sections).map((section) => (
-              <li key={section}>
+        <nav className="w-[300px] h-full px-4 py-6 backdrop-blur-xl bg-white/60 dark:bg-white/5 border-r border-gray-200 dark:border-gray-700 shadow-lg transition-all relative">
+          <ul className="space-y-2 relative">
+            {Object.keys(sections).map((section, index) => (
+              <li key={section} className="relative group">
+                {/* Glowing selection bar */}
+                {selectedSection === section && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-10 w-1.5 bg-purple-500 rounded-r-full shadow-md transition-all" />
+                )}
+
                 <button
-                  className={`w-full text-left px-2 py-1 rounded font-medium text-xl font-epilogue flex items-center gap-2 transition-all ${
-                    selectedSection === section
-                      ? 'bg-purple-200 dark:bg-purple-700 text-black dark:text-white'
-                      : 'hover:bg-purple-100 dark:hover:bg-[#31314a]'
-                  }`}
+                  className={`w-full text-left px-5 py-2 rounded-xl font-medium text-[1.05rem] font-jakarta flex items-center gap-3 transition-all duration-200
+                    ${
+                      selectedSection === section
+                        ? 'bg-purple-100 dark:bg-purple-800 text-purple-900 dark:text-purple-100 shadow-inner ring-1 ring-purple-300 dark:ring-purple-600'
+                        : 'hover:bg-purple-50 dark:hover:bg-[#2b2b3c] text-gray-700 dark:text-gray-300'
+                    }`}
                   onClick={() => setSelectedSection(section)}
                 >
                   {icons[section]}
@@ -103,11 +109,8 @@ function App() {
           </ul>
         </nav>
 
-        {/* Divider */}
-        <div className="border-r border-gray-300 dark:border-gray-700"></div>
-
         {/* Main scrollable section */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-[#181826] transition-colors">
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors">
           {sections[selectedSection]}
         </main>
       </div>
