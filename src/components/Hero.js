@@ -12,9 +12,6 @@ export default function Hero() {
         <h1 className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md">
           👋 I’m Tejas Raut
         </h1>
-        <p className="text-xl mt-4 font-epilogue text-purple-100 dark:text-gray-300 drop-shadow-sm">
-          Welcome to my profile page
-        </p>
         <p className="mt-2 text-base text-purple-200 dark:text-gray-400 font-jakarta">
           Full-Stack Developer | React, Node.js, Python, AWS
         </p>
