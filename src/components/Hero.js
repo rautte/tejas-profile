@@ -20,7 +20,7 @@ export default function Hero() {
       {/* Text content */}
       <div className="relative z-10">
         <h1 className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white drop-shadow-md">
-          Hi, I’m Tejas 👋
+          👋 I’m Tejas Raut
         </h1>
         <p className="text-xl mt-4 font-epilogue text-purple-100 drop-shadow-sm">
           Welcome to my profile page
