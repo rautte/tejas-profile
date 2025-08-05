@@ -18,7 +18,7 @@ const allProjects = [
   {
     title: "Portfolio Website",
     description: "Personal portfolio built with React and Tailwind.",
-    techStack: ["React", "TailwindCSS", "GitHub Pages"],
+    techStack: ["React", "TailwindCSS", "JavaScript", "GitHub Pages"],
     domain: "Frontend",
     industry: "Tech",
     demo: "https://rautte.github.io/my-profile",
@@ -48,8 +48,8 @@ const allProjects = [
 // Filter categories
 const filterOptions = {
   "Tech Stack": [
-    "React", "TailwindCSS", "GitHub Pages",
-    "FastAPI", "NLTK", "PyTorch", "Python"
+    "React", "TailwindCSS", "GitHub Pages", "JavaScript", "Airflow", "AWS", "Azure", "DBT", 
+    "FastAPI", "NLTK", "PyTorch", "Python", "Go(Lang)", "MySQL", "PostgreSQL", "MongoDB", "Snowflakes"
   ],
   "Domain": [
     "Data Engineering", "Data Analysis", "Financial Analysis",
@@ -102,7 +102,7 @@ export default function Project() {
   };
 
   return (
-    <section className="py-16 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
+    <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Header with Title and Filter Button */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-10">
         <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
@@ -123,9 +123,10 @@ export default function Project() {
           {showDropdown && (
             <div
               className="absolute right-0 mt-2 w-80 p-4 z-20
-                bg-white dark:bg-[#2b2b3c] text-gray-800 dark:text-gray-200
-                backdrop-blur-xl rounded-2xl border border-gray-300 dark:border-gray-600
-                shadow-2xl ring-1 ring-white/20 transition-all text-left"
+                bg-white/30 dark:bg-white/10 text-gray-800 dark:text-gray-200
+                backdrop-blur-xl backdrop-saturate-150
+                rounded-2xl border border-white/20 dark:border-white/20
+                shadow-xl ring-1 ring-white/20 transition-all text-left"
             >
               {Object.entries(filterOptions).map(([category, values]) => (
                 <div key={category} className="mb-4">
@@ -162,7 +163,7 @@ export default function Project() {
       </div>
 
       {/* Project Cards Grid */}
-      <div className="grid md:grid-cols-2 gap-6 px-4 md:px-20">
+      <div className="grid md:grid-cols-2 gap-x-16 gap-y-10 px-4 md:px-25">
         {filteredProjects.map((project, index) => (
           <div
             key={index}

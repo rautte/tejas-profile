@@ -63,27 +63,26 @@ function App() {
   }, [darkMode]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
-      {/* Dark mode toggle */}
-      <div className="absolute top-4 right-4 z-50">
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
-          title="Toggle dark mode"
-        >
-          {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
-        </button>
-      </div>
+    <div className="h-screen flex flex-col overflow-hidden bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
 
-      {/* Hero section */}
-      <div className="w-full h-22 bg-gradient-to-r from-purple-300 to-blue-300 dark:from-purple-900 dark:to-blue-900 shadow-md">
+      {/* Fixed Hero */}
+      <div className="fixed top-0 left-0 w-full z-30 bg-gradient-to-r from-purple-300 to-blue-300 dark:from-purple-900 dark:to-blue-900 shadow-md">
+        <div className="absolute top-4 right-4 z-50">
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
+            title="Toggle dark mode"
+          >
+            {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
+          </button>
+        </div>
         <Hero />
+        <div className="w-full h-px bg-gray-300 dark:bg-gray-700" />
       </div>
 
-      {/* Main content layout */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Main content layout with top padding for fixed hero */}
+      <div className="flex flex-1 pt-[180px] overflow-hidden">
         {/* Sidebar */}
-        {/* <nav className="w-1/4 bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto"> */}
         <nav className="w-[280px] bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto transition-colors">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
@@ -104,7 +103,10 @@ function App() {
           </ul>
         </nav>
 
-        {/* Main section */}
+        {/* Divider */}
+        <div className="border-r border-gray-300 dark:border-gray-700"></div>
+
+        {/* Main scrollable section */}
         <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-[#181826] transition-colors">
           {sections[selectedSection]}
         </main>

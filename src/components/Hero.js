@@ -1,19 +1,25 @@
 export default function Hero() {
   return (
-    <section className="relative overflow-hidden py-20 bg-gradient-to-br from-purple-700 via-purple-500 to-purple-800 dark:from-purple-900 dark:via-[#1e1e2f] dark:to-[#181826] text-white text-center transition-all">
-      {/* Background blobs */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-30">
-        <div className="absolute w-72 h-72 bg-purple-300 dark:bg-purple-900 rounded-full blur-3xl top-10 left-10 animate-pulse"></div>
-        <div className="absolute w-96 h-96 bg-indigo-400 dark:bg-indigo-900 rounded-full blur-2xl top-40 right-20 animate-pulse delay-200"></div>
+    <section className="relative overflow-hidden py-12 text-white text-center transition-all">
+      {/* Gradient Background with glass effect */}
+      <div className="absolute inset-0 z-0">
+        {/* Base gradient */}
+        <div className="w-full h-full bg-gradient-to-br from-purple-800 via-purple-500 to-purple-900 dark:from-purple-900 dark:via-[#1e1e2f] dark:to-[#181826]"></div>
+
+        {/* Glass overlay */}
+        <div className="absolute inset-0 bg-white/10 dark:bg-white/5 backdrop-blur-2xl" />
+
+        {/* Reflective shimmer animation */}
+        <div className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] animate-glow bg-gradient-radial from-purple-300/30 via-transparent to-transparent rounded-full opacity-60 blur-2xl mix-blend-lighten pointer-events-none" />
       </div>
 
-      {/* Text */}
+      {/* Text Content */}
       <div className="relative z-10 px-4">
         <h1 className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md">
           👋 I’m Tejas Raut
         </h1>
         <p className="mt-2 text-base text-purple-200 dark:text-gray-400 font-jakarta">
-          Full-Stack Developer | React, Node.js, Python, AWS
+          Full-Stack Developer | Data Engineer | Business Intelligence Engineer
         </p>
       </div>
     </section>

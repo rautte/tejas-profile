@@ -7,3 +7,22 @@
     @apply bg-gray-50 text-gray-900 font-sans;
   }
 }
+
+@layer utilities {
+  @keyframes glow {
+    0% {
+      transform: rotate(0deg) translateX(0);
+    }
+    100% {
+      transform: rotate(360deg) translateX(0);
+    }
+  }
+
+  .animate-glow {
+    animation: glow 20s linear infinite;
+  }
+
+  .bg-gradient-radial {
+    background-image: radial-gradient(circle at center, var(--tw-gradient-stops));
+  }
+}
