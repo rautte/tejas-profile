@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { HiOutlineFilter } from "react-icons/hi";
-import ProjectCard from "./ProjectCard";
+// import ProjectCard from "./ProjectCard";
 
 
 
@@ -21,6 +21,7 @@ const allProjects = [
     techStack: ["React", "TailwindCSS", "GitHub Pages"],
     domain: "Frontend",
     industry: "Tech",
+    demo: "https://rautte.github.io/my-profile",
     github: "https://github.com/rautte/my-profile",
     status: "✅ Deployed"
   },
@@ -118,7 +119,7 @@ export default function Project() {
             Filter ▾
           </button>
 
-          {/* ✅ Dropdown inside this block */}
+          {/* Dropdown */}
           {showDropdown && (
             <div
               className="absolute right-0 mt-2 w-80 p-4 z-20
@@ -198,17 +199,30 @@ export default function Project() {
               <strong>Industry:</strong> {project.industry}
             </p>
 
-            {project.github && (
-              <a
-                href={project.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-purple-500 hover:underline"
-              >
-                View on GitHub →
-              </a>
-            )}
-          </div> 
+            {/* ✅ New GitHub + Live Demo Buttons */}
+            <div className="flex gap-3 mt-2">
+              {project.demo && (
+                <a
+                  href={project.demo}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:opacity-90 transition font-medium"
+                >
+                  Live Demo
+                </a>
+              )}
+              {project.github && (
+                <a
+                  href={project.github}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm px-4 py-2 border border-purple-600 text-purple-700 dark:text-purple-300 rounded-lg hover:bg-purple-50 dark:hover:bg-[#31314a] transition font-medium"
+                >
+                  GitHub
+                </a>
+              )}
+            </div>
+          </div>
         ))}
       </div>
     </section>
