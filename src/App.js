@@ -68,7 +68,8 @@ function App() {
   }, [darkMode]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white transition-all">
+    // <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white transition-all">
+    <div className="flex flex-col min-h-screen bg-white dark:bg-black text-black dark:text-white transition-all">
       {/* 🔘 Dark Mode Toggle (top-right corner) */}
       <div className="absolute top-4 right-4 z-50">
         <button
@@ -88,7 +89,8 @@ function App() {
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar Navigation */}
-        <nav className="w-1/4 bg-white dark:bg-gray-800 shadow-lg p-4 overflow-y-auto transition-colors">
+        {/* <nav className="w-1/4 bg-white dark:bg-gray-800 shadow-lg p-4 overflow-y-auto transition-colors"> */}
+        <nav className="w-1/4 bg-white dark:bg-gray-900 shadow-lg p-4 overflow-y-auto transition-colors">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
               <li key={section}>
