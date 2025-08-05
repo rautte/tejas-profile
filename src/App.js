@@ -13,8 +13,6 @@ import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
 import Contact from "./components/Contact";
 import { useEffect, useState } from "react";
-
-// ✅ Icon imports
 import {
   FaUser, FaRegCalendarAlt, FaFileAlt, FaBriefcase,
   FaTools, FaGraduationCap, FaProjectDiagram, FaTrophy,
@@ -49,13 +47,10 @@ const icons = {
 
 function App() {
   const [selectedSection, setSelectedSection] = useState("About Me");
-
-  // ✅ Dark mode state (load from localStorage if set)
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('theme') === 'dark';
   });
 
-  // ✅ Apply or remove `dark` class on <html>
   useEffect(() => {
     const root = document.documentElement;
     if (darkMode) {
@@ -68,32 +63,27 @@ function App() {
   }, [darkMode]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-white dark:bg-black text-black dark:text-white transition-all duration-300">
-      
-      {/* 🔘 Dark Mode Toggle (top-right corner) */}
+    <div className="flex flex-col min-h-screen bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
+      {/* Dark mode toggle */}
       <div className="absolute top-4 right-4 z-50">
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className="p-2 bg-gray-200 dark:bg-gray-800 border border-gray-400 dark:border-gray-600 rounded-full shadow transition"
+          className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
           title="Toggle dark mode"
         >
-          {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-700" />}
+          {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
         </button>
       </div>
 
-      {/* Top Hero Section */}
+      {/* Hero section */}
       <div className="w-full h-22 bg-gradient-to-r from-purple-300 to-blue-300 dark:from-purple-900 dark:to-blue-900 shadow-md">
         <Hero />
       </div>
 
-      {/* 🎨 Soft fade divider between Hero and Main content */}
-      <div className="w-full h-4 bg-gradient-to-b from-purple-800 via-purple-900 to-gray-950 dark:from-purple-900 dark:via-black dark:to-gray-950" />
-
-      {/* Main Content */}
+      {/* Main content layout */}
       <div className="flex flex-1 overflow-hidden">
-        
-        {/* Left Sidebar Navigation */}
-        <nav className="w-1/4 bg-white dark:bg-gray-900 shadow-lg p-4 overflow-y-auto transition-colors">
+        {/* Sidebar */}
+        <nav className="w-1/4 bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
               <li key={section}>
@@ -101,7 +91,7 @@ function App() {
                   className={`w-full text-left px-2 py-1 rounded font-medium text-xl font-epilogue flex items-center gap-2 transition-all ${
                     selectedSection === section
                       ? 'bg-purple-200 dark:bg-purple-700 text-black dark:text-white'
-                      : 'hover:bg-purple-100 dark:hover:bg-purple-900'
+                      : 'hover:bg-purple-100 dark:hover:bg-[#31314a]'
                   }`}
                   onClick={() => setSelectedSection(section)}
                 >
@@ -113,8 +103,8 @@ function App() {
           </ul>
         </nav>
 
-        {/* Right Scrollable Section */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gradient-to-b dark:from-transparent dark:to-gray-950 transition-colors duration-300">
+        {/* Main section */}
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-[#181826] transition-colors">
           {sections[selectedSection]}
         </main>
       </div>
