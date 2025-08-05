@@ -10,7 +10,7 @@ import Skill from "./components/Skill";
 import Education from "./components/Education";
 import Project from "./components/Project";
 import Achievement from "./components/Achievement";
-import Fun from "./components/Fun";
+import FunZone from "./components/FunZone";
 import Contact from "./components/Contact";
 import { useState } from "react";
 
@@ -26,7 +26,7 @@ const sections = {
   "Education": <Education />,
   "Project": <Project />,
   "Achievement": <Achievement />,
-  "Fun": <Fun />,
+  "Fun Zone": <FunZone />,
   "Contact": <Contact />,
 };
 
@@ -39,7 +39,7 @@ const icons = {
   "Education": <FaGraduationCap className="inline-block mr-2" />,
   "Project": <FaProjectDiagram className="inline-block mr-2" />,
   "Achievement": <FaTrophy className="inline-block mr-2" />,
-  "Fun": <FaGamepad className="inline-block mr-2" />,
+  "Fun Zone": <FaGamepad className="inline-block mr-2" />,
   "Contact": <FaEnvelope className="inline-block mr-2" />,
 };
 
