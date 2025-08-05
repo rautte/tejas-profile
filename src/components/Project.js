@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { HiOutlineFilter } from "react-icons/hi";
+import ProjectCard from "./ProjectCard";
+
+
 
 // Sample project data
 const allProjects = [
@@ -109,7 +112,7 @@ export default function Project() {
         <div className="relative w-fit text-left" ref={dropdownRef}>
           <button
             onClick={() => setShowDropdown(!showDropdown)}
-            className="bg-white/10 dark:bg-white/10 backdrop-blur-xl border border-white/20 dark:border-white/30 rounded-xl px-5 py-2 font-medium text-white shadow-lg hover:bg-white/20 transition-all flex items-center gap-2"
+            className="bg-gray-100 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-5 py-2 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
           >
             <HiOutlineFilter className="text-lg" />
             Filter ▾
@@ -119,20 +122,13 @@ export default function Project() {
           {showDropdown && (
             <div
               className="absolute right-0 mt-2 w-80 p-4 z-20
-                bg-white text-gray-800
-                dark:bg-white/10 dark:text-white dark:border-white/20
-                backdrop-blur-xl rounded-2xl border border-gray-200
-                shadow-2xl ring-1 ring-gray-200 dark:ring-white/10
-                transition-all text-left"
-              // className="absolute right-0 mt-2 w-80 p-4 z-20
-              // bg-white dark:bg-[#2b2b3c] text-gray-800 dark:text-gray-200
-              // backdrop-blur-xl rounded-2xl hover:shadow
-              // border border-gray-300 dark:border-gray-600
-              // shadow-2xl ring-1 ring-white/20 transition-all text-left"
+                bg-white dark:bg-[#2b2b3c] text-gray-800 dark:text-gray-200
+                backdrop-blur-xl rounded-2xl border border-gray-300 dark:border-gray-600
+                shadow-2xl ring-1 ring-white/20 transition-all text-left"
             >
               {Object.entries(filterOptions).map(([category, values]) => (
                 <div key={category} className="mb-4">
-                  <h4 className="text-sm text-white/70 font-semibold uppercase mb-2">
+                  <h4 className="text-sm text-gray-700 dark:text-white/70 font-semibold uppercase mb-2">
                     {category}
                   </h4>
                   <div className="flex flex-wrap gap-2">
@@ -143,8 +139,8 @@ export default function Project() {
                         className={`px-3 py-1 rounded-full text-sm font-medium transition-all border
                           ${
                             filters.includes(option)
-                              ? "bg-purple-500 text-white border-purple-600"
-                              : "bg-white/20 text-white border-white/30 hover:bg-white/30"
+                              ? "bg-purple-600 text-white border-purple-700"
+                              : "bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/30"
                           }`}
                       >
                         {option} ({getCount(option)})
@@ -155,7 +151,7 @@ export default function Project() {
               ))}
               <button
                 onClick={resetFilters}
-                className="mt-2 text-sm text-purple-300 hover:text-purple-100 underline"
+                className="mt-2 text-sm text-purple-600 dark:text-purple-300 hover:underline"
               >
                 Reset Filters
               </button>
@@ -212,7 +208,7 @@ export default function Project() {
                 View on GitHub →
               </a>
             )}
-          </div>
+          </div> 
         ))}
       </div>
     </section>
