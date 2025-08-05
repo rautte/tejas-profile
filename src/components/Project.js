@@ -104,7 +104,7 @@ export default function Project() {
   return (
     <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Header with Title and Filter Button */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-10">
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
           Projects
         </h2>
@@ -163,7 +163,7 @@ export default function Project() {
       </div>
 
       {/* Project Cards Grid */}
-      <div className="grid md:grid-cols-2 gap-x-16 gap-y-10 px-4 md:px-25">
+      <div className="grid md:grid-cols-2 gap-x-16 gap-y-10 px-6 py-4 md:px-25">
         {filteredProjects.map((project, index) => (
           <div
             key={index}

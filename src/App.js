@@ -83,7 +83,7 @@ function App() {
       {/* Main content layout with top padding for fixed hero */}
       <div className="flex flex-1 pt-[180px] overflow-hidden">
         {/* Sidebar */}
-        <nav className="w-[280px] bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto transition-colors">
+        <nav className="w-[300px] bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto transition-colors">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
               <li key={section}>
