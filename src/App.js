@@ -83,7 +83,8 @@ function App() {
       {/* Main content layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <nav className="w-1/4 bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto">
+        {/* <nav className="w-1/4 bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto"> */}
+        <nav className="w-[280px] bg-white dark:bg-[#1c1c2e] shadow-md p-4 overflow-y-auto transition-colors">
           <ul className="space-y-4">
             {Object.keys(sections).map((section) => (
               <li key={section}>

@@ -1,113 +1,219 @@
-import { useState, useRef, useEffect } from "react";
-import ProjectCard from "./ProjectCard";
+import React, { useState, useEffect, useRef } from "react";
+import { HiOutlineFilter } from "react-icons/hi";
+
+// Sample project data
+const allProjects = [
+  {
+    title: "Smart Chatbot",
+    description: "An AI-powered chatbot using NLP and PyTorch.",
+    techStack: ["React", "Python", "PyTorch", "NLTK"],
+    domain: "AI/ML",
+    industry: "Tech",
+    github: "https://github.com/rautte/chatbot",
+    status: "🛠️ In Progress"
+  },
+  {
+    title: "Portfolio Website",
+    description: "Personal portfolio built with React and Tailwind.",
+    techStack: ["React", "TailwindCSS", "GitHub Pages"],
+    domain: "Frontend",
+    industry: "Tech",
+    github: "https://github.com/rautte/my-profile",
+    status: "✅ Deployed"
+  },
+  {
+    title: "Sales Analytics",
+    description: "Financial analysis dashboard using Python and Pandas.",
+    techStack: ["Python"],
+    domain: "Financial Analysis",
+    industry: "Product Retail",
+    github: "",
+    status: "✅ Deployed"
+  },
+  {
+    title: "Car Data Pipeline",
+    description: "Backend pipeline for automobile sensor data.",
+    techStack: ["FastAPI", "Python"],
+    domain: "Data Engineering",
+    industry: "Automobile",
+    github: "https://github.com/rautte/car-pipeline",
+    status: "🛠️ In Progress"
+  }
+];
+
+// Filter categories
+const filterOptions = {
+  "Tech Stack": [
+    "React", "TailwindCSS", "GitHub Pages",
+    "FastAPI", "NLTK", "PyTorch", "Python"
+  ],
+  "Domain": [
+    "Data Engineering", "Data Analysis", "Financial Analysis",
+    "Backend", "Frontend", "AI/ML"
+  ],
+  "Industry": ["Product Retail", "Tech", "Automobile"]
+};
 
 export default function Project() {
-  const allProjects = [
-    {
-      title: "Portfolio Website",
-      description: "Personal portfolio to showcase my skills, projects, and resume.",
-      stack: ["React", "TailwindCSS", "GitHub Pages"],
-      github: "https://github.com/rautte/my-profile",
-      demo: "https://rautte.github.io/my-profile/",
-      status: "✅ Deployed"
-    },
-    {
-      title: "AI Chatbot",
-      description: "Built a Python-based chatbot with NLTK and PyTorch, served via FastAPI.",
-      stack: ["Python", "FastAPI", "NLTK", "PyTorch"],
-      github: "https://github.com/rautte/ai-chatbot",
-      status: "🛠️ In Progress"
-    },
-    {
-      title: "E-commerce API",
-      description: "RESTful API with authentication, product listings, and checkout flow.",
-      stack: ["Node.js", "Express", "MongoDB", "JWT"],
-      github: "https://github.com/rautte/ecommerce-api",
-      status: "✅ Deployed"
-    },
-  ];
-
-  const allTechs = [...new Set(allProjects.flatMap(p => p.stack))];
-  const [selectedTechs, setSelectedTechs] = useState([]);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [filters, setFilters] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
-  const toggleTech = (tech) => {
-    setSelectedTechs((prev) =>
-      prev.includes(tech) ? prev.filter(t => t !== tech) : [...prev, tech]
+  // ✅ Filter handler
+  const toggleFilter = (value) => {
+    setFilters((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
     );
   };
 
-  const filteredProjects = selectedTechs.length === 0
-    ? allProjects
-    : allProjects.filter(p => p.stack.some(tech => selectedTechs.includes(tech)));
+  const resetFilters = () => setFilters([]);
 
-  // ✅ Close dropdown when clicking outside
+  // ✅ Close dropdown on outside click
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setDropdownOpen(false);
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowDropdown(false);
       }
     };
-
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // ✅ Filter logic
+  const filteredProjects = allProjects.filter((project) => {
+    if (filters.length === 0) return true;
+    const combined = [
+      ...project.techStack,
+      project.domain,
+      project.industry
+    ];
+    return filters.every((f) => combined.includes(f));
+  });
+
+  // ✅ Count occurrences for each filter
+  const getCount = (value) => {
+    return allProjects.filter((p) =>
+      [...p.techStack, p.domain, p.industry].includes(value)
+    ).length;
+  };
 
   return (
     <section className="py-16 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
-      <div className="max-w-6xl mx-auto space-y-8">
-        <h2 className="text-3xl font-bold text-center text-purple-700 dark:text-purple-300 font-epilogue">
+      {/* Header with Title and Filter Button */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-10">
+        <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
           Projects
         </h2>
 
-        {/* Multi-Select Dropdown Filter */}
-        <div className="relative w-fit mx-auto" ref={dropdownRef}>
+        {/* Filter Button with Dropdown */}
+        <div className="relative w-fit text-left" ref={dropdownRef}>
           <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="px-4 py-2 bg-white dark:bg-[#2b2b3c] text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded shadow font-medium"
+            onClick={() => setShowDropdown(!showDropdown)}
+            className="bg-white/10 dark:bg-white/10 backdrop-blur-xl border border-white/20 dark:border-white/30 rounded-xl px-5 py-2 font-medium text-white shadow-lg hover:bg-white/20 transition-all flex items-center gap-2"
           >
-            {selectedTechs.length > 0
-              ? `Filter by: ${selectedTechs.join(", ")}`
-              : "🔽 Filter by Tech Stack"}
+            <HiOutlineFilter className="text-lg" />
+            Filter ▾
           </button>
 
-          {dropdownOpen && (
-            <div className="absolute z-10 mt-2 w-60 bg-white dark:bg-[#2b2b3c] border border-gray-300 dark:border-gray-600 rounded shadow-lg max-h-60 overflow-y-auto">
-              {allTechs.map((tech, idx) => (
-                <label
-                  key={idx}
-                  className="flex items-center px-4 py-2 hover:bg-gray-100 dark:hover:bg-[#3d3d55] cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    className="mr-2"
-                    checked={selectedTechs.includes(tech)}
-                    onChange={() => toggleTech(tech)}
-                  />
-                  <span className="text-gray-800 dark:text-gray-200">{tech}</span>
-                </label>
+          {/* ✅ Dropdown inside this block */}
+          {showDropdown && (
+            <div
+              className="absolute right-0 mt-2 w-80 p-4 z-20
+                bg-white text-gray-800
+                dark:bg-white/10 dark:text-white dark:border-white/20
+                backdrop-blur-xl rounded-2xl border border-gray-200
+                shadow-2xl ring-1 ring-gray-200 dark:ring-white/10
+                transition-all text-left"
+              // className="absolute right-0 mt-2 w-80 p-4 z-20
+              // bg-white dark:bg-[#2b2b3c] text-gray-800 dark:text-gray-200
+              // backdrop-blur-xl rounded-2xl hover:shadow
+              // border border-gray-300 dark:border-gray-600
+              // shadow-2xl ring-1 ring-white/20 transition-all text-left"
+            >
+              {Object.entries(filterOptions).map(([category, values]) => (
+                <div key={category} className="mb-4">
+                  <h4 className="text-sm text-white/70 font-semibold uppercase mb-2">
+                    {category}
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {values.map((option) => (
+                      <button
+                        key={option}
+                        onClick={() => toggleFilter(option)}
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-all border
+                          ${
+                            filters.includes(option)
+                              ? "bg-purple-500 text-white border-purple-600"
+                              : "bg-white/20 text-white border-white/30 hover:bg-white/30"
+                          }`}
+                      >
+                        {option} ({getCount(option)})
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
-              <div className="px-4 py-2">
-                <button
-                  onClick={() => setSelectedTechs([])}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  Clear Filters
-                </button>
-              </div>
+              <button
+                onClick={resetFilters}
+                className="mt-2 text-sm text-purple-300 hover:text-purple-100 underline"
+              >
+                Reset Filters
+              </button>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Project Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredProjects.map((proj, idx) => (
-            <ProjectCard key={idx} {...proj} />
-          ))}
-        </div>
+      {/* Project Cards Grid */}
+      <div className="grid md:grid-cols-2 gap-6 px-4 md:px-20">
+        {filteredProjects.map((project, index) => (
+          <div
+            key={index}
+            className="bg-white dark:bg-gray-900 rounded-xl p-6 text-left shadow-md transition-all border border-gray-200 dark:border-gray-700"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xl font-semibold font-epilogue">
+                {project.title}
+              </h3>
+              <span className="text-xs px-2 py-1 bg-purple-500 text-white rounded-full">
+                {project.status}
+              </span>
+            </div>
+
+            <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+              {project.description}
+            </p>
+
+            <div className="flex flex-wrap gap-2 mb-3">
+              {project.techStack.map((tech) => (
+                <span
+                  key={tech}
+                  className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-700 text-purple-800 dark:text-white rounded-full"
+                >
+                  {tech}
+                </span>
+              ))}
+            </div>
+
+            <p className="text-xs mb-1 text-gray-500 dark:text-gray-400">
+              <strong>Domain:</strong> {project.domain}
+            </p>
+            <p className="text-xs mb-3 text-gray-500 dark:text-gray-400">
+              <strong>Industry:</strong> {project.industry}
+            </p>
+
+            {project.github && (
+              <a
+                href={project.github}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-purple-500 hover:underline"
+              >
+                View on GitHub →
+              </a>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );
