@@ -110,7 +110,7 @@ export default function Project() {
           <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
             Projects
           </h2>
-          <div className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-300 dark:via-purple-500 dark:to-purple-200 shadow-lg backdrop-blur-sm opacity-80"></div>
+          <div className="w-64 h-1 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-300 dark:via-purple-500 dark:to-purple-200 shadow-lg backdrop-blur-sm opacity-80"></div>
         </div>
 
         {/* Filter Button with Dropdown */}
