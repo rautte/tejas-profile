@@ -107,10 +107,17 @@ export default function Project({ darkMode }) {
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         {/* Title and divider */}
         <div>
-          <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
+          <h2
+            className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue"
+            style={{
+              textShadow: '2px 2px 4px rgba(128, 90, 213, 0.5)' // purple glow
+            }}
+          >
             Projects
           </h2>
-          <div className="w-64 h-1 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-400 dark:via-purple-500 dark:to-purple-300 shadow-lg backdrop-blur-sm opacity-80"></div>
+          <div
+            className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-500 dark:via-purple-600 dark:to-purple-400 backdrop-blur-sm opacity-90 shadow-[0_0_2px_1px_rgba(147,51,234,0.6)]"
+          ></div>
         </div>
 
         {/* Filter Button with Dropdown */}

@@ -41,6 +41,29 @@ export default function Hero({ darkMode }) {
         transition={{ duration: 0.8 }}
       >
         <motion.h1
+          className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md flex items-center justify-center gap-3"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.7 }}
+        >
+          <motion.span
+            className="inline-block origin-[70%_70%] bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white"
+            animate={{ rotate: [0, 25, -20, 25, -15, 15, 0] }}
+            transition={{ duration: 1.5, ease: "easeInOut" }}
+          >
+            👋
+          </motion.span>
+          I’m Tejas Raut
+        </motion.h1>
+      </motion.div>
+
+      {/* <motion.div
+        className="relative z-10 px-4"
+        initial={{ opacity: 0, y: -40 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+      >
+        <motion.h1
           className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -48,7 +71,7 @@ export default function Hero({ darkMode }) {
         >
           👋 I’m Tejas Raut
         </motion.h1>
-      </motion.div>
+      </motion.div> */}
 
       {/* Particles */}
       <Particles
