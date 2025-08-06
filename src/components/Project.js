@@ -13,7 +13,7 @@ const allProjects = [
     domain: "AI/ML",
     industry: "Tech",
     github: "https://github.com/rautte/chatbot",
-    status: "🛠️ In Progress"
+    status: "In Progress"
   },
   {
     title: "Portfolio Website",
@@ -23,7 +23,7 @@ const allProjects = [
     industry: "Tech",
     demo: "https://rautte.github.io/my-profile",
     github: "https://github.com/rautte/my-profile",
-    status: "✅ Deployed"
+    status: "Deployed"
   },
   {
     title: "Sales Analytics",
@@ -32,7 +32,7 @@ const allProjects = [
     domain: "Financial Analysis",
     industry: "Product Retail",
     github: "",
-    status: "✅ Deployed"
+    status: "Deployed"
   },
   {
     title: "Car Data Pipeline",
@@ -41,7 +41,7 @@ const allProjects = [
     domain: "Data Engineering",
     industry: "Automobile",
     github: "https://github.com/rautte/car-pipeline",
-    status: "🛠️ In Progress"
+    status: "In Progress"
   }
 ];
 
@@ -105,15 +105,19 @@ export default function Project() {
     <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Header with Title and Filter Button */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
-        <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
-          Projects
-        </h2>
+        {/* Title and divider */}
+        <div>
+          <h2 className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue">
+            Projects
+          </h2>
+          <div className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-300 dark:via-purple-500 dark:to-purple-200 shadow-lg backdrop-blur-sm opacity-80"></div>
+        </div>
 
         {/* Filter Button with Dropdown */}
         <div className="relative w-fit text-left" ref={dropdownRef}>
           <button
             onClick={() => setShowDropdown(!showDropdown)}
-            className="bg-gray-100 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-5 py-2 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
+            className="bg-gray-100 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-3 py-1 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
           >
             <HiOutlineFilter className="text-lg" />
             Filter ▾
@@ -122,23 +126,24 @@ export default function Project() {
           {/* Dropdown */}
           {showDropdown && (
             <div
-              className="absolute right-0 mt-2 w-80 p-4 z-20
+              className="absolute right-0 mt-2 w-80 max-h-[500px] overflow-y-auto p-4 z-20
                 bg-white/30 dark:bg-white/10 text-gray-800 dark:text-gray-200
                 backdrop-blur-xl backdrop-saturate-150
                 rounded-2xl border border-white/20 dark:border-white/20
-                shadow-xl ring-1 ring-white/20 transition-all text-left"
+                shadow-xl ring-1 ring-white/20 transition-all text-left scroll-smooth"
             >
               {Object.entries(filterOptions).map(([category, values]) => (
-                <div key={category} className="mb-4">
+                <div key={category} className="mb-10">
                   <h4 className="text-sm text-gray-700 dark:text-white/70 font-semibold uppercase mb-2">
                     {category}
                   </h4>
+                  <div className="w-full h-[1px] bg-gray-300 dark:bg-gray-600 mb-3" /> {/* Bar under heading */}
                   <div className="flex flex-wrap gap-2">
                     {values.map((option) => (
                       <button
                         key={option}
                         onClick={() => toggleFilter(option)}
-                        className={`px-3 py-1 rounded-full text-sm font-medium transition-all border
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all border
                           ${
                             filters.includes(option)
                               ? "bg-purple-600 text-white border-purple-700"
@@ -173,9 +178,18 @@ export default function Project() {
               <h3 className="text-xl font-semibold font-epilogue">
                 {project.title}
               </h3>
-              <span className="text-xs px-2 py-1 bg-purple-500 text-white rounded-full">
+              <span
+                className={`text-xs px-2 py-1 text-white rounded-full ${
+                  project.status === "Deployed"
+                    ? "bg-green-500 dark:bg-green-600"
+                    : "bg-indigo-500 dark:bg-indigo-600"
+                }`}
+              >
                 {project.status}
               </span>
+              {/* <span className="text-xs px-2 py-1 bg-green-500 dark:bg-green-600 text-white rounded-full">
+                {project.status}
+              </span> */}
             </div>
 
             <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
@@ -186,7 +200,7 @@ export default function Project() {
               {project.techStack.map((tech) => (
                 <span
                   key={tech}
-                  className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-700 text-purple-800 dark:text-white rounded-full"
+                  className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-800 text-purple-800 dark:text-white rounded-full"
                 >
                   {tech}
                 </span>
