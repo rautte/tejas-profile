@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { HiOutlineFilter } from "react-icons/hi";
-import { FaProjectDiagram } from 'react-icons/fa';
+import { FaProjectDiagram, FaPlay, FaGithub } from 'react-icons/fa';
+import { MdArticle } from 'react-icons/md';
 // import ProjectCard from "./ProjectCard";
 
 
@@ -204,9 +205,6 @@ export default function Project({ darkMode }) {
               >
                 {project.status}
               </span>
-              {/* <span className="text-xs px-2 py-1 bg-green-500 dark:bg-green-600 text-white rounded-full">
-                {project.status}
-              </span> */}
             </div>
 
             <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
@@ -232,26 +230,39 @@ export default function Project({ darkMode }) {
             </p>
 
             {/* ✅ New GitHub + Live Demo Buttons */}
-            <div className="flex gap-3 mt-2">
+            <div className="flex flex-wrap gap-3 mt-2">
               {project.demo && (
                 <a
                   href={project.demo}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:opacity-90 transition font-medium"
+                  className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:opacity-90 transition font-medium"
                 >
+                  <FaPlay />
                   Live Demo
                 </a>
               )}
               {project.github && (
-                <a
-                  href={project.github}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm px-4 py-2 border border-purple-600 text-purple-700 dark:text-purple-300 rounded-lg hover:bg-purple-50 dark:hover:bg-[#31314a] transition font-medium"
-                >
-                  GitHub
-                </a>
+                <>
+                  <a
+                    href={project.github}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm px-4 py-2 border border-purple-600 text-purple-700 dark:text-purple-300 rounded-lg hover:bg-purple-50 dark:hover:bg-[#31314a] transition font-medium"
+                  >
+                    <FaGithub />
+                    GitHub
+                  </a>
+                  <a
+                    href={`${project.github}#readme`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-white rounded-lg border border-gray-300 dark:border-white/20 hover:bg-gray-200 dark:hover:bg-white/20 transition font-medium"
+                  >
+                    <MdArticle />
+                    Read Me
+                  </a>
+                </>
               )}
             </div>
           </div>
