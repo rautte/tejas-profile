@@ -55,7 +55,9 @@ const filterOptions = {
     "Data Engineering", "Data Analysis", "Financial Analysis",
     "Backend", "Frontend", "AI/ML"
   ],
-  "Industry": ["Product Retail", "Tech", "Automobile"]
+  "Industry": ["Product Retail", "Tech", "Automobile"],
+  "Project Status": ["Deployed", "In Progress"],
+  "Links": ["Live Demo", "GitHub"]
 };
 
 export default function Project({ darkMode }) {
@@ -89,16 +91,27 @@ export default function Project({ darkMode }) {
     const combined = [
       ...project.techStack,
       project.domain,
-      project.industry
+      project.industry,
+      project.status, // ✅ allow filtering by status
+      ...(project.demo ? ["Live Demo"] : []),
+      ...(project.github ? ["GitHub"] : [])
     ];
     return filters.every((f) => combined.includes(f));
   });
 
   // ✅ Count occurrences for each filter
   const getCount = (value) => {
-    return allProjects.filter((p) =>
-      [...p.techStack, p.domain, p.industry].includes(value)
-    ).length;
+    return allProjects.filter((p) => {
+      const combined = [
+        ...p.techStack,
+        p.domain,
+        p.industry,
+        p.status,
+        ...(p.demo ? ["Live Demo"] : []),
+        ...(p.github ? ["GitHub"] : [])
+      ];
+      return combined.includes(value);
+    }).length;
   };
 
   return (
@@ -108,10 +121,7 @@ export default function Project({ darkMode }) {
         {/* Title and divider */}
         <div>
           <h2
-            className="text-4xl font-bold text-purple-700 dark:text-purple-300 font-epilogue"
-            style={{
-              textShadow: '2px 2px 4px rgba(128, 90, 213, 0.5)' // purple glow
-            }}
+            className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md"
           >
             Projects
           </h2>

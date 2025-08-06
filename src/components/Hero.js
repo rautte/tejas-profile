@@ -1,10 +1,11 @@
-import { useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Particles from 'react-tsparticles';
+import RotatingTitle from './RotatingTitle';
+import { useCallback } from 'react';
 import { loadLinksPreset } from 'tsparticles-preset-links';
 import { loadExternalGrabInteraction } from 'tsparticles-interaction-external-grab';
 import { loadExternalPushInteraction } from 'tsparticles-interaction-external-push';
-import { Typewriter } from 'react-simple-typewriter';
+// import { Typewriter } from 'react-simple-typewriter';
 
 export default function Hero({ darkMode }) {
   const particleColor = darkMode ? '#b4b4b4ff' : '#24013bff';
@@ -49,29 +50,13 @@ export default function Hero({ darkMode }) {
           <motion.span
             className="inline-block origin-[70%_70%] bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white"
             animate={{ rotate: [0, 25, -20, 25, -15, 15, 0] }}
-            transition={{ duration: 1.5, ease: "easeInOut" }}
+            transition={{ duration: 3, ease: "easeInOut" }}
           >
             👋
           </motion.span>
           I’m Tejas Raut
         </motion.h1>
       </motion.div>
-
-      {/* <motion.div
-        className="relative z-10 px-4"
-        initial={{ opacity: 0, y: -40 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-      >
-        <motion.h1
-          className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.7 }}
-        >
-          👋 I’m Tejas Raut
-        </motion.h1>
-      </motion.div> */}
 
       {/* Particles */}
       <Particles
@@ -160,78 +145,6 @@ export default function Hero({ darkMode }) {
         className="absolute inset-0 z-0"
       />
 
-      {/* <Particles
-        id="tsparticles"
-        init={particlesInit}
-        options={{
-          fullScreen: false, // Prevents it from taking over the entire screen
-          background: { color: 'transparent' }, // Keeps your background visible
-          particles: {
-            color: { value: particleColor }, // Color of individual particles (dots)
-            links: {
-              enable: true,       // Enables the connecting lines between particles
-              color: linkColor,   // Color of those lines
-              opacity: darkMode ? 0.25 : 0.4,       // Transparency of the lines (0 = invisible, 1 = solid)
-              distance: 180,      // Max distance between particles to draw a link
-              width: 1.2,           // Thickness of the connecting line
-            },
-            move: {
-              enable: true,       // Enables movement of particles
-              speed: 1,           // Movement speed (higher = faster)
-              direction: 'none',  // Direction of movement ('top', 'bottom', 'right', etc.)
-              outModes: {
-                default: 'bounce', // Behavior when particles hit edge ('bounce', 'out', etc.)
-              },
-            },
-            size: {
-              value: 2,           // Size of each particle (can also be an array or object for random sizes)
-            },
-            number: {
-              value: 65,          // Total number of particles
-              density: {
-                enable: true,     // Enables responsive behavior to keep spacing consistent
-                area: 500,        // Area size for density calculation (lower = more crowded)
-              },
-            },
-            opacity: {
-              value: 0.5,         // Opacity of individual particles
-            },
-            shape: {
-              type: 'circle',     // Shape of the particles ('circle', 'square', 'edge', 'polygon', 'star', etc.)
-            },
-          },
-          interactivity: {
-            events: {
-              onHover: {
-                enable: true,
-                mode: 'grab',     // Interaction on hover: 'grab', 'repulse', 'bubble'
-              },
-              onClick: {
-                enable: true,    // Optional: click effects like adding/removing particles
-                mode: ['push', 'repulse'],     // 'push' (add), 'remove', 'repulse', etc.
-              },
-            },
-            modes: {
-              grab: {
-                distance: 200,    // Distance at which lines connect to mouse on hover
-                links: {
-                  opacity: 0.5,
-                },
-              },
-              repulse: {
-                distance: 100,
-                duration: 2,
-              },
-              push: {
-                quantity: 1,
-              }
-            },
-          },
-          detectRetina: true, // Adjusts for retina displays for smoother visuals
-        }}
-        className="absolute inset-0 z-0"
-      /> */}
-
       {/* Text */}
       <motion.div
         className="relative z-10 px-4"
@@ -240,12 +153,14 @@ export default function Hero({ darkMode }) {
         transition={{ duration: 0.8 }}
       >
 
-        <p className="mt-4 text-lg text-purple-200 dark:text-gray-400 font-jakarta">
+        <RotatingTitle />
+        {/* <p className="mt-4 text-lg text-purple-200 dark:text-gray-400 font-jakarta">
           <Typewriter
             words={[
-              'Full-Stack Developer',
-              'JavaScript | Python | AWS',
-              'React | Node.js | BI Engineer',
+              'Full-Stack Developer • JavaScript, Python, Node.js, React',
+              'Cloud Platforms • AWS, Azure',
+              'Data Engineering • SQL, Python, Airflow, dbt, Spark, Hadoop',
+              'Business Intelligence • Tableau, Power BI, MATLAB, Minitab',
             ]}
             loop
             cursor
@@ -254,7 +169,7 @@ export default function Hero({ darkMode }) {
             deleteSpeed={50}
             delaySpeed={2500}
           />
-        </p>
+        </p> */}
       </motion.div>
 
       {/* Mouse parallax (optional animated blobs or layers can be added here later) */}
