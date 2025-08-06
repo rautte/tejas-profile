@@ -20,19 +20,6 @@ import {
   FaGamepad, FaEnvelope, FaMoon, FaSun
 } from 'react-icons/fa';
 
-const sections = {
-  "About Me": <AboutMe />,
-  "Timeline": <Timeline />,
-  "Resume": <Resume />,
-  "Experience": <Experience />,
-  "Skill": <Skill />,
-  "Education": <Education />,
-  "Project": <Project />,
-  "Achievement": <Achievement />,
-  "Fun Zone": <FunZone />,
-  "Contact": <Contact />,
-};
-
 const icons = {
   "About Me": <FaUser className="inline-block mr-2" />,
   "Timeline": <FaRegCalendarAlt className="inline-block mr-2" />,
@@ -63,6 +50,19 @@ function App() {
     }
   }, [darkMode]);
 
+  const sections = {
+    "About Me": <AboutMe darkMode={darkMode} />,
+    "Timeline": <Timeline darkMode={darkMode} />,
+    "Resume": <Resume darkMode={darkMode} />,
+    "Experience": <Experience darkMode={darkMode} />,
+    "Skill": <Skill darkMode={darkMode} />,
+    "Education": <Education darkMode={darkMode} />,
+    "Project": <Project darkMode={darkMode} />,
+    "Achievement": <Achievement darkMode={darkMode} />,
+    "Fun Zone": <FunZone darkMode={darkMode} />,
+    "Contact": <Contact darkMode={darkMode} />,
+  };
+
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
 
@@ -77,7 +77,7 @@ function App() {
             {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
           </button>
         </div>
-        <Hero />
+        <Hero darkMode={darkMode} />
         {/* <div className="w-full h-px bg-gray-300 dark:bg-gray-700" /> */}
       </div>
 
