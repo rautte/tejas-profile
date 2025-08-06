@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { HiOutlineFilter } from "react-icons/hi";
+import { FaRocket } from 'react-icons/fa';
 // import ProjectCard from "./ProjectCard";
 
 
@@ -120,9 +121,8 @@ export default function Project({ darkMode }) {
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         {/* Title and divider */}
         <div>
-          <h2
-            className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md"
-          >
+          <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
+            <FaRocket className="text-3xl text-purple-700 dark:text-purple-300" />
             Projects
           </h2>
           <div

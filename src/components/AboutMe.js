@@ -1,5 +1,6 @@
 // components/AboutMe.js
 import React from "react";
+import { FaUserCircle } from 'react-icons/fa';
 import profilePic from "../assets/LI_Profile.jpg"; // Replace with your image path
 
 export default function AboutMe() {
@@ -9,9 +10,8 @@ export default function AboutMe() {
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         {/* Title and divider */}
         <div>
-          <h2
-            className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md"
-          >
+          <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
+            <FaUserCircle className="text-3xl text-purple-700 dark:text-purple-300" />
             About Me
           </h2>
           <div
@@ -21,9 +21,9 @@ export default function AboutMe() {
       </div>
 
       {/* Picture + Quote */}
-      <div className="flex flex-col md:flex-row items-center justify-center gap-40 mb-16">
+      <div className="flex flex-col md:flex-row items-center justify-center gap-20 mb-16">
         {/* Image */}
-        <div className="w-48 h-48 rounded-full overflow-hidden border-4 border-purple-300 shadow-lg">
+        <div className="w-48 h-48 rounded-full overflow-hidden border-4 border-purple-500 dark:border-purple-300 shadow-lg">
           <img
             src={profilePic}
             alt="Tejas Raut"
