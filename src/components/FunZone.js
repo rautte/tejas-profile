@@ -1,12 +1,14 @@
 import { FaPlay, FaGithub, FaDownload } from 'react-icons/fa';
+import { GiConsoleController } from 'react-icons/gi';
 
 export default function Fun() {
   return (
     <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Title + Underline */}
       <div className="text-left px-6 mb-10">
-        <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md">
-          🎮 Fun Zone
+        <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
+          <GiConsoleController className="text-3xl text-purple-700 dark:text-purple-300" />
+          Fun Zone
         </h2>
         <div className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-500 dark:via-purple-600 dark:to-purple-400 backdrop-blur-sm opacity-90 shadow-[0_0_2px_1px_rgba(147,51,234,0.6)]" />
       </div>

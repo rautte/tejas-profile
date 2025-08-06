@@ -14,10 +14,11 @@ import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
 import Contact from "./components/Contact";
 import { useEffect, useState } from "react";
+import { GiConsoleController } from 'react-icons/gi';
 import {
   FaUser, FaRegCalendarAlt, FaFileAlt, FaBriefcase,
-  FaTools, FaGraduationCap, FaProjectDiagram, FaTrophy,
-  FaGamepad, FaEnvelope, FaMoon, FaSun
+  FaCogs, FaGraduationCap, FaProjectDiagram, FaTrophy, 
+  FaEnvelope, FaMoon, FaSun
 } from 'react-icons/fa';
 
 const icons = {
@@ -25,11 +26,11 @@ const icons = {
   "Timeline": <FaRegCalendarAlt className="inline-block mr-2" />,
   "Resume": <FaFileAlt className="inline-block mr-2" />,
   "Experience": <FaBriefcase className="inline-block mr-2" />,
-  "Skill": <FaTools className="inline-block mr-2" />,
+  "Skill": <FaCogs className="inline-block mr-2" />,
   "Education": <FaGraduationCap className="inline-block mr-2" />,
   "Project": <FaProjectDiagram className="inline-block mr-2" />,
   "Achievement": <FaTrophy className="inline-block mr-2" />,
-  "Fun Zone": <FaGamepad className="inline-block mr-2" />,
+  "Fun Zone": <GiConsoleController className="inline-block mr-2" />,
   "Contact": <FaEnvelope className="inline-block mr-2" />,
 };
 
