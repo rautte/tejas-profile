@@ -112,7 +112,7 @@ function App() {
         </nav>
 
         {/* Main scrollable section */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors">
+        <main className="flex-1 overflow-y-auto p-6 bg-gray-100 backdrop-blur-xl dark:bg-[#181826] transition-colors">
           {sections[selectedSection]}
         </main>
       </div>

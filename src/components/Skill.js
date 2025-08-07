@@ -43,7 +43,7 @@ export default function Skills() {
           <FaCogs className="text-3xl text-purple-700 dark:text-purple-300" />
           Skills
         </h2>
-        <div className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-500 dark:via-purple-600 dark:to-purple-400 backdrop-blur-sm opacity-90 shadow-[0_0_2px_1px_rgba(147,51,234,0.6)]"></div>
+        {/* <div className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-500 dark:via-purple-600 dark:to-purple-400 backdrop-blur-sm opacity-90 shadow-[0_0_2px_1px_rgba(147,51,234,0.6)]"></div> */}
       </div>
 
       <div className="grid md:grid-cols-2 gap-8 px-6">
