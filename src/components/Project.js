@@ -244,23 +244,24 @@ export default function Project({ darkMode }) {
               )}
               {project.github && (
                 <>
+                   <a
+                    href={`${project.github}#readme`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    // bg-indigo-100 dark:bg-indigo-700
+                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700 to-gray-900 text-white dark:text-gray-100 rounded-lg  border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
+                  >
+                    <MdArticle />
+                    Read Me
+                  </a>
                   <a
                     href={project.github}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm px-4 py-2 border border-purple-600 text-purple-700 dark:text-purple-300 rounded-lg hover:bg-purple-50 dark:hover:bg-[#31314a] transition font-medium"
+                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700 to-gray-900 text-white dark:text-gray-100 rounded-lg  border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
                   >
                     <FaGithub />
                     GitHub
-                  </a>
-                  <a
-                    href={`${project.github}#readme`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-white rounded-lg border border-gray-300 dark:border-white/20 hover:bg-gray-200 dark:hover:bg-white/20 transition font-medium"
-                  >
-                    <MdArticle />
-                    Read Me
                   </a>
                 </>
               )}

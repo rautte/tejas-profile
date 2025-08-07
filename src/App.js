@@ -12,18 +12,18 @@ import Education from "./components/Education";
 import Project from "./components/Project";
 import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
-import Contact from "./components/Contact";
+import Connect from "./components/Connect";
 import { useEffect, useState } from "react";
 import { GiConsoleController } from 'react-icons/gi';
 import {
-  FaUser, FaRegCalendarAlt, FaFileAlt, FaBriefcase,
+  FaUser, FaMapMarkedAlt, FaFileAlt, FaBriefcase,
   FaCogs, FaGraduationCap, FaProjectDiagram, FaTrophy, 
   FaEnvelope, FaMoon, FaSun
 } from 'react-icons/fa';
 
 const icons = {
   "About Me": <FaUser className="inline-block mr-2" />,
-  "Timeline": <FaRegCalendarAlt className="inline-block mr-2" />,
+  "Timeline": <FaMapMarkedAlt className="inline-block mr-2" />,
   "Resume": <FaFileAlt className="inline-block mr-2" />,
   "Experience": <FaBriefcase className="inline-block mr-2" />,
   "Skill": <FaCogs className="inline-block mr-2" />,
@@ -31,7 +31,7 @@ const icons = {
   "Project": <FaProjectDiagram className="inline-block mr-2" />,
   "Achievement": <FaTrophy className="inline-block mr-2" />,
   "Fun Zone": <GiConsoleController className="inline-block mr-2" />,
-  "Contact": <FaEnvelope className="inline-block mr-2" />,
+  "Connect": <FaEnvelope className="inline-block mr-2" />,
 };
 
 function App() {
@@ -61,7 +61,7 @@ function App() {
     "Project": <Project darkMode={darkMode} />,
     "Achievement": <Achievement darkMode={darkMode} />,
     "Fun Zone": <FunZone darkMode={darkMode} />,
-    "Contact": <Contact darkMode={darkMode} />,
+    "Connect": <Connect darkMode={darkMode} />,
   };
 
   return (

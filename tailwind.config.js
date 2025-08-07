@@ -15,6 +15,7 @@ module.exports = {
         epilogue: ['Epilogue', 'sans-serif'],
         general: ['General Sans', 'sans-serif'],
         bevietnam: ['Be Vietnam Pro', 'sans-serif'],
+        plugins: [require('tailwind-scrollbar-hide')],
       },
     },
   },

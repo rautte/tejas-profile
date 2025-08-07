@@ -50,7 +50,7 @@ export default function Hero({ darkMode }) {
           <motion.span
             className="inline-block origin-[70%_70%] bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white"
             animate={{ rotate: [0, 25, -20, 25, -15, 15, 0] }}
-            transition={{ duration: 3, ease: "easeInOut" }}
+            transition={{ duration: 2.5, ease: "easeInOut" }}
           >
             👋
           </motion.span>
@@ -72,7 +72,7 @@ export default function Hero({ darkMode }) {
               color: linkColor,
               opacity: darkMode ? 0.25 : 0.4,
               distance: 180,
-              width: 1.2,
+              width: darkMode ? 2 : 1.5,
             },
             move: {
               enable: true,
