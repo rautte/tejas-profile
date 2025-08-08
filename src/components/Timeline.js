@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
-import boyImage from "../assets/time-travel-boy.svg";
+import innovationBoy from "../assets/time-travel-boy.svg";
+import programmingBoy from "../assets/Programming-boy.svg";
 import { FaMapMarkedAlt } from "react-icons/fa";
 import { MdArrowBackIosNew, MdArrowForwardIos } from "react-icons/md";
 import { AnimatePresence } from "framer-motion";
@@ -7,27 +8,39 @@ import { motion } from "framer-motion";
 
 const timelineData = [
   {
-    year: "2025",
+    duration: "10 months",
+    role: "Software Data Engineer",
+    company: "CloudBig Technology",
+    description: "Built real-time notification error handling system on AWS for customers/vendors."
+  },
+  {
+    duration: "9 months",
     role: "Data Engineer",
-    company: "Amazon",
-    description: "Optimized cloud pipelines and built real-time data systems on AWS."
+    company: "Mystry Inc.",
+    description: "Data migration, orchestration, ETL, and OLAP."
   },
   {
-    year: "2024",
-    role: "Graduate Teaching Assistant",
-    company: "Northeastern University",
-    description: "Assisted in Data Engineering and Big Data Systems coursework."
-  },
-  {
-    year: "2023",
+    duration: "2023",
     role: "Product Data Analyst",
     company: "Startup XYZ",
     description: "Built dashboards and data pipelines for product analytics."
   },
   {
-    year: "2022",
+    duration: "2022",
     role: "MS in CS",
     company: "Northeastern University",
+    description: "Specialized in Big Data, Cloud Systems, and Software Engineering."
+  },
+  {
+    duration: "2022",
+    role: "Business Intelligence Engineer",
+    company: "Highbar Technology",
+    description: "Specialized in Big Data, Cloud Systems, and Software Engineering."
+  },
+  {
+    duration: "2022",
+    role: "BTech in Mechanical Engineering",
+    company: "Vellore Institute of Technology",
     description: "Specialized in Big Data, Cloud Systems, and Software Engineering."
   }
 ];
@@ -38,11 +51,19 @@ export default function Timeline() {
   const [scrollProgress, setScrollProgress] = useState(0);
   const cardWidth = 360 + 24; // Card + gap
 
-  const introDistance = 0 - activeIndex; // Distance of intro from active card
+  const introDistance = 0 - activeIndex;
   const introAbsDistance = Math.abs(introDistance);
-
-  // You can make it start fading before index 1, e.g., start fading at absDistance > 0.3
   const introOpacity = introAbsDistance < 1 ? 1 - introAbsDistance : 0;
+
+  const outroDistance = activeIndex - (timelineData.length - 1);
+  const outroAbsDistance = Math.abs(outroDistance);
+  const outroOpacity = outroAbsDistance < 1 ? 1 - outroAbsDistance : 0;
+
+  // const introDistance = 0 - activeIndex; // Distance of intro from active card
+  // const introAbsDistance = Math.abs(introDistance);
+
+  // // You can make it start fading before index 1, e.g., start fading at absDistance > 0.3
+  // const introOpacity = introAbsDistance < 0.7 ? 1 - introAbsDistance : 0;
 
   // Snap to center card
   const scrollToIndex = (index) => {
@@ -122,30 +143,36 @@ export default function Timeline() {
           ref={containerRef}
           className="flex gap-6 overflow-x-auto scroll-smooth snap-x snap-mandatory py-6 no-scrollbar pl-[50%] pr-[50%] md:pl-[calc(50%-180px)] md:pr-[calc(50%-180px)]"
         >
-          <motion.div
-            className="shrink-0 snap-start w-[360px] h-64 flex items-center justify-start pl-6 select-none"
-            initial={{ opacity: 0, x: -40 }}
-            animate={{
-              opacity: introOpacity,
-              x: introAbsDistance < 1 ? 0 : -40,
-            }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
-            style={{ pointerEvents: "none" }}
-          >
-            <div className="flex flex-col items-center gap-8 -translate-x-10">
-              <img
-                src={boyImage}
-                alt="Time travel begins"
-                className="w-40 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
-              />
-              <p className="text-xl font-semibold font-epilogue text-gray-600 dark:text-gray-400 drop-shadow-sm whitespace-nowrap">
-                <blockquote className="text-xl italic">
-                 "Time Travel Begins"
-                </blockquote>
-              </p>
-            </div>
-          </motion.div>
+          {/* Intro (Start Message) */}
+          <AnimatePresence mode="wait">
+            {activeIndex <= 1 && (
+              <motion.div
+                key="intro"
+                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-6 select-none"
+                initial={{ opacity: 0, x: -40 }}
+                animate={{
+                  opacity: introOpacity,
+                  x: introAbsDistance < 1 ? 0 : -40,
+                }}
+                exit={{ opacity: 0, x: -40 }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+                style={{ pointerEvents: "none" }}
+              >
+                <div className="flex flex-col items-center gap-8 -translate-x-10">
+                  <img
+                    src={ innovationBoy }
+                    alt="Time travel begins"
+                    className="w-45 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
+                  />
+                  <p className="text-xl font-semibold font-epilogue text-gray-600 dark:text-gray-400 drop-shadow-sm whitespace-nowrap">
+                    <blockquote className="text-xl italic">"Time Travel Begins"</blockquote>
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
+          {/* Cards for timeline (Details) */}
           <AnimatePresence initial={false} mode="popLayout">
             {timelineData.map((entry, i) => {
               const distance = i - activeIndex;
@@ -181,10 +208,39 @@ export default function Timeline() {
                   </h3>
                   <p className="text-sm text-gray-700 dark:text-gray-300">{entry.company}</p>
                   <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">{entry.description}</p>
-                  <span className="absolute bottom-4 right-6 text-xs text-gray-400">{entry.year}</span>
+                  <span className="absolute bottom-4 right-6 text-xs text-gray-400">{entry.duration}</span>
                 </motion.div>
               );
             })}
+          </AnimatePresence>
+
+          {/* Outro (End Message) */}
+          <AnimatePresence mode="wait">
+            {activeIndex >= timelineData.length - 2 && (
+              <motion.div
+                key="outro"
+                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-6 select-none"
+                initial={{ opacity: 0, x: 40 }}
+                animate={{
+                  opacity: outroOpacity,
+                  x: outroAbsDistance < 1 ? 0 : 40,
+                }}
+                exit={{ opacity: 0, x: 60 }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+                style={{ pointerEvents: "none" }}
+              >
+                <div className="flex flex-col items-center gap-8 translate-x-40">
+                  <img
+                    src={ programmingBoy } // You can use a different image for outro
+                    alt="To be continued"
+                    className="w-40 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
+                  />
+                  <p className="text-xl font-semibold font-epilogue text-gray-600 dark:text-gray-400 drop-shadow-sm whitespace-nowrap">
+                    <blockquote className="text-xl italic">"Time Travel Ends"</blockquote>
+                  </p>
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
 
         </div>
