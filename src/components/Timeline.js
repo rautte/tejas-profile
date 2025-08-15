@@ -66,10 +66,12 @@ export default function Timeline() {
   // const introOpacity = introAbsDistance < 0.7 ? 1 - introAbsDistance : 0;
 
   // Snap to center card
-  const scrollToIndex = (index) => {
-    const container = containerRef.current;
-    const scrollX = index * cardWidth - container.offsetWidth / 2 + cardWidth / 2;
-    container.scrollTo({ left: scrollX, behavior: "smooth" });
+  const scrollToIndex = (idx) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const items = Array.from(el.querySelectorAll(".timeline-card, [data-snap-intro], [data-snap-outro]"));
+    const node = items[Math.max(0, Math.min(idx, items.length - 1))];
+    node?.scrollIntoView({ inline: "center", behavior: "smooth", block: "nearest" });
   };
 
   const scrollLeft = () => {
@@ -80,40 +82,42 @@ export default function Timeline() {
     if (activeIndex < timelineData.length - 1) scrollToIndex(activeIndex + 1);
   };
 
-  // Scroll tracking
   useEffect(() => {
-    const container = containerRef.current;
+    const el = containerRef.current;
+    if (!el) return;
 
-    const handleScroll = () => {
-      const scrollLeft = container.scrollLeft;
-      const center = scrollLeft + container.offsetWidth / 2;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const { left: cL, width: cW } = el.getBoundingClientRect();
+        const cCenter = cL + cW / 2;
 
-      let closestIndex = 0;
-      let closestDistance = Infinity;
+        // children array: [intro, ...cards, outro]
+        const kids = Array.from(el.querySelectorAll(".timeline-card, [data-snap-intro], [data-snap-outro]"));
 
-      // const cards = container.querySelectorAll(".timeline-card");
-      const cards = Array.from(container.children).filter(child =>
-        child.classList.contains("timeline-card")
-      );
-      cards.forEach((card, i) => {
-        const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-        const distance = Math.abs(center - cardCenter);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestIndex = i;
-        }
+        let best = 0;
+        let bestDist = Infinity;
+        kids.forEach((node, idx) => {
+          const r = node.getBoundingClientRect();
+          const center = r.left + r.width / 2;
+          const d = Math.abs(center - cCenter);
+          if (d < bestDist) {
+            bestDist = d;
+            best = idx;
+          }
+        });
+
+        // Only set state if changed to avoid thrash
+        setActiveIndex((prev) => (prev === best ? prev : best));
       });
-
-      setActiveIndex(closestIndex);
-
-      // Update scroll progress (discrete based on active index)
-      const maxScroll = timelineData.length;
-      const progress = ((closestIndex + 1) / maxScroll) * 100;
-      setScrollProgress(progress);
     };
 
-    container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      el.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   return (
@@ -141,14 +145,15 @@ export default function Timeline() {
         {/* Cards Row */}
         <div
           ref={containerRef}
-          className="flex gap-6 overflow-x-auto scroll-smooth snap-x snap-mandatory py-6 no-scrollbar pl-[50%] pr-[50%] md:pl-[calc(50%-180px)] md:pr-[calc(50%-180px)]"
+          className="flex gap-6 overflow-x-auto scroll-smooth snap-x snap-mandatory py-6 no-scrollbar
++            pl-[calc(50%-180px)] pr-[calc(50%-180px)]"
         >
           {/* Intro (Start Message) */}
           <AnimatePresence mode="wait">
             {activeIndex <= 1 && (
               <motion.div
                 key="intro"
-                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-6 select-none"
+                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-24 select-none snap-start"
                 initial={{ opacity: 0, x: -40 }}
                 animate={{
                   opacity: introOpacity,
@@ -158,9 +163,9 @@ export default function Timeline() {
                 transition={{ duration: 0.5, ease: "easeOut" }}
                 style={{ pointerEvents: "none" }}
               >
-                <div className="flex flex-col items-center gap-8 -translate-x-10">
+                <div className="flex flex-col items-center gap-8 -translate-x-0">
                   <img
-                    src={ innovationBoy }
+                    src={innovationBoy}
                     alt="Time travel begins"
                     className="w-45 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
                   />
@@ -177,28 +182,28 @@ export default function Timeline() {
             {timelineData.map((entry, i) => {
               const distance = i - activeIndex;
               const absDistance = Math.abs(distance);
-
               const isActive = i === activeIndex;
               const scale = isActive ? 1.1 : Math.max(0.75, 1 - absDistance * 0.15);
-              const translateX = distance * (cardWidth * 0.88);
 
               return (
                 <motion.div
                   key={i}
-                  className="timeline-card snap-center shrink-0 w-[360px] h-64 px-6 py-6 rounded-3xl 
+                  className="
+                    timeline-card snap-center snap-always shrink-0 w-[360px] h-64 px-6 py-6 rounded-3xl
                     border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg relative
-                    transition-transform duration-500 ease-out"
+                    transition-transform duration-500 ease-out
+                  "
                   initial={{ opacity: 0, y: 40, scale: 0.8 }}
                   animate={{
                     zIndex: isActive ? 50 : timelineData.length - absDistance,
-                    opacity: absDistance > 1 ? 0 : isActive ? 1 : 0.5,
+                    opacity: isActive ? 1 : absDistance === 1 ? 0.6 : 0.35,
                     y: absDistance * 10,
                     scale: absDistance > 1 ? 0.8 : scale,
+                    // no translateX here
                   }}
                   exit={{ opacity: 0, y: -40, scale: 0.7 }}
                   transition={{ duration: 0.5, ease: "easeOut" }}
                   style={{
-                    transform: `translateX(${translateX}px)`,
                     filter: isActive ? "none" : "blur(1px) grayscale(40%)",
                     pointerEvents: isActive ? "auto" : "none",
                   }}
@@ -219,7 +224,7 @@ export default function Timeline() {
             {activeIndex >= timelineData.length - 2 && (
               <motion.div
                 key="outro"
-                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-6 select-none"
+                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-6 select-none snap-end"
                 initial={{ opacity: 0, x: 40 }}
                 animate={{
                   opacity: outroOpacity,
@@ -229,9 +234,9 @@ export default function Timeline() {
                 transition={{ duration: 0.5, ease: "easeOut" }}
                 style={{ pointerEvents: "none" }}
               >
-                <div className="flex flex-col items-center gap-8 translate-x-40">
+                <div className="flex flex-col items-center gap-8 translate-x-10">
                   <img
-                    src={ programmingBoy } // You can use a different image for outro
+                    src={programmingBoy}
                     alt="To be continued"
                     className="w-40 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
                   />

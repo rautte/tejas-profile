@@ -21,7 +21,7 @@ export default function RotatingTitle() {
       const timeout = setTimeout(() => {
         setDisplayText((prev) => prev + currentText[charIndex]);
         setCharIndex((prev) => prev + 1);
-      }, 100);
+      }, 30);
       return () => clearTimeout(timeout);
     } else {
       // Wait before going to next item

@@ -119,10 +119,10 @@ export default function Hero({ darkMode }) {
                 enable: true,
                 mode: 'grab',
               },
-              onClick: {
-                enable: true,
-                mode: ['push', 'repulse'],
-              },
+              // onClick: {
+              //   enable: true,
+              //   mode: ['push', 'repulse'],
+              // },
             },
             modes: {
               grab: {
@@ -152,24 +152,7 @@ export default function Hero({ darkMode }) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
       >
-
         <RotatingTitle />
-        {/* <p className="mt-4 text-lg text-purple-200 dark:text-gray-400 font-jakarta">
-          <Typewriter
-            words={[
-              'Full-Stack Developer • JavaScript, Python, Node.js, React',
-              'Cloud Platforms • AWS, Azure',
-              'Data Engineering • SQL, Python, Airflow, dbt, Spark, Hadoop',
-              'Business Intelligence • Tableau, Power BI, MATLAB, Minitab',
-            ]}
-            loop
-            cursor
-            cursorStyle="_"
-            typeSpeed={100}
-            deleteSpeed={50}
-            delaySpeed={2500}
-          />
-        </p> */}
       </motion.div>
 
       {/* Mouse parallax (optional animated blobs or layers can be added here later) */}
