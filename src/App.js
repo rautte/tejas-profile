@@ -204,18 +204,28 @@ function App() {
         <Hero darkMode={darkMode} />
       </div>
 
-      {/* Main layout (with responsive top padding for fixed hero) */}
-      <div 
-        className="flex flex-1 overflow-hidden"
-        style={{ paddingTop: 'min(28vh, 175px)' }} // responsive hero offset
+      {/* Main layout (responsive hero offset + responsive row/column) */}
+      <div
+        className="flex flex-1 overflow-hidden flex-col md:flex-row"
+        style={{ paddingTop: 'min(28vh, 175px)' }}
       >
         {/* Sidebar */}
         <nav
           className={`
-            shrink-0 h-full pb-6 mt-3
-            backdrop-blur-xl bg-white/60 dark:bg-white/5 border-r border-gray-200 dark:border-gray-700 shadow-lg transition-all relative
-            ${sidebarCollapsed ? 'w-[64px] px-2' : 'w-[270px] px-4'}
-            flex flex-col
+            shrink-0 flex flex-col relative
+            backdrop-blur-xl bg-white/60 dark:bg-white/5 border-r border-gray-200 dark:border-gray-700 shadow-lg transition-all
+
+            /* height & spacing */
+            h-auto md:h-full pb-4 md:pb-6 md:mt-3
+
+            /* width: full on mobile, fixed rail on desktop */
+            ${sidebarCollapsed
+              ? 'w-full px-2 md:w-[64px] md:px-2'
+              : 'w-full px-4 md:w-[270px] md:px-4'
+            }
+
+            /* stack above main on mobile, normal order on desktop */
+            order-1 md:order-none
           `}
           aria-label="Primary"
         >
@@ -271,7 +281,10 @@ function App() {
         </nav>
 
         {/* Main content */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors">
+        <main
+          className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors order-2"
+          role="main"
+        >
           {sections[selectedSection]}
         </main>
       </div>
