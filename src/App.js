@@ -115,6 +115,22 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleSidebar]);
 
+  // Auto-collapse sidebar on small screens
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1024px)"); // lg breakpoint
+    const apply = () => setSidebarCollapsed(true);
+    const relax = () => setSidebarCollapsed(prev => (mq.matches ? true : prev));
+
+    // initialize
+    if (mq.matches) setSidebarCollapsed(true);
+
+    // react to changes
+    const listener = (e) => (e.matches ? apply() : setSidebarCollapsed(false));
+    mq.addEventListener?.("change", listener);
+    return () => mq.removeEventListener?.("change", listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // helpers
   const NavButton = ({ label, active, onClick }) => (
     <button
@@ -164,6 +180,18 @@ function App() {
       {/* Fixed Hero */}
       <div className="fixed top-0 left-0 w-full z-30 bg-gradient-to-r from-purple-300 to-blue-300 dark:from-purple-900 dark:to-blue-900 shadow-md">
         <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+          {/* mobile sidebar toggle (only < md) */}
+          <button
+            onClick={toggleSidebar}
+            className="md:hidden p-2 bg-white/80 dark:bg-[#26263a] text-gray-700 dark:text-white
+                      border border-gray-200 dark:border-[#31314a] rounded-full shadow-sm
+                      transition hover:ring-2 hover:dark:ring-purple-600 hover:ring-purple-300"
+            title={sidebarCollapsed ? "Open menu" : "Close menu"}
+            aria-label="Toggle sidebar"
+          >
+            <FiSidebar className={`${sidebarCollapsed ? 'rotate-180' : 'rotate-0'} transition-transform`} size={18} />
+          </button>
+
           {/* theme toggle */}
           <button
             onClick={() => setDarkMode(!darkMode)}
@@ -176,12 +204,15 @@ function App() {
         <Hero darkMode={darkMode} />
       </div>
 
-      {/* Main layout (with top padding for fixed hero) */}
-      <div className="flex flex-1 pt-[175px] overflow-hidden">
+      {/* Main layout (with responsive top padding for fixed hero) */}
+      <div 
+        className="flex flex-1 overflow-hidden"
+        style={{ paddingTop: 'min(28vh, 175px)' }} // responsive hero offset
+      >
         {/* Sidebar */}
         <nav
           className={`
-            h-full pb-6 mt-3
+            shrink-0 h-full pb-6 mt-3
             backdrop-blur-xl bg-white/60 dark:bg-white/5 border-r border-gray-200 dark:border-gray-700 shadow-lg transition-all relative
             ${sidebarCollapsed ? 'w-[64px] px-2' : 'w-[270px] px-4'}
             flex flex-col
@@ -240,7 +271,7 @@ function App() {
         </nav>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors">
+        <main className="flex-1 min-w-0 overflow-y-auto p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors">
           {sections[selectedSection]}
         </main>
       </div>
