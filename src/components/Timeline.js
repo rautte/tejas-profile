@@ -190,7 +190,7 @@ export default function Timeline() {
                   key={i}
                   className="
                     timeline-card snap-center snap-always shrink-0 w-[360px] h-64 px-6 py-6 rounded-3xl
-                    border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg relative
+                    border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg relative
                     transition-transform duration-500 ease-out
                   "
                   initial={{ opacity: 0, y: 40, scale: 0.8 }}
