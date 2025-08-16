@@ -20,7 +20,7 @@ export default function HeroHandle({
       : "fixed top-0 left-0 right-0 z-30 flex justify-center pointer-events-none"; // overlay, no layout gap
 
   return (
-    <div className={pos} style={{ height: placement === "top" ? 0 : height + 8 }}>
+    <div className={pos} style={{ height: placement === "top" ? 0 : height + 6 }}>
       <button
         onClick={onToggle}
         className={`group relative pointer-events-auto p-0 bg-transparent border-0 focus:outline-none ${
@@ -45,13 +45,13 @@ export default function HeroHandle({
           <defs>
             {/* 20%ish glass look that works on light/dark */}
             <linearGradient id="ridge-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
-              <stop offset="100%" stopColor="rgba(255,255,255,0.16)" />
+              <stop offset="0%" stopColor="rgba(63, 8, 95, 0.75)" />
+              <stop offset="100%" stopColor="rgba(77, 10, 118, 0.55)" />
             </linearGradient>
 
             <linearGradient id="ridge-stroke" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="rgba(168,85,247,0.7)" />
-              <stop offset="100%" stopColor="rgba(99,102,241,0.5)" />
+              <stop offset="0%" stopColor="rgba(127, 2, 176, 0.7)" />
+              <stop offset="100%" stopColor="rgba(143, 42, 180, 0.57)" />
             </linearGradient>
 
             <filter id="hover-glow" x="-50%" y="-50%" width="200%" height="200%">

@@ -323,7 +323,7 @@ function App() {
                         text-gray-700 dark:text-white rounded-full shadow-sm transition
                         hover:ring-2 hover:dark:ring-purple-500/60 hover:ring-purple-300/70
                         focus:outline-none focus:ring-2 focus:dark:ring-purple-500/60 focus:ring-purple-300/70
-                        bg-white/20 dark:bg-white/10 border border-white/20 dark:border-white/10 backdrop-blur-xl"
+                        bg-white/10 dark:bg-[#0b0b12]/40 backdrop-blur-xl"
               title={sidebarCollapsed ? "Expand sidebar (Ctrl/Cmd + \\)" : "Collapse sidebar (Ctrl/Cmd + \\)"}
               aria-label="Toggle sidebar"
             >
@@ -334,7 +334,7 @@ function App() {
             </button>
 
             {/* leave room under the button; render pinned items */}
-            <div className="pt-14 space-y-5">
+            <div className="pt-16 space-y-5">
               <ul className={`space-y-1 ${sidebarCollapsed ? 'px-1' : 'px-0'}`}>
                 <li>
                   <NavButton

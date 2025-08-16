@@ -8,8 +8,8 @@ import { loadExternalPushInteraction } from 'tsparticles-interaction-external-pu
 // import { Typewriter } from 'react-simple-typewriter';
 
 export default function Hero({ darkMode }) {
-  const particleColor = darkMode ? '#b4b4b4ff' : '#24013bff';
-  const linkColor = darkMode ? '#bcbcbcff' : '#1a0246ff';
+  const particleColor = darkMode ? '#b4b4b4e4' : '#24013bda';
+  const linkColor = darkMode ? '#bcbcbce6' : '#1a0246c6';
 
   // Particle config
   const particlesInit = useCallback(async (engine) => {
