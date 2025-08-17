@@ -48,8 +48,8 @@ const timelineData = [
 export default function Timeline() {
   const containerRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const cardWidth = 360 + 24; // Card + gap
+  const [scrollProgress] = useState(0); // const [scrollProgress, setScrollProgress] = useState(0);
+  // const cardWidth = 360 + 24; // Card + gap
 
   const introDistance = 0 - activeIndex;
   const introAbsDistance = Math.abs(introDistance);
