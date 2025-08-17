@@ -80,11 +80,11 @@ function App() {
     }
   }, [darkMode]);
 
-  // (Optional) If you still want to respect a user's prior choice on *their* device:
+  // (Optional) To respect a user's prior choice on *their* device:
   useEffect(() => {
     const stored = localStorage.getItem("theme");
     if (stored === "dark") setDarkMode(true);
-    // if stored is "light" or missing, we stay light by default
+    // if stored is "light" or missing, then light by default
   }, []);
 
   // --- sections (unchanged components) ---
@@ -120,30 +120,6 @@ function App() {
     "Fun Zone",
   ];
 
-  // const toSlug = (label) =>
-  //   label.toLowerCase()
-  //       .replace(/\s+/g, '-')       // spaces → hyphens
-  //       .replace(/[^a-z0-9-]/g, ''); // remove all but a-z, 0-9, and hyphen
-
-  // const sectionBySlug = useMemo(() => {
-  //   const labels = [
-  //     "About Me","Timeline","Resume","Experience","Skill",
-  //     "Education","Project","Achievement","Fun Zone","Connect","Code Lab"
-  //   ];
-  //   const dict = {};
-  //   labels.forEach(l => { dict[toSlug(l)] = l; });
-  //   return dict;
-  // }, []);
-
-  // // On first load, if URL has a hash like #/project -> open that section
-  // useEffect(() => {
-  //   const raw = window.location.hash.replace(/^#\/?/, ''); // remove leading # or #/
-  //   if (!raw) return;
-  //   const label = sectionBySlug[raw.toLowerCase()];
-  //   if (label) setSelectedSection(label);
-  //   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, []);
-
   const goTo = useCallback((label) => {
     setSelectedSection(label);
   }, []);
@@ -165,7 +141,6 @@ function App() {
   const moreAboutMeBody = moreAboutMe.filter(i => !PINNED.includes(i));
 
   // default section
-  // const [selectedSection, setSelectedSection] = useState("About Me");
   const [selectedSection, setSelectedSection] = useState(() => {
     const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
     return SLUG_TO_LABEL[raw] || "About Me";
@@ -230,7 +205,7 @@ function App() {
   }, [heroCollapsed]);
 
   // helper: the target max-height for the hero when expanded
-  // matches your previous visual (~175px cap, but responsive up to 28vh)
+  // matches previous visual (~175px cap, but responsive up to 28vh)
   const heroMaxHeight = "min(28vh, 175px)";
 
   // helpers
@@ -285,7 +260,6 @@ function App() {
             <NavButton
               label={label}
               active={selectedSection === label}
-              // onClick={() => setSelectedSection(label)}
               onClick={() => goTo(label)}
             />
           </li>
@@ -446,7 +420,6 @@ function App() {
                   <NavButton
                     label="About Me"
                     active={selectedSection === "About Me"}
-                    // onClick={() => setSelectedSection("About Me")}
                     onClick={() => goTo("About Me")}
                   />
                 </li>
@@ -454,7 +427,6 @@ function App() {
                   <NavButton
                     label="Connect"
                     active={selectedSection === "Connect"}
-                    // onClick={() => setSelectedSection("Connect")}
                     onClick={() => goTo("Connect")}
                   />
                 </li>
