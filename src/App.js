@@ -200,43 +200,49 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- hero collapsed (in-memory, resets on refresh) ---
+  // --- helpers for pinned vs shared hero state ---
+  const isPinned = (label) => ALWAYS_EXPAND.has(label);
+  const SHARED_KEY = "heroCollapsedShared"; // "1" collapsed, "0" expanded
 
-  // Shared state for ALL non-pinned sections (default collapsed)
-  const [sharedCollapsed, setSharedCollapsed] = useState(true);
+  const readShared = () => {
+    try { return sessionStorage.getItem(SHARED_KEY) === "1"; } catch { return true; }
+  };
+  const writeShared = (v) => {
+    try { sessionStorage.setItem(SHARED_KEY, v ? "1" : "0"); } catch {}
+  };
+  
+  // initial hero state for the very first load of this tab
+  const [heroCollapsed, setHeroCollapsed] = useState(() => {
+    return isPinned(initialSection) ? false : readShared();
+  });
 
-  // Actual hero state for the current section
-  const [heroCollapsed, setHeroCollapsed] = useState(() =>
-    ALWAYS_EXPAND.has(initialSection) ? false : true
-  );
-
-  // On section change:
-  // - About Me / Connect => always show hero (expanded) on arrival
-  // - Others => reflect the shared state
+  // when the section changes:
+  // - pinned sections always show the hero on navigation
+  // - non-pinned read the one shared value
   useEffect(() => {
-    if (ALWAYS_EXPAND.has(selectedSection)) {
+    if (isPinned(selectedSection)) {
       setHeroCollapsed(false);
     } else {
-      setHeroCollapsed(sharedCollapsed);
+      setHeroCollapsed(readShared());
     }
-  }, [selectedSection, sharedCollapsed]);
+  }, [selectedSection]);
 
-  // Toggle helper used by your <HeroHandle onToggle={() => setHero(...)} />
-  const setHero = useCallback(
-    (collapsed) => {
-      setHeroCollapsed(collapsed);
+  // single source of truth for toggling hero from the UI handle
+  const setHero = useCallback((collapsed) => {
+    // 1) Always apply to the visible section immediately
+    setHeroCollapsed(collapsed);
 
-      if (ALWAYS_EXPAND.has(selectedSection)) {
-        // If collapsing while on a pinned section, propagate collapse to others.
-        if (collapsed) setSharedCollapsed(true);
-        // If expanding while on a pinned section, do NOT propagate.
-      } else {
-        // On non-pinned sections, this becomes the shared state.
-        setSharedCollapsed(collapsed);
-      }
-    },
-    [selectedSection]
-  );
+    // 2) Shared propagation rules:
+    //    - If you're on a pinned section and you COLLAPSE it, propagate collapse to all non-pinned.
+    //    - If you're on a pinned section and you EXPAND it, do NOT propagate (by design).
+    //    - If you're on a non-pinned section, always write shared state.
+    if (isPinned(selectedSection)) {
+      if (collapsed) writeShared(true);
+      // expanding on pinned does not change shared state
+    } else {
+      writeShared(collapsed);
+    }
+  }, [selectedSection]);
 
   // helper: the target max-height for the hero when expanded
   // matches previous visual (~175px cap, but responsive up to 28vh)
@@ -314,9 +320,7 @@ function App() {
           dark:from-purple-900 dark:to-blue-900 shadow-md relative overflow-hidden
           transition-[max-height] duration-400 ease-out
         "
-        style={{
-          maxHeight: heroCollapsed ? 0 : heroMaxHeight,
-        }}
+        style={{ maxHeight: heroCollapsed ? 0 : heroMaxHeight }}
         aria-expanded={!heroCollapsed}
       >
         {/* Top-right controls (unchanged) */}
@@ -353,7 +357,7 @@ function App() {
           <Hero darkMode={darkMode} />
         </div>
 
-        {/* Bottom-center handle when expanded */}
+        {/* Bottom-center handle when expanded (KEEP this inside) */}
         {!heroCollapsed && (
           <HeroHandle
             collapsed={false}
@@ -363,18 +367,19 @@ function App() {
             height={22}
           />
         )}
-        </div>
+      </div>
 
-        {/* Sticky top-center handle when collapsed (outside hero) */}
-        {heroCollapsed && (
-          <HeroHandle
-            collapsed
-            onToggle={() => setHero(false)}
-            placement="top"
-            width={120}
-            height={22}
-          />
-        )}
+      {/* Sticky top-center handle when collapsed (outside hero) */}
+      {heroCollapsed && (
+        <HeroHandle
+          collapsed
+          onToggle={() => setHero(false)}
+          placement="top"
+          width={120}
+          height={22}
+        />
+      )}
+
       {/* Floating controls when hero is collapsed (so the toggle doesn’t vanish) */}
       {heroCollapsed && (
         <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
