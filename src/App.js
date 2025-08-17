@@ -41,17 +41,50 @@ const ICONS = {
 
 function App() {
   // --- theme ---
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return sessionStorage.getItem('theme') === 'dark'; // default false (light)
+    } catch {
+      return false;
+    }
+  });
+
   useEffect(() => {
     const root = document.documentElement;
-    if (darkMode) {
-      root.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      root.classList.remove("dark");
-      localStorage.setItem("theme", "light");
+    try {
+      if (darkMode) {
+        root.classList.add('dark');
+        sessionStorage.setItem('theme', 'dark');
+      } else {
+        root.classList.remove('dark');
+        sessionStorage.setItem('theme', 'light');
+      }
+      // ensure any old persistent value can't fight us
+      localStorage.removeItem('theme');
+    } catch {
+      // ignore storage errors
+      darkMode ? root.classList.add('dark') : root.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // (Optional) If you still want to respect a user's prior choice on *their* device:
+  useEffect(() => {
+    const stored = localStorage.getItem("theme");
+    if (stored === "dark") setDarkMode(true);
+    // if stored is "light" or missing, we stay light by default
+  }, []);
+  // // --- theme ---
+  // const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  // useEffect(() => {
+  //   const root = document.documentElement;
+  //   if (darkMode) {
+  //     root.classList.add("dark");
+  //     localStorage.setItem("theme", "dark");
+  //   } else {
+  //     root.classList.remove("dark");
+  //     localStorage.setItem("theme", "light");
+  //   }
+  // }, [darkMode]);
 
   // --- sections (unchanged components) ---
   const sections = useMemo(() => ({
