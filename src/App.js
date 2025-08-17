@@ -124,7 +124,7 @@ function App() {
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1024px)"); // lg breakpoint
     const apply = () => setSidebarCollapsed(true);
-    const relax = () => setSidebarCollapsed(prev => (mq.matches ? true : prev));
+    // const relax = () => setSidebarCollapsed(prev => (mq.matches ? true : prev));
 
     // initialize
     if (mq.matches) setSidebarCollapsed(true);
@@ -151,30 +151,50 @@ function App() {
   // helpers
   const NavButton = ({ label, active, onClick }) => (
     <button
-      className={`w-full text-left rounded-xl font-medium font-jakarta flex items-center gap-3 transition-all duration-200 text-sm md:text-[15px]   /* smaller font size */
-        ${active
-          ? 'bg-purple-100 dark:bg-purple-800 text-purple-900 dark:text-purple-100 shadow-inner ring-1 ring-inset ring-purple-300 dark:ring-purple-600'
-          : 'hover:bg-purple-50 dark:hover:bg-[#2b2b3c] text-gray-700 dark:text-gray-300'
-        }
-        ${sidebarCollapsed ? 'px-3 py-2 justify-center' : 'px-5 py-2'}
-      `}
       onClick={onClick}
       title={sidebarCollapsed ? label : undefined}
       aria-label={label}
+      className={`
+        relative isolate overflow-hidden group
+        w-full text-left rounded-xl font-medium font-jakarta
+        flex items-center gap-3 transition-all duration-200
+        text-sm md:text-[14px]
+        ${sidebarCollapsed ? 'px-3 py-2 justify-center' : 'px-5 py-2'}
+        /* keep text color constant so only the box changes */
+        text-gray-700 dark:text-gray-300
+      `}
     >
-      <span className="shrink-0">{ICONS[label]}</span>
-      {!sidebarCollapsed && <span className="truncate">{label}</span>}
+      {/* background highlight box (only this scales) */}
+      <span
+        className={`
+          pointer-events-none absolute inset-0 rounded-xl z-0
+          transition-transform transition-colors transition-shadow duration-200
+          ${active
+            ? 'bg-purple-100 dark:bg-purple-800 text-purple-900 dark:text-purple-100 shadow-inner ring-1 ring-inset ring-purple-300 dark:ring-purple-600 scale-[0.92]'
+            : 'group-hover:bg-purple-50 group-hover:dark:bg-[#2b2b3c] group-hover:text-gray-700 group-hover:dark:text-gray-300 group-hover:scale-[0.90]'
+          }
+        `}
+        style={{ transformOrigin: 'center' }}
+      />
+
+      {/* content stays crisp, above the bg box */}
+      <span className="relative z-10 flex items-center gap-3">
+        <span className="shrink-0">{ICONS[label]}</span>
+        {!sidebarCollapsed && <span className="truncate">{label}</span>}
+      </span>
     </button>
   );
 
-  const Group = ({ title, items }) => (
+  const Group = ({ title, items, titleClassName = "" }) => (
     <div className="space-y-3">
       {!sidebarCollapsed && (
-        <div className="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <div
+          className={`px-3 pt-3 pb-1 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 text-sm md:text-[14px] ${titleClassName}`}
+        >
           {title}
         </div>
       )}
-      <ul className={`space-y-1 ${sidebarCollapsed ? 'px-1' : 'px-0'}`}>
+      <ul className={`space-y-0.5 ${sidebarCollapsed ? 'px-1' : 'px-0'}`}>
         {items.map((label) => (
           <li key={label} className="relative group">
             <NavButton
@@ -300,7 +320,7 @@ function App() {
             shadow-[0_8px_30px_rgba(0,0,0,0.12)] ring-1 ring-white/10
             transition-all
             h-auto md:h-full pb-4 md:pb-4 md:mt-0
-            ${sidebarCollapsed ? 'w-full px-2 md:w-[59px] md:px-2' : 'w-full px-4 md:w-[220px] md:px-4'}
+            ${sidebarCollapsed ? 'w-full px-2 md:w-[58px] md:px-2' : 'w-full px-4 md:w-[220px] md:px-4'}
             order-1 md:order-none
           `}
           aria-label="Primary"
@@ -334,8 +354,8 @@ function App() {
             </button>
 
             {/* leave room under the button; render pinned items */}
-            <div className="pt-16 space-y-5">
-              <ul className={`space-y-1 ${sidebarCollapsed ? 'px-1' : 'px-0'}`}>
+            <div className="pt-16 space-y-4">
+              <ul className={`space-y-0.5 ${sidebarCollapsed ? 'px-1' : 'px-0'}`}>
                 <li>
                   <NavButton
                     label="About Me"
@@ -358,11 +378,21 @@ function App() {
           </div>
 
           {/* --- Scrollable area for the rest --- */}
-          <div className="flex-1 overflow-y-auto no-scrollbar pt-5">
-            <div className="space-y-5">
-              <Group title="Recruiter" items={recruiterQuickLookBody} />
+          <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
+            <div className="space-y-4">
+              <Group
+                title="Recruiter"
+                items={recruiterQuickLookBody}
+                titleClassName="text-xs md:text-[11px]"
+              />
+
               {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
-              <Group title="Explore" items={moreAboutMeBody} />
+
+              <Group
+                title="Explore"
+                items={moreAboutMeBody}
+                titleClassName="text-[11px] md:text-[11px]"
+              />
             </div>
           </div>
         </nav>

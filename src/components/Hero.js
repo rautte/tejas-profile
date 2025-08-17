@@ -1,3 +1,5 @@
+// src/components/Hero.js
+
 import { motion } from 'framer-motion';
 import Particles from 'react-tsparticles';
 import RotatingTitle from './RotatingTitle';
@@ -139,6 +141,8 @@ export default function Hero({ darkMode }) {
 
 
 
+
+// // src/components/Hero.js
 
 // import { motion } from 'framer-motion';
 // import Particles from 'react-tsparticles';
