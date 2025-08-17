@@ -1,18 +1,18 @@
 {
   "files": {
-    "main.css": "/my-profile/static/css/main.77eb4b68.css",
-    "main.js": "/my-profile/static/js/main.2ce63787.js",
+    "main.css": "/my-profile/static/css/main.950d2142.css",
+    "main.js": "/my-profile/static/js/main.cae58501.js",
     "static/js/453.cda5615e.chunk.js": "/my-profile/static/js/453.cda5615e.chunk.js",
     "static/media/time-travel-boy.svg": "/my-profile/static/media/time-travel-boy.7f176132e67d9a61caf12c7abb5b89e9.svg",
     "static/media/Programming-boy.svg": "/my-profile/static/media/Programming-boy.bc2bbad8b8b7de85d351dc7ae223995e.svg",
     "static/media/LI_Profile.jpg": "/my-profile/static/media/LI_Profile.17a5f8acf56ffe3d9aa3.jpg",
     "index.html": "/my-profile/index.html",
-    "main.77eb4b68.css.map": "/my-profile/static/css/main.77eb4b68.css.map",
-    "main.2ce63787.js.map": "/my-profile/static/js/main.2ce63787.js.map",
+    "main.950d2142.css.map": "/my-profile/static/css/main.950d2142.css.map",
+    "main.cae58501.js.map": "/my-profile/static/js/main.cae58501.js.map",
     "453.cda5615e.chunk.js.map": "/my-profile/static/js/453.cda5615e.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.77eb4b68.css",
-    "static/js/main.2ce63787.js"
+    "static/css/main.950d2142.css",
+    "static/js/main.cae58501.js"
   ]
 }
