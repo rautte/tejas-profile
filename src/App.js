@@ -300,7 +300,7 @@ function App() {
             shadow-[0_8px_30px_rgba(0,0,0,0.12)] ring-1 ring-white/10
             transition-all
             h-auto md:h-full pb-4 md:pb-4 md:mt-0
-            ${sidebarCollapsed ? 'w-full px-2 md:w-[64px] md:px-2' : 'w-full px-4 md:w-[270px] md:px-4'}
+            ${sidebarCollapsed ? 'w-full px-2 md:w-[59px] md:px-2' : 'w-full px-4 md:w-[220px] md:px-4'}
             order-1 md:order-none
           `}
           aria-label="Primary"
@@ -308,7 +308,7 @@ function App() {
           {/* sheen overlay (purely visual) */}
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 rounded-2xl
+            className="pointer-events-none absolute inset-0 rounded-lg
                       bg-gradient-to-b from-white/25 to-transparent
                       dark:from-white/10
                       [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.6),rgba(0,0,0,0.2)_60%,transparent)]"
@@ -319,7 +319,7 @@ function App() {
             {/* collapse button pinned top-right of the sidebar */}
             <button
               onClick={toggleSidebar}
-              className="hidden md:inline-flex absolute mb-2 top-4 right-4 z-10 p-2 
+              className="hidden md:inline-flex absolute mb-2 top-4 right-1 z-10 p-2 
                         text-gray-700 dark:text-white rounded-full shadow-sm transition
                         hover:ring-2 hover:dark:ring-purple-500/60 hover:ring-purple-300/70
                         focus:outline-none focus:ring-2 focus:dark:ring-purple-500/60 focus:ring-purple-300/70
