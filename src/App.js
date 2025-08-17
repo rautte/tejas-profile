@@ -16,7 +16,7 @@ import FunZone from "./components/FunZone";
 import Connect from "./components/Connect";
 import CodeLab from "./components/CodeLab";
 import HeroHandle from "./components/HeroHandle";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { GiConsoleController } from 'react-icons/gi';
 import { FiSidebar } from "react-icons/fi";
 import {
@@ -51,8 +51,6 @@ const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
   acc[toSlug(l)] = l;
   return acc;
 }, {});
-
-const ALWAYS_EXPAND = new Set(["About Me", "Connect"]);
 
 function App() {
   // --- theme ---
@@ -200,49 +198,64 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- helpers for pinned vs shared hero state ---
-  const isPinned = (label) => ALWAYS_EXPAND.has(label);
-  const SHARED_KEY = "heroCollapsedShared"; // "1" collapsed, "0" expanded
+  // treat About Me & Connect as pinned
+  const PINNED_SET = useMemo(() => new Set(["About Me", "Connect"]), []);
 
-  const readShared = () => {
-    try { return sessionStorage.getItem(SHARED_KEY) === "1"; } catch { return true; }
-  };
-  const writeShared = (v) => {
-    try { sessionStorage.setItem(SHARED_KEY, v ? "1" : "0"); } catch {}
-  };
-  
-  // initial hero state for the very first load of this tab
-  const [heroCollapsed, setHeroCollapsed] = useState(() => {
-    return isPinned(initialSection) ? false : readShared();
-  });
+  // used to skip one forced-expand after a *user collapse* on a pinned section
+  const skipNextPinnedExpand = useRef(false);
 
-  // when the section changes:
-  // - pinned sections always show the hero on navigation
-  // - non-pinned read the one shared value
+  // one shared collapse state for ALL non-pinned sections
+  // default for non-pinned on first load (per tab) = collapsed (true)
+  const [sharedCollapsed, setSharedCollapsed] = useState(true);
+
+  // per-view hero state (drives the UI for the current section)
+  const [heroCollapsed, setHeroCollapsed] = useState(
+    PINNED_SET.has(initialSection) ? false : sharedCollapsed
+  );
+
+  // When the selected section changes:
+  // - pinned: always show hero (expanded) on navigation
+  // - non-pinned: adopt whatever the shared state currently is
   useEffect(() => {
-    if (isPinned(selectedSection)) {
+    const isPinned = PINNED_SET.has(selectedSection);
+
+    if (isPinned) {
+      // If the *immediately previous* action was a user-driven collapse on a pinned section,
+      // honor that once (so no double click), then clear the flag.
+      if (skipNextPinnedExpand.current) {
+        skipNextPinnedExpand.current = false;
+        // keep whatever heroCollapsed currently is (collapsed)
+        return;
+      }
+      // Normal rule: pinned sections show hero when navigated to or when shared changes.
       setHeroCollapsed(false);
     } else {
-      setHeroCollapsed(readShared());
+      // Non-pinned sections mirror the shared state.
+      setHeroCollapsed(sharedCollapsed);
     }
-  }, [selectedSection]);
+  }, [selectedSection, sharedCollapsed, PINNED_SET]);
 
-  // single source of truth for toggling hero from the UI handle
-  const setHero = useCallback((collapsed) => {
-    // 1) Always apply to the visible section immediately
-    setHeroCollapsed(collapsed);
+  // unified setter used by your HeroHandle
+  // - In pinned sections: collapsing propagates to shared; expanding does NOT.
+  // - In non-pinned sections: keep shared in sync with current toggle.
+  const setHero = useCallback(
+    (collapsed) => {
+      setHeroCollapsed(collapsed);
 
-    // 2) Shared propagation rules:
-    //    - If you're on a pinned section and you COLLAPSE it, propagate collapse to all non-pinned.
-    //    - If you're on a pinned section and you EXPAND it, do NOT propagate (by design).
-    //    - If you're on a non-pinned section, always write shared state.
-    if (isPinned(selectedSection)) {
-      if (collapsed) writeShared(true);
-      // expanding on pinned does not change shared state
-    } else {
-      writeShared(collapsed);
-    }
-  }, [selectedSection]);
+      if (PINNED_SET.has(selectedSection)) {
+        if (collapsed) {
+          // collapse from pinned -> propagate to shared AND skip one auto-expand
+          setSharedCollapsed(true);
+          skipNextPinnedExpand.current = true;   // <<< key line
+        }
+        // expanding from pinned: do NOT touch shared
+      } else {
+        // non-pinned: keep shared in sync
+        setSharedCollapsed(collapsed);
+      }
+    },
+    [selectedSection, PINNED_SET]
+  );
 
   // helper: the target max-height for the hero when expanded
   // matches previous visual (~175px cap, but responsive up to 28vh)
@@ -323,9 +336,8 @@ function App() {
         style={{ maxHeight: heroCollapsed ? 0 : heroMaxHeight }}
         aria-expanded={!heroCollapsed}
       >
-        {/* Top-right controls (unchanged) */}
+        {/* Top-right controls */}
         <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-          {/* mobile sidebar toggle stays if you want it; otherwise remove */}
           <button
             onClick={toggleSidebar}
             className="md:hidden p-2 bg-white/80 dark:bg-[#26263a] text-gray-700 dark:text-white
@@ -337,7 +349,6 @@ function App() {
             <FiSidebar className={`${sidebarCollapsed ? 'rotate-180' : 'rotate-0'} transition-transform`} size={18} />
           </button>
 
-          {/* theme toggle (unchanged) */}
           <button
             onClick={() => setDarkMode(!darkMode)}
             className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
@@ -357,7 +368,7 @@ function App() {
           <Hero darkMode={darkMode} />
         </div>
 
-        {/* Bottom-center handle when expanded (KEEP this inside) */}
+        {/* Bottom-center handle when expanded */}
         {!heroCollapsed && (
           <HeroHandle
             collapsed={false}

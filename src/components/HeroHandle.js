@@ -26,7 +26,13 @@ export default function HeroHandle({
     // <div className={pos} style={{ height: placement === "top" ? 0 : height + 6 }}>
     <div className={`${pos} pointer-events-none`} style={{ height: placement === "top" ? 0 : height - 2 }}>
       <button
-        onClick={onToggle}
+        onMouseDown={onToggle}
+        onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggle();
+        }
+        }}
         className="group relative pointer-events-auto p-0 bg-transparent border-0 focus:outline-none"
         aria-label={collapsed ? "Show header" : "Hide header"}
         title={collapsed ? "Show header" : "Hide header"}
