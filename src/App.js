@@ -158,7 +158,7 @@ function App() {
         relative isolate overflow-hidden group
         w-full text-left rounded-xl font-medium font-jakarta
         flex items-center gap-3 transition-all duration-200
-        text-sm md:text-[14px]
+        text-sm md:text-[13.5px]
         ${sidebarCollapsed ? 'px-3 py-2 justify-center' : 'px-5 py-2'}
         /* keep text color constant so only the box changes */
         text-gray-700 dark:text-gray-300
@@ -171,7 +171,7 @@ function App() {
           transition-transform transition-colors transition-shadow duration-200
           ${active
             ? 'bg-purple-100 dark:bg-purple-800 text-purple-900 dark:text-purple-100 shadow-inner ring-1 ring-inset ring-purple-300 dark:ring-purple-600 scale-[0.92]'
-            : 'group-hover:bg-purple-50 group-hover:dark:bg-[#2b2b3c] group-hover:text-gray-700 group-hover:dark:text-gray-300 group-hover:scale-[0.90]'
+            : 'group-hover:bg-purple-50 group-hover:dark:bg-[#2b2b3c] group-hover:text-gray-700 group-hover:dark:text-gray-300 group-hover:scale-[0.92]'
           }
         `}
         style={{ transformOrigin: 'center' }}
@@ -189,7 +189,7 @@ function App() {
     <div className="space-y-3">
       {!sidebarCollapsed && (
         <div
-          className={`px-3 pt-3 pb-1 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 text-sm md:text-[14px] ${titleClassName}`}
+          className={`px-3 pt-3 pb-1 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 ${titleClassName}`}
         >
           {title}
         </div>
@@ -383,7 +383,7 @@ function App() {
               <Group
                 title="Recruiter"
                 items={recruiterQuickLookBody}
-                titleClassName="text-xs md:text-[11px]"
+                titleClassName="text-[11px] md:text-[11px]"
               />
 
               {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
