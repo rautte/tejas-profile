@@ -73,18 +73,6 @@ function App() {
     if (stored === "dark") setDarkMode(true);
     // if stored is "light" or missing, we stay light by default
   }, []);
-  // // --- theme ---
-  // const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
-  // useEffect(() => {
-  //   const root = document.documentElement;
-  //   if (darkMode) {
-  //     root.classList.add("dark");
-  //     localStorage.setItem("theme", "dark");
-  //   } else {
-  //     root.classList.remove("dark");
-  //     localStorage.setItem("theme", "light");
-  //   }
-  // }, [darkMode]);
 
   // --- sections (unchanged components) ---
   const sections = useMemo(() => ({
@@ -119,6 +107,45 @@ function App() {
     "Fun Zone",
   ];
 
+  const toSlug = (label) =>
+    label.toLowerCase()
+        .replace(/\s+/g, '-')       // spaces → hyphens
+        .replace(/[^a-z0-9-]/g, ''); // remove all but a-z, 0-9, and hyphen
+
+  const sectionBySlug = useMemo(() => {
+    const labels = [
+      "About Me","Timeline","Resume","Experience","Skill",
+      "Education","Project","Achievement","Fun Zone","Connect","Code Lab"
+    ];
+    const dict = {};
+    labels.forEach(l => { dict[toSlug(l)] = l; });
+    return dict;
+  }, []);
+
+  // On first load, if URL has a hash like #/project -> open that section
+  useEffect(() => {
+    const raw = window.location.hash.replace(/^#\/?/, ''); // remove leading # or #/
+    if (!raw) return;
+    const label = sectionBySlug[raw.toLowerCase()];
+    if (label) setSelectedSection(label);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const goTo = useCallback((label) => {
+    setSelectedSection(label);
+  }, []);
+
+  // Keep app in sync when user uses browser back/forward
+  useEffect(() => {
+    const onHash = () => {
+      const raw = window.location.hash.replace(/^#\/?/, '');
+      const label = sectionBySlug[raw.toLowerCase()];
+      if (label) setSelectedSection(label);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [sectionBySlug]);
+
   // items to pin in non-scrollable header
   const PINNED = ["About Me", "Connect"];
   const recruiterQuickLookBody = recruiterQuickLook.filter(i => !PINNED.includes(i));
@@ -126,6 +153,14 @@ function App() {
 
   // default section
   const [selectedSection, setSelectedSection] = useState("About Me");
+
+  // whenever the selected section changes, write hash like #/project
+  useEffect(() => {
+    const slug = toSlug(selectedSection);
+    if (window.location.hash !== `#/${slug}`) {
+      window.location.hash = `/${slug}`;
+    }
+  }, [selectedSection]);
 
   // --- collapsible sidebar state ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -233,7 +268,8 @@ function App() {
             <NavButton
               label={label}
               active={selectedSection === label}
-              onClick={() => setSelectedSection(label)}
+              // onClick={() => setSelectedSection(label)}
+              onClick={() => goTo(label)}
             />
           </li>
         ))}
@@ -393,14 +429,16 @@ function App() {
                   <NavButton
                     label="About Me"
                     active={selectedSection === "About Me"}
-                    onClick={() => setSelectedSection("About Me")}
+                    // onClick={() => setSelectedSection("About Me")}
+                    onClick={() => goTo("About Me")}
                   />
                 </li>
                 <li>
                   <NavButton
                     label="Connect"
                     active={selectedSection === "Connect"}
-                    onClick={() => setSelectedSection("Connect")}
+                    // onClick={() => setSelectedSection("Connect")}
+                    onClick={() => goTo("Connect")}
                   />
                 </li>
               </ul>
