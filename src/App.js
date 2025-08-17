@@ -52,6 +52,8 @@ const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
   return acc;
 }, {});
 
+const ALWAYS_EXPAND = new Set(["About Me", "Connect"]);
+
 function App() {
   // --- theme ---
   const [darkMode, setDarkMode] = useState(() => {
@@ -140,11 +142,13 @@ function App() {
   const recruiterQuickLookBody = recruiterQuickLook.filter(i => !PINNED.includes(i));
   const moreAboutMeBody = moreAboutMe.filter(i => !PINNED.includes(i));
 
-  // default section
-  const [selectedSection, setSelectedSection] = useState(() => {
+  // figure initial section from hash once
+  const initialSection = (() => {
     const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
     return SLUG_TO_LABEL[raw] || "About Me";
-  });
+  })();
+
+  const [selectedSection, setSelectedSection] = useState(initialSection);
 
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
@@ -196,13 +200,43 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- hero collapse state ---
-  const [heroCollapsed, setHeroCollapsed] = useState(() => {
-    return localStorage.getItem("heroCollapsed") === "1";
-  });
+  // --- hero collapsed (in-memory, resets on refresh) ---
+
+  // Shared state for ALL non-pinned sections (default collapsed)
+  const [sharedCollapsed, setSharedCollapsed] = useState(true);
+
+  // Actual hero state for the current section
+  const [heroCollapsed, setHeroCollapsed] = useState(() =>
+    ALWAYS_EXPAND.has(initialSection) ? false : true
+  );
+
+  // On section change:
+  // - About Me / Connect => always show hero (expanded) on arrival
+  // - Others => reflect the shared state
   useEffect(() => {
-    localStorage.setItem("heroCollapsed", heroCollapsed ? "1" : "0");
-  }, [heroCollapsed]);
+    if (ALWAYS_EXPAND.has(selectedSection)) {
+      setHeroCollapsed(false);
+    } else {
+      setHeroCollapsed(sharedCollapsed);
+    }
+  }, [selectedSection, sharedCollapsed]);
+
+  // Toggle helper used by your <HeroHandle onToggle={() => setHero(...)} />
+  const setHero = useCallback(
+    (collapsed) => {
+      setHeroCollapsed(collapsed);
+
+      if (ALWAYS_EXPAND.has(selectedSection)) {
+        // If collapsing while on a pinned section, propagate collapse to others.
+        if (collapsed) setSharedCollapsed(true);
+        // If expanding while on a pinned section, do NOT propagate.
+      } else {
+        // On non-pinned sections, this becomes the shared state.
+        setSharedCollapsed(collapsed);
+      }
+    },
+    [selectedSection]
+  );
 
   // helper: the target max-height for the hero when expanded
   // matches previous visual (~175px cap, but responsive up to 28vh)
@@ -323,25 +357,24 @@ function App() {
         {!heroCollapsed && (
           <HeroHandle
             collapsed={false}
-            onToggle={() => setHeroCollapsed(true)}
+            onToggle={() => setHero(true)}
             placement="bottom"
             width={120}
             height={22}
           />
         )}
-      </div>
+        </div>
 
-      {/* Sticky top-center handle when collapsed */}
-      {heroCollapsed && (
-        <HeroHandle
-          collapsed
-          onToggle={() => setHeroCollapsed(false)}
-          placement="top"
-          width={120}
-          height={22}
-        />
-      )}
-
+        {/* Sticky top-center handle when collapsed (outside hero) */}
+        {heroCollapsed && (
+          <HeroHandle
+            collapsed
+            onToggle={() => setHero(false)}
+            placement="top"
+            width={120}
+            height={22}
+          />
+        )}
       {/* Floating controls when hero is collapsed (so the toggle doesn’t vanish) */}
       {heroCollapsed && (
         <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
@@ -470,4 +503,5 @@ function App() {
 }
 
 export default App;
+
 
