@@ -3,6 +3,7 @@
 
 import './App.css';
 import './index.css';
+import TicTacToeWeb from "./components/TicTacToeWeb";
 import Hero from "./components/Hero";
 import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";
@@ -16,7 +17,7 @@ import FunZone from "./components/FunZone";
 import Connect from "./components/Connect";
 import CodeLab from "./components/CodeLab";
 import HeroHandle from "./components/HeroHandle";
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { GiConsoleController } from 'react-icons/gi';
 import { FiSidebar } from "react-icons/fi";
 import {
@@ -52,39 +53,45 @@ const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
   return acc;
 }, {});
 
-function App() {
-  // --- theme ---
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      return sessionStorage.getItem('theme') === 'dark'; // default false (light)
-    } catch {
-      return false;
+// ——— Dark mode bootstrap helper (single source of truth) ———
+function getInitialTheme() {
+  try {
+    const stored = sessionStorage.getItem("theme") || localStorage.getItem("theme");
+    if (stored === "dark") return true;
+    if (stored === "light") return false;
+    if (window.matchMedia) {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
     }
-  });
+  } catch {}
+  return false; // default light
+}
 
-  useEffect(() => {
+function App() {
+  // --- theme (single source of truth, no flash) ---
+  const [darkMode, setDarkMode] = useState(getInitialTheme);
+
+  // Apply/remove the class BEFORE paint to avoid flashing
+  useLayoutEffect(() => {
     const root = document.documentElement;
+    if (darkMode) root.classList.add("dark");
+    else root.classList.remove("dark");
     try {
-      if (darkMode) {
-        root.classList.add('dark');
-        sessionStorage.setItem('theme', 'dark');
-      } else {
-        root.classList.remove('dark');
-        sessionStorage.setItem('theme', 'light');
-      }
-      // ensure any old persistent value can't fight us
-      localStorage.removeItem('theme');
-    } catch {
-      // ignore storage errors
-      darkMode ? root.classList.add('dark') : root.classList.remove('dark');
-    }
+      // persist to both so any route/page can read it immediately
+      sessionStorage.setItem("theme", darkMode ? "dark" : "light");
+      localStorage.setItem("theme", darkMode ? "dark" : "light");
+    } catch {}
   }, [darkMode]);
 
-  // (Optional) To respect a user's prior choice on *their* device:
+  // Keep in sync with OS changes (only if user hasn’t explicitly chosen this session)
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    if (stored === "dark") setDarkMode(true);
-    // if stored is "light" or missing, then light by default
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (e) => {
+      const explicit = sessionStorage.getItem("theme");
+      if (!explicit) setDarkMode(e.matches);
+    };
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
   }, []);
 
   // --- sections (unchanged components) ---
@@ -148,13 +155,29 @@ function App() {
 
   const [selectedSection, setSelectedSection] = useState(initialSection);
 
+  const [hashPath, setHashPath] = useState(() =>
+    window.location.hash.replace(/^#\/?/, '').toLowerCase()
+  );
+
+  useEffect(() => {
+    const onHashOnly = () => {
+      const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+      setHashPath(raw);
+    };
+    window.addEventListener('hashchange', onHashOnly);
+    return () => window.removeEventListener('hashchange', onHashOnly);
+  }, []);
+
+  const isGamePage = hashPath === "games/tictactoe-ai";
+
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
+    if (hashPath.startsWith('games/')) return; // don't clobber game routes
     const slug = toSlug(selectedSection);
     if (window.location.hash !== `#/${slug}`) {
       window.location.hash = `/${slug}`;
     }
-  }, [selectedSection]);
+  }, [selectedSection, hashPath]);
 
   // --- collapsible sidebar state ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -322,6 +345,38 @@ function App() {
   );
 
   const sidebarRound = heroCollapsed ? "rounded-none md:rounded-md" : "rounded-md";
+
+  if (isGamePage) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#181826] p-6">
+        {/* Dark mode toggle (uses the SAME state & effect as the rest of the app) */}
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="fixed top-4 right-4 z-50 p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
+          title="Toggle dark mode"
+          aria-label="Toggle dark mode"
+        >
+          {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
+        </button>
+
+        {/* Back link */}
+        <a
+          href="#/fun-zone"
+          className="
+            fixed top-4 left-4 z-50 px-3 py-1.5 rounded-md
+            bg-white/80 text-gray-800 ring-1 ring-black/10 hover:bg-white
+            dark:bg-[#26263a] dark:text-gray-100 dark:ring-white/10 dark:hover:bg-[#2f2f46]
+            transition
+          "
+        >
+          ← Back to Fun Zone
+        </a>
+
+        {/* Game */}
+        <TicTacToeWeb />
+      </main>
+    );
+  }
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">

@@ -1,6 +1,7 @@
 // src/components/FunZone.js
 
 import React from "react";
+// import TicTacToeWeb from "@/components/TicTacToeWeb";
 import { FaPlay, FaGithub, FaDownload } from 'react-icons/fa';
 import { GiConsoleController } from 'react-icons/gi';
 import JSZip from "jszip";
@@ -36,7 +37,7 @@ const downloadZipBySvgId = async (id, baseName) => {
 
   // 3) README with instructions
   const readme = `# ${baseName}
-This ZIP was generated from your site.
+This ZIP was generated from https://rautte.github.io/my-profile/#/fun-zone.
 
 ## Files
 - \`${baseName}.svg\` — the standalone SVG with animations.
@@ -280,7 +281,7 @@ export default function Fun() {
 
       {/* Subtitle */}
       <p className="text-gray-600 dark:text-gray-300 px-6 mb-10 font-epilogue">
-        If you’ve reached this far, take a break and enjoy some simple games I built just for fun!
+        If you’ve reached this far, take a break and enjoy some simple mini-games I built just for fun!
       </p>
 
       {/* Cards */}
@@ -290,7 +291,7 @@ export default function Fun() {
           preview={
             <div
               onDoubleClick={() => downloadZipBySvgId('svg-minesweeper', 'minesweeper')}
-              title="Double click to download ZIP"
+              title="Double-click to download ZIP to this SVG"
               className="cursor-pointer"
             >
               <MinesweeperSVG id="svg-minesweeper" />
@@ -331,11 +332,11 @@ export default function Fun() {
         />
 
         <Card
-          title="Tic Tac Toe (AI)"
+          title="Tic-Tac-Toe (AI)"
           preview={
             <div
               onDoubleClick={() => downloadZipBySvgId('svg-ttt', 'tictactoe')}
-              title="Double click to download ZIP"
+              title="Double-click to download ZIP to this SVG"
               className="cursor-pointer"
             >
               <TicTacToeSVG id="svg-ttt" />
@@ -364,7 +365,8 @@ export default function Fun() {
 
               {/* bottom row: Play full width */}
               <a
-                href="./games/tictactoe-ai.html"
+                // href="./games/tictactoe-ai.html"
+                href="#/games/tictactoe-ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500 via-emerald-600 to-green-700 text-white shadow hover:opacity-90"

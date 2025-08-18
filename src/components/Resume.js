@@ -16,9 +16,9 @@ export default function Resume() {
       </div>
 
       {/* Subtitle */}
-      <p className="text-center text-gray-700 dark:text-gray-300 mb-10 font-epilogue">
+      {/* <p className="text-center text-gray-700 dark:text-gray-300 mb-10 font-epilogue">
         You can view or download my resume below 👇
-      </p>
+      </p> */}
 
       {/* Resume Preview */}
       <div className="max-w-4xl mx-auto mb-8 border-2 border-purple-200 dark:border-purple-500 rounded-xl shadow-lg overflow-hidden">

@@ -3,35 +3,21 @@
   <head>
     <meta charset="utf-8" />
 
+    <!-- Boot theme before paint: prefers-color-scheme OR last saved value -->
     <script>
-      // Per-tab theme: default to light unless this tab's session chose dark
-      try {
-        if (sessionStorage.getItem('theme') === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark'); // default: light
-          // don't set sessionStorage here; let the app do it on first render
+      (function () {
+        try {
+          var stored = sessionStorage.getItem('theme') || localStorage.getItem('theme');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var dark = stored ? stored === 'dark' : prefersDark;
+          if (dark) document.documentElement.classList.add('dark');
+          else document.documentElement.classList.remove('dark');
+        } catch (e) {
+          /* if storage blocked, fall back to light */
+          document.documentElement.classList.remove('dark');
         }
-
-        // Optional: clean up any old persistent setting so it can't override this behavior
-        localStorage.removeItem('theme');
-      } catch (e) {
-        // If storage is blocked, just default to light
-        document.documentElement.classList.remove('dark');
-      }
+      })();
     </script>
-    
-    <!-- ✅ Fix Flash of Light Mode -->
-    <!-- <script>
-      if (
-        localStorage.theme === 'dark' ||
-        (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)
-      ) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    </script> -->
 
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
