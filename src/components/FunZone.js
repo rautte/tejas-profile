@@ -304,7 +304,7 @@ export default function Fun() {
                 <a
                   href="./downloads/Minesweeper.zip"
                   download
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-purple-500/80 via-purple-600/80 to-purple-700/80 text-white shadow hover:opacity-90"
                 >
                   <FaDownload className="opacity-90" /> <span>Code</span>
                 </a>
@@ -312,7 +312,7 @@ export default function Fun() {
                   href="https://github.com/rautte/Minesweeper"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-gray-700 via-gray-800 to-gray-900 text-white shadow hover:opacity-90"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-gray-700/80 via-gray-800/80 to-gray-900/80 text-white shadow hover:opacity-90"
                 >
                   <FaGithub className="opacity-90" /> <span>GitHub</span>
                 </a>
@@ -323,7 +323,7 @@ export default function Fun() {
                 href="/games/minesweeper.html"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500 via-emerald-600 to-green-700 text-white shadow hover:opacity-90"
+                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/80 via-emerald-600/80 to-green-700/80 text-white shadow hover:opacity-90"
               >
                 <FaPlay className="opacity-90" /> <span>Play</span>
               </a>
@@ -349,7 +349,7 @@ export default function Fun() {
                 <a
                   href="./downloads/TicTacToe_AI.zip"
                   download
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-purple-500/80 via-purple-600/80 to-purple-700/80 text-white shadow hover:opacity-90"
                 >
                   <FaDownload className="opacity-90" /> <span>Code</span>
                 </a>
@@ -357,7 +357,7 @@ export default function Fun() {
                   href="https://github.com/rautte/TicTacToe_AI"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-gray-700 via-gray-800 to-gray-900 text-white shadow hover:opacity-90"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-gray-700/80 via-gray-800/80 to-gray-900/80 text-white shadow hover:opacity-90"
                 >
                   <FaGithub className="opacity-90" /> <span>GitHub</span>
                 </a>
@@ -367,9 +367,9 @@ export default function Fun() {
               <a
                 // href="./games/tictactoe-ai.html"
                 href="#/games/tictactoe-ai"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500 via-emerald-600 to-green-700 text-white shadow hover:opacity-90"
+                // target="_blank"
+                // rel="noopener noreferrer"
+                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/80 via-emerald-600/80 to-green-700/80 text-white shadow hover:opacity-90"
               >
                 <FaPlay className="opacity-90" /> <span>Play</span>
               </a>
