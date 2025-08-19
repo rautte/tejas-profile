@@ -216,19 +216,19 @@ export function MinesweeperSVG() {
         {/* A @ (41,41) */}
         <circle cx="41" cy="41" r="2" opacity="0">
           <set attributeName="opacity" to="1" begin={`clock.begin+${tA}s`} dur="0.001s" fill="remove" />
-          <animate attributeName="r" begin={`clock.begin+${tA + 0.02}s`} dur="0.28s" values="2;16" fill="freeze" />
+          <animate attributeName="r" begin={`clock.begin+${tA + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
           <animate attributeName="opacity" begin={`clock.begin+${tA + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
         </circle>
         {/* B @ (83,41) */}
         <circle cx="83" cy="41" r="2" opacity="0">
           <set attributeName="opacity" to="1" begin={`clock.begin+${tB}s`} dur="0.001s" fill="remove" />
-          <animate attributeName="r" begin={`clock.begin+${tB + 0.02}s`} dur="0.28s" values="2;16" fill="freeze" />
+          <animate attributeName="r" begin={`clock.begin+${tB + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
           <animate attributeName="opacity" begin={`clock.begin+${tB + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
         </circle>
         {/* C @ (125,83) */}
         <circle cx="125" cy="83" r="2" opacity="0">
           <set attributeName="opacity" to="1" begin={`clock.begin+${tC}s`} dur="0.001s" fill="remove" />
-          <animate attributeName="r" begin={`clock.begin+${tC + 0.02}s`} dur="0.28s" values="2;16" fill="freeze" />
+          <animate attributeName="r" begin={`clock.begin+${tC + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
           <animate attributeName="opacity" begin={`clock.begin+${tC + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
         </circle>
       </g>
