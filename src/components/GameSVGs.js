@@ -77,7 +77,6 @@ export function BattleshipSVG() {
           {/* Stack */}
           <rect x="2" y="-10" width="3.5" height="7" rx="1" />
         </g>
-      {/* </g> */}
 
         {/* Pulse scale (matches the old 1.8s rhythm) */}
         <animateTransform
@@ -138,214 +137,221 @@ export function MinesweeperSVG() {
     <svg
       id="minesweeper-svg"
       viewBox="0 0 160 160"
-      className="mx-auto block"
-      style={{ width: 160, height: 160, transform: 'scale(1.20)', transformOrigin: '50% 50%' }}
+      className="w-40 h-40 mx-auto block"
+      width="300"
+      height="300"
+      preserveAspectRatio="xMidYMid meet"
+      // style={{ width: 160, height: 160, transform: 'scale(1.20)', transformOrigin: '50% 50%' }}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* master loop clock */}
-      <g opacity="0">
-        <animate
-          id="clock"
-          attributeName="opacity"
-          values="1;1"
-          dur={`${T}s`}
-          begin="0s;clock.end"
-          fill="remove"
-        />
-      </g>
+      {/* <!-- ensure full viewBox is treated as the artwork bounds --> */}
+      <rect x="0" y="0" width="160" height="160" fill="transparent" />
+      <g transform="translate(80 80) scale(1.2) translate(-80 -80)">
+        {/* master loop clock */}
+        <g opacity="0">
+          <animate
+            id="clock"
+            attributeName="opacity"
+            values="1;1"
+            dur={`${T}s`}
+            begin="0s;clock.end"
+            fill="remove"
+          />
+        </g>
 
-      {/* Covered tiles (base) */}
-      <g>
-        {Array.from({ length: 3 }).map((_, r) =>
-          Array.from({ length: 3 }).map((_, c) => {
-            const x = start + c * step;
-            const y = start + r * step;
-            return (
-              <rect
-                key={`cov-${r}-${c}`}
-                x={x}
-                y={y}
-                width={size}
-                height={size}
-                rx="7"
-                className="fill-gray-200 dark:fill-gray-700"
-                fill="#e5e7eb"
-                stroke="none"
-              />
-            );
-          })
-        )}
-      </g>
+        {/* Covered tiles (base) */}
+        <g>
+          {Array.from({ length: 3 }).map((_, r) =>
+            Array.from({ length: 3 }).map((_, c) => {
+              const x = start + c * step;
+              const y = start + r * step;
+              return (
+                <rect
+                  key={`cov-${r}-${c}`}
+                  x={x}
+                  y={y}
+                  width={size}
+                  height={size}
+                  rx="7"
+                  className="fill-gray-200 dark:fill-gray-700"
+                  fill="#e5e7eb"
+                  stroke="none"
+                />
+              );
+            })
+          )}
+        </g>
 
-      {/* Selection highlight */}
-      <rect
-        x={start}
-        y={start}
-        width={size}
-        height={size}
-        rx="8"
-        className="fill-purple-500/10 dark:fill-purple-400/10 stroke-purple-500/70 dark:stroke-purple-300/70"
-        fill="rgba(139,92,246,0.10)"
-        stroke="rgba(139,92,246,0.70)"
-        strokeWidth="2.5"
-      >
-        {/* X: A(24) → B(66) → C(108) → pause → back to A(24) with same speed */}
-        <animate
-          attributeName="x"
-          begin="clock.begin"
-          dur={`${T}s`}
-          values="24;24;66;108;108;66;24"
-          keyTimes="0;0.2;0.4;0.6;0.8;0.9;1"
-          calcMode="linear"
-          fill="remove"
-        />
-        {/* Y: A/B(24) → C(66) → pause → back to A(24) */}
-        <animate
-          attributeName="y"
-          begin="clock.begin"
-          dur={`${T}s`}
-          values="24;24;24;66;66;66;24"
-          keyTimes="0;0.2;0.4;0.6;0.8;0.9;1"
-          calcMode="linear"
-          fill="remove"
-        />
-      </rect>
-
-      {/* Click ripples (fire only on arrival; no stray on load) */}
-      <g className="fill-none stroke-purple-500/60 dark:stroke-purple-300/60" stroke="#8b5cf699" strokeWidth="2">
-        {/* A @ (41,41) */}
-        <circle cx="41" cy="41" r="2" opacity="0">
-          <set attributeName="opacity" to="1" begin={`clock.begin+${tA}s`} dur="0.001s" fill="remove" />
-          <animate attributeName="r" begin={`clock.begin+${tA + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
-          <animate attributeName="opacity" begin={`clock.begin+${tA + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
-        </circle>
-        {/* B @ (83,41) */}
-        <circle cx="83" cy="41" r="2" opacity="0">
-          <set attributeName="opacity" to="1" begin={`clock.begin+${tB}s`} dur="0.001s" fill="remove" />
-          <animate attributeName="r" begin={`clock.begin+${tB + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
-          <animate attributeName="opacity" begin={`clock.begin+${tB + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
-        </circle>
-        {/* C @ (125,83) */}
-        <circle cx="125" cy="83" r="2" opacity="0">
-          <set attributeName="opacity" to="1" begin={`clock.begin+${tC}s`} dur="0.001s" fill="remove" />
-          <animate attributeName="r" begin={`clock.begin+${tC + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
-          <animate attributeName="opacity" begin={`clock.begin+${tC + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
-        </circle>
-      </g>
-
-      {/* SAFE reveal #1 at A (r0,c0) */}
-      <g opacity="0">
+        {/* Selection highlight */}
         <rect
           x={start}
           y={start}
           width={size}
           height={size}
-          rx="7"
-          className="fill-emerald-500/10 dark:fill-emerald-400/10 stroke-emerald-500/60 dark:stroke-emerald-300/60"
-          fill="rgba(16,185,129,0.10)"
-          stroke="rgba(16,185,129,0.60)"
-          strokeWidth="1.5"
-        />
-        <text
-          x={start + size / 2}
-          y={start + size / 2 + 6}
-          textAnchor="middle"
-          className="fill-blue-600 dark:fill-blue-400"
-          fill="#2563eb"
-          fontFamily="ui-sans-serif, system-ui"
-          fontWeight="700"
-          fontSize="14"
+          rx="8"
+          className="fill-purple-500/10 dark:fill-purple-400/10 stroke-purple-500/70 dark:stroke-purple-300/70"
+          fill="rgba(139,92,246,0.10)"
+          stroke="rgba(139,92,246,0.70)"
+          strokeWidth="2.5"
         >
-          1
-        </text>
+          {/* X: A(24) → B(66) → C(108) → pause → back to A(24) with same speed */}
+          <animate
+            attributeName="x"
+            begin="clock.begin"
+            dur={`${T}s`}
+            values="24;24;66;108;108;66;24"
+            keyTimes="0;0.2;0.4;0.6;0.8;0.9;1"
+            calcMode="linear"
+            fill="remove"
+          />
+          {/* Y: A/B(24) → C(66) → pause → back to A(24) */}
+          <animate
+            attributeName="y"
+            begin="clock.begin"
+            dur={`${T}s`}
+            values="24;24;24;66;66;66;24"
+            keyTimes="0;0.2;0.4;0.6;0.8;0.9;1"
+            calcMode="linear"
+            fill="remove"
+          />
+        </rect>
 
-        {/* Appear exactly at arrival A (0s); stay until we leave C (tPauseEnd) */}
-        <set attributeName="opacity" to="1" begin={`clock.begin+${tA}s`} dur="0.001s" fill="freeze" />
-        <set attributeName="opacity" to="0" begin={`clock.begin+${tPauseEnd}s`} dur="0.001s" fill="freeze" />
-      </g>
-
-      {/* SAFE reveal #2 at B (r0,c1) */}
-      <g opacity="0">
-        <rect
-          x={start + step}
-          y={start}
-          width={size}
-          height={size}
-          rx="7"
-          className="fill-emerald-500/10 dark:fill-emerald-400/10 stroke-emerald-500/60 dark:stroke-emerald-300/60"
-          fill="rgba(16,185,129,0.10)"
-          stroke="rgba(16,185,129,0.60)"
-          strokeWidth="1.5"
-        />
-        <text
-          x={start + step + size / 2}
-          y={start + size / 2 + 6}
-          textAnchor="middle"
-          className="fill-emerald-600 dark:fill-emerald-400"
-          fill="#059669"
-          fontFamily="ui-sans-serif, system-ui"
-          fontWeight="700"
-          fontSize="14"
-        >
-          2
-        </text>
-
-        {/* Appear at arrival B; stay until we leave C */}
-        <set attributeName="opacity" to="1" begin={`clock.begin+${tB}s`} dur="0.001s" fill="freeze" />
-        <set attributeName="opacity" to="0" begin={`clock.begin+${tPauseEnd}s`} dur="0.001s" fill="freeze" />
-      </g>
-
-      {/* MINE reveal #3 at C (r1,c2) */}
-      <g
-        opacity="0"
-        transform={`translate(${start + 2 * step + size / 2} ${start + step + size / 2})`}
-      >
-        {/* revealed tile background */}
-        <rect
-          x={-size / 2}
-          y={-size / 2}
-          width={size}
-          height={size}
-          rx="7"
-          className="fill-rose-500/10 dark:fill-rose-400/10 stroke-rose-500/60 dark:stroke-rose-300/60"
-          fill="rgba(244,63,94,0.10)"
-          stroke="rgba(244,63,94,0.60)"
-          strokeWidth="1.5"
-        />
-        {/* Mine: core + spikes + spark */}
-        <g>
-          <circle r="5" className="fill-rose-600 dark:fill-rose-400" fill="#e11d48" />
-          {Array.from({ length: 8 }).map((_, i) => {
-            const a = (i * 45 * Math.PI) / 180;
-            const x1 = 5 * Math.cos(a), y1 = 5 * Math.sin(a);
-            const x2 = 10 * Math.cos(a), y2 = 10 * Math.sin(a);
-            return (
-              <line
-                key={i}
-                x1={x1} y1={y1} x2={x2} y2={y2}
-                className="stroke-rose-600 dark:stroke-rose-400"
-                stroke="#e11d48"
-                strokeWidth="2" strokeLinecap="round"
-              />
-            );
-          })}
+        {/* Click ripples (fire only on arrival; no stray on load) */}
+        <g className="fill-none stroke-purple-500/60 dark:stroke-purple-300/60" stroke="#8b5cf699" strokeWidth="2">
+          {/* A @ (41,41) */}
+          <circle cx="41" cy="41" r="2" opacity="0">
+            <set attributeName="opacity" to="1" begin={`clock.begin+${tA}s`} dur="0.001s" fill="remove" />
+            <animate attributeName="r" begin={`clock.begin+${tA + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
+            <animate attributeName="opacity" begin={`clock.begin+${tA + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
+          </circle>
+          {/* B @ (83,41) */}
+          <circle cx="83" cy="41" r="2" opacity="0">
+            <set attributeName="opacity" to="1" begin={`clock.begin+${tB}s`} dur="0.001s" fill="remove" />
+            <animate attributeName="r" begin={`clock.begin+${tB + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
+            <animate attributeName="opacity" begin={`clock.begin+${tB + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
+          </circle>
+          {/* C @ (125,83) */}
+          <circle cx="125" cy="83" r="2" opacity="0">
+            <set attributeName="opacity" to="1" begin={`clock.begin+${tC}s`} dur="0.001s" fill="remove" />
+            <animate attributeName="r" begin={`clock.begin+${tC + 0.01}s`} dur="0.28s" values="2;16" fill="freeze" />
+            <animate attributeName="opacity" begin={`clock.begin+${tC + 0.02}s`} dur="0.28s" values="1;0" fill="freeze" />
+          </circle>
         </g>
 
-        {/* Appear at arrival C; hide exactly when leaving C (tPauseEnd) */}
-        <set attributeName="opacity" to="1" begin={`clock.begin+${tC}s`} dur="0.001s" fill="freeze" />
-        <set attributeName="opacity" to="0" begin={`clock.begin+${tPauseEnd}s`} dur="0.001s" fill="freeze" />
+        {/* SAFE reveal #1 at A (r0,c0) */}
+        <g opacity="0">
+          <rect
+            x={start}
+            y={start}
+            width={size}
+            height={size}
+            rx="7"
+            className="fill-emerald-500/10 dark:fill-emerald-400/10 stroke-emerald-500/60 dark:stroke-emerald-300/60"
+            fill="rgba(16,185,129,0.10)"
+            stroke="rgba(16,185,129,0.60)"
+            strokeWidth="1.5"
+          />
+          <text
+            x={start + size / 2}
+            y={start + size / 2 + 6}
+            textAnchor="middle"
+            className="fill-blue-600 dark:fill-blue-400"
+            fill="#2563eb"
+            fontFamily="ui-sans-serif, system-ui"
+            fontWeight="700"
+            fontSize="14"
+          >
+            1
+          </text>
 
-        {/* gentle pop on appearance */}
-        <animateTransform
-          attributeName="transform"
-          type="scale"
-          values="1;1.25;1"
-          keyTimes="0;0.5;1"
-          dur="0.9s"
-          begin={`clock.begin+${tC}s`}
-          repeatCount="1"
-          additive="sum"
-        />
+          {/* Appear exactly at arrival A (0s); stay until we leave C (tPauseEnd) */}
+          <set attributeName="opacity" to="1" begin={`clock.begin+${tA}s`} dur="0.001s" fill="freeze" />
+          <set attributeName="opacity" to="0" begin={`clock.begin+${tPauseEnd}s`} dur="0.001s" fill="freeze" />
+        </g>
+
+        {/* SAFE reveal #2 at B (r0,c1) */}
+        <g opacity="0">
+          <rect
+            x={start + step}
+            y={start}
+            width={size}
+            height={size}
+            rx="7"
+            className="fill-emerald-500/10 dark:fill-emerald-400/10 stroke-emerald-500/60 dark:stroke-emerald-300/60"
+            fill="rgba(16,185,129,0.10)"
+            stroke="rgba(16,185,129,0.60)"
+            strokeWidth="1.5"
+          />
+          <text
+            x={start + step + size / 2}
+            y={start + size / 2 + 6}
+            textAnchor="middle"
+            className="fill-emerald-600 dark:fill-emerald-400"
+            fill="#059669"
+            fontFamily="ui-sans-serif, system-ui"
+            fontWeight="700"
+            fontSize="14"
+          >
+            2
+          </text>
+
+          {/* Appear at arrival B; stay until we leave C */}
+          <set attributeName="opacity" to="1" begin={`clock.begin+${tB}s`} dur="0.001s" fill="freeze" />
+          <set attributeName="opacity" to="0" begin={`clock.begin+${tPauseEnd}s`} dur="0.001s" fill="freeze" />
+        </g>
+
+        {/* MINE reveal #3 at C (r1,c2) */}
+        <g
+          opacity="0"
+          transform={`translate(${start + 2 * step + size / 2} ${start + step + size / 2})`}
+        >
+          {/* revealed tile background */}
+          <rect
+            x={-size / 2}
+            y={-size / 2}
+            width={size}
+            height={size}
+            rx="7"
+            className="fill-rose-500/10 dark:fill-rose-400/10 stroke-rose-500/60 dark:stroke-rose-300/60"
+            fill="rgba(244,63,94,0.10)"
+            stroke="rgba(244,63,94,0.60)"
+            strokeWidth="1.5"
+          />
+          {/* Mine: core + spikes + spark */}
+          <g>
+            <circle r="5" className="fill-rose-600 dark:fill-rose-400" fill="#e11d48" />
+            {Array.from({ length: 8 }).map((_, i) => {
+              const a = (i * 45 * Math.PI) / 180;
+              const x1 = 5 * Math.cos(a), y1 = 5 * Math.sin(a);
+              const x2 = 10 * Math.cos(a), y2 = 10 * Math.sin(a);
+              return (
+                <line
+                  key={i}
+                  x1={x1} y1={y1} x2={x2} y2={y2}
+                  className="stroke-rose-600 dark:stroke-rose-400"
+                  stroke="#e11d48"
+                  strokeWidth="2" strokeLinecap="round"
+                />
+              );
+            })}
+          </g>
+
+          {/* Appear at arrival C; hide exactly when leaving C (tPauseEnd) */}
+          <set attributeName="opacity" to="1" begin={`clock.begin+${tC}s`} dur="0.001s" fill="freeze" />
+          <set attributeName="opacity" to="0" begin={`clock.begin+${tPauseEnd}s`} dur="0.001s" fill="freeze" />
+
+          {/* gentle pop on appearance */}
+          <animateTransform
+            attributeName="transform"
+            type="scale"
+            values="1;1.25;1"
+            keyTimes="0;0.5;1"
+            dur="0.9s"
+            begin={`clock.begin+${tC}s`}
+            repeatCount="1"
+            additive="sum"
+          />
+        </g>
       </g>
     </svg>
   );
