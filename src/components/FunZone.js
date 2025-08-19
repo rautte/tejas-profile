@@ -320,9 +320,7 @@ export default function Fun() {
 
               {/* bottom row: Play full width */}
               <a
-                href="/games/minesweeper.html"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="#/games/minesweeper"
                 className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/80 via-emerald-600/80 to-green-700/80 text-white shadow hover:opacity-90"
               >
                 <FaPlay className="opacity-90" /> <span>Play</span>

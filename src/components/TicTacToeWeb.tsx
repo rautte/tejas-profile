@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { Board, emptyBoard, HUMAN, AI, bestMove, isFull } from "../lib/tictactoe";
+import { Board, emptyBoard, HUMAN, AI, bestMove, isFull } from "lib/tictactoe";
 
 type CellProps = {
   value: 0 | 1 | 2;

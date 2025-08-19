@@ -4,6 +4,7 @@
 import './App.css';
 import './index.css';
 import TicTacToeWeb from "./components/TicTacToeWeb";
+import MinesweeperWeb from "./components/MinesweeperWeb";
 import Hero from "./components/Hero";
 import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";
@@ -168,7 +169,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHashOnly);
   }, []);
 
-  const isGamePage = hashPath === "games/tictactoe-ai";
+  const isGamePage = hashPath === "games/tictactoe-ai" || hashPath === "games/minesweeper";
 
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
@@ -373,7 +374,7 @@ function App() {
         </a>
 
         {/* Game */}
-        <TicTacToeWeb />
+        {hashPath === "games/tictactoe-ai" ? <TicTacToeWeb /> : <MinesweeperWeb />}
       </main>
     );
   }
