@@ -1,6 +1,11 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Board, emptyBoard, HUMAN, AI, bestMove, isFull } from "lib/tictactoe";
 
+type TicTacToeWebProps = {
+  onRegisterReset?: (fn: () => void) => void;
+  showInternalReset?: boolean; // default false when wrapped
+};
+
 type CellProps = {
   value: 0 | 1 | 2;
   onClick?: () => void;
@@ -47,7 +52,7 @@ function CellView({ value, onClick, disabled }: CellProps) {
   );
 }
 
-export default function TicTacToeWeb() {
+export default function TicTacToeWeb({ onRegisterReset, showInternalReset = false }: TicTacToeWebProps) {
   const [board, setBoard] = useState<Board>(() => emptyBoard());
   const [turn, setTurn] = useState<0 | 1 | 2>(HUMAN);
   const [strike, setStrike] = useState<null | "r0" | "r1" | "r2" | "c0" | "c1" | "c2" | "d0" | "d1">(null);
@@ -129,6 +134,11 @@ export default function TicTacToeWeb() {
     setTurn(HUMAN);       // default, will be overwritten by chooser
   };
 
+  useEffect(() => {
+    if (onRegisterReset) onRegisterReset(reset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [onRegisterReset]);
+
   // Strike overlay SVG (uses currentColor + theme class below)
   const Strike = useMemo(() => {
     if (!strike) return null;
@@ -148,7 +158,7 @@ export default function TicTacToeWeb() {
   return (
     <div className="w-full flex justify-center">
         {/* page stack */}
-        <div className="w-full max-w-md mx-auto flex flex-col gap-12">
+        <div className="w-full max-w-md mx-auto flex flex-col gap-8">
 
         {/* 1) Starter chooser — width matches board, centered */}
         {starter === null && (
@@ -210,10 +220,10 @@ export default function TicTacToeWeb() {
         {/* 3) Controls row */}
         <div className="w-full flex items-center justify-between">
             <button
-            onClick={reset}
-            className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
+                onClick={reset}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
             >
-            Reset
+                Reset
             </button>
 
             <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">

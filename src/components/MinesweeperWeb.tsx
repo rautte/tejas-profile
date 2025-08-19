@@ -107,12 +107,6 @@ export default function MinesweeperWeb() {
           >
             Reset
           </button>
-          <a
-            href="#/fun-zone"
-            className="px-3 py-1.5 rounded-md bg-white/80 dark:bg-[#26263a] text-sm ring-1 ring-black/10"
-          >
-            ← Back to Fun Zone
-          </a>
         </div>
       </div>
     </div>

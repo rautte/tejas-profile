@@ -1,7 +1,4 @@
 // src/lib/tictactoe.ts
-// Web port of your Python AI logic (minimax with ±Infinity),
-// plus a greedy front layer: take instant win, otherwise block
-// opponent's instant win, otherwise run full minimax.
 
 export type Cell = 0 | 1 | 2;          // 0 empty, 1 HUMAN (O), 2 AI (X)
 export type Board = Cell[][];

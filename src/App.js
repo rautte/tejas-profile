@@ -5,6 +5,8 @@ import './App.css';
 import './index.css';
 import TicTacToeWeb from "./components/TicTacToeWeb";
 import MinesweeperWeb from "./components/MinesweeperWeb";
+import BattleshipWeb from "./components/BattleshipWeb";
+import GameLayout from "./components/GameLayout";
 import Hero from "./components/Hero";
 import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";
@@ -169,11 +171,9 @@ function App() {
     return () => window.removeEventListener('hashchange', onHashOnly);
   }, []);
 
-  const isGamePage = hashPath === "games/tictactoe-ai" || hashPath === "games/minesweeper";
-
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
-    if (hashPath.startsWith('games/')) return; // don't clobber game routes
+  if (hashPath.startsWith('games/')) return; // don't clobber game routes
     const slug = toSlug(selectedSection);
     if (window.location.hash !== `#/${slug}`) {
       window.location.hash = `/${slug}`;
@@ -347,37 +347,43 @@ function App() {
 
   const sidebarRound = heroCollapsed ? "rounded-none md:rounded-md" : "rounded-md";
 
+  // treat any #/games/* as a game page
+  const isGamePage = hashPath.startsWith("games/");
+
   if (isGamePage) {
+    let title = "";
+    let game = null;
+
+    if (hashPath === "games/tictactoe") {
+      title = "Tic-Tac-Toe (AI)";
+      game = <TicTacToeWeb />; // ← no onRegisterReset here
+    } else if (hashPath === "games/minesweeper") {
+      title = "Minesweeper";
+      game = <MinesweeperWeb />; // ← no onRegisterReset
+    } else if (hashPath === "games/battleship") {
+      title = "Battleship";
+      game = <BattleshipWeb />; // ← no onRegisterReset
+    } else {
+      title = "Game";
+      game = null;
+    }
+
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#181826] p-6">
-        {/* Dark mode toggle (uses the SAME state & effect as the rest of the app) */}
-        <button
-          onClick={() => setDarkMode(!darkMode)}
-          className="fixed top-4 right-4 z-50 p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
-          title="Toggle dark mode"
-          aria-label="Toggle dark mode"
-        >
-          {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
-        </button>
-
-        {/* Back link */}
-        <a
-          href="#/fun-zone"
-          className="
-            fixed top-4 left-4 z-50 px-3 py-1.5 rounded-md
-            bg-white/80 text-gray-800 ring-1 ring-black/10 hover:bg-white
-            dark:bg-[#26263a] dark:text-gray-100 dark:ring-white/10 dark:hover:bg-[#2f2f46]
-            transition
-          "
-        >
-          ← Back to Fun Zone
-        </a>
-
-        {/* Game */}
-        {hashPath === "games/tictactoe-ai" ? <TicTacToeWeb /> : <MinesweeperWeb />}
-      </main>
+      <GameLayout
+        title={title}
+        darkMode={darkMode}
+        setDarkMode={setDarkMode}
+        // ← no onReset prop
+      >
+        {game ?? (
+          <div className="text-gray-700 dark:text-gray-300">
+            Unknown game. <a className="underline" href="#/fun-zone">Back to Fun Zone</a>
+          </div>
+        )}
+      </GameLayout>
     );
   }
+
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
