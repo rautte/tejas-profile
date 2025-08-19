@@ -168,7 +168,7 @@ export function MinesweeperSVG() {
                 width={size}
                 height={size}
                 rx="7"
-                className="fill-gray-200 dark:fill-gray-800"
+                className="fill-gray-200 dark:fill-gray-700"
                 fill="#e5e7eb"
                 stroke="none"
               />
