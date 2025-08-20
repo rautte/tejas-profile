@@ -69,6 +69,16 @@ function getInitialTheme() {
   return false; // default light
 }
 
+// Accepts: "fun-zone/battleship", "fun-zone/battleship-AX9G", "fun-zone/minesweeper", "fun-zone/tictactoe"
+function parseFunZoneRoute(hashPath) {
+  const m = /^fun-zone\/(battleship(?:-([A-Z0-9]{4}))?|minesweeper|tictactoe)$/i.exec(hashPath || "");
+  if (!m) return { game: null, code: null };
+  const raw = m[1].toLowerCase();
+  const code = (m[2] || null)?.toUpperCase() || null;
+  const game = raw.startsWith("battleship") ? "battleship" : raw; // normalize
+  return { game, code };
+}
+
 function App() {
   // --- theme (single source of truth, no flash) ---
   const [darkMode, setDarkMode] = useState(getInitialTheme);
@@ -351,31 +361,27 @@ function App() {
   const isGamePage = hashPath.startsWith("fun-zone/");
 
   if (isGamePage) {
-    let title = "";
-    let game = null;
+    const { game, code } = parseFunZoneRoute(hashPath);
 
-    if (hashPath === "fun-zone/tictactoe") {
+    // Title + component selection
+    let title = "Game";
+    let gameElement = null;
+
+    if (game === "tictactoe") {
       title = "Tic-Tac-Toe (AI)";
-      game = <TicTacToeWeb />; // ← no onRegisterReset here
-    } else if (hashPath === "fun-zone/minesweeper") {
+      gameElement = <TicTacToeWeb />;
+    } else if (game === "minesweeper") {
       title = "Minesweeper";
-      game = <MinesweeperWeb />; // ← no onRegisterReset
-    } else if (hashPath === "fun-zone/battleship") {
-      title = "Battleship";
-      game = <BattleshipWeb />; // ← no onRegisterReset
-    } else {
-      title = "Game";
-      game = null;
+      gameElement = <MinesweeperWeb />;
+    } else if (game === "battleship") {
+      // Optional: show code in the title if we arrived via invite link
+      title = code ? `Battleship — Room ${code}` : "Battleship";
+      gameElement = <BattleshipWeb />;
     }
 
     return (
-      <GameLayout
-        title={title}
-        darkMode={darkMode}
-        setDarkMode={setDarkMode}
-        // ← no onReset prop
-      >
-        {game ?? (
+      <GameLayout title={title} darkMode={darkMode} setDarkMode={setDarkMode}>
+        {gameElement ?? (
           <div className="text-gray-700 dark:text-gray-300">
             Unknown game. <a className="underline" href="#/fun-zone">Back to Fun Zone</a>
           </div>

@@ -196,11 +196,25 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const [turn, setTurn] = React.useState<"player" | "ai">("player");
   const [msg, setMsg] = React.useState("Place your ships (Toggle Orientation)");
 
+  // keep live refs so MP handlers don't capture stale state
+  const roleRef = React.useRef(role);
+  const playerGridRef = React.useRef(playerGrid);
+  const playerFleetRef = React.useRef(playerFleet);
+  const playerShotsRef = React.useRef(playerShots);
+  const enemyShotsRef = React.useRef(enemyShots);
+
+  // keep refs in sync with state
+  React.useEffect(() => { roleRef.current = role; }, [role]);
+  React.useEffect(() => { playerGridRef.current = playerGrid; }, [playerGrid]);
+  React.useEffect(() => { playerFleetRef.current = playerFleet; }, [playerFleet]);
+  React.useEffect(() => { playerShotsRef.current = playerShots; }, [playerShots]);
+  React.useEffect(() => { enemyShotsRef.current = enemyShots; }, [enemyShots]);
+
   const aiRef = React.useRef(makeAIState());
 
   // MP ready flags (gate to 'play')
   const [iAmReady, setIAmReady] = React.useState(false);
-  const [bothReady, setBothReady] = React.useState(false);
+  const [peerReady, setPeerReady] = React.useState(false);
 
   // Bot: seed enemy
   React.useEffect(() => {
@@ -232,7 +246,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     setTurn("player");
     aiRef.current = makeAIState();
     setMsg("Place your ships (Toggle Orientation)");
-    setIAmReady(false); setBothReady(false);
+    setIAmReady(false); setPeerReady(false);
     if (mode === "bot") {
       const { grid, fleet } = randomFleet(); setEnemyGrid(grid); setEnemyFleet(fleet);
     }
@@ -240,70 +254,93 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   React.useEffect(() => { onRegisterReset?.(resetLocal); }, [onRegisterReset, resetLocal]);
 
   /* ---- MP wiring (event-stream only) ---- */
+  // STABLE ensureRoom: uses refs for live state; no deps
   const ensureRoom = React.useCallback(async (asHost: boolean) => {
     const adapter = await createFirebaseAdapter();
     const code = asHost ? (roomCode || generateCode()) : roomCode;
     if (!code) return;
-    setRoomCode(code);
 
+    setRoomCode(code);
     const r = new Room(adapter, code, asHost ? "host" : "guest", {
       onShot: ({ by, r, c }) => {
-        // defender: compute result locally on our board
-        const res = receiveShot(playerGrid, playerShots, playerFleet, r, c);
-        setPlayerShots(res.shots); setPlayerFleet(res.fleet);
-        const result = (res.result === "hit" || res.result === "sunk") ? res.result : "miss";
-        rObj().result(by, result as any, r, c);
+        // opponent fired on *us*
+        const myRole = roleRef.current;
+        const theyTargetedUs =
+          (by === "host" && myRole === "guest") || (by === "guest" && myRole === "host");
+        if (!theyTargetedUs) return;
 
+        // compute result against our *current* board
+        const res = receiveShot(
+          playerGridRef.current,
+          playerShotsRef.current,
+          playerFleetRef.current,
+          r, c
+        );
+
+        // update our board using the result (functional updates to avoid races)
+        setPlayerShots(() => res.shots);
+        setPlayerFleet(() => res.fleet);
+
+        // tell attacker their result
+        rObj().result(by, (res.result === "hit" || res.result === "sunk") ? res.result : "miss", r, c);
+
+        // loss check
         if (allSunk(res.fleet)) {
-          setPhase("over"); setMsg("Opponent wins!"); rObj().phase("over");
+          setPhase("over");
+          setMsg("Opponent wins!");
+          rObj().phase("over");
         } else {
           setTurn("player");
-          setMsg(result === "miss" ? "Opponent missed. Your turn!" : "Opponent hit you! Your turn.");
+          setMsg(res.result === "miss" ? "Opponent missed. Your turn!" : "Opponent hit you! Your turn.");
         }
       },
+
       onResult: ({ to, result, r, c }) => {
-        // attacker: color our enemyShots
-        const es = enemyShots.map(row => row.slice());
-        es[r][c] = result === "miss" ? 1 : 2;
-        setEnemyShots(es);
+        // result for a shot WE made
+        const myRole = roleRef.current;
+        const isForUs = (to === myRole);
+        if (!isForUs) return;
+
+        // mark result on our enemyShots
+        setEnemyShots(prev => {
+          const next = prev.map(row => row.slice());
+          next[r][c] = result === "miss" ? 1 : 2;
+          return next;
+        });
+
+        setMsg(
+          result === "sunk" ? "Sunk! Opponent’s turn…" :
+          result === "hit"  ? "Hit! Opponent’s turn…" :
+                              "You missed. Opponent’s turn…"
+        );
         setTurn("ai");
-        setMsg(result === "miss" ? "You missed. Opponent’s turn…" : (result === "sunk" ? "Sunk! Opponent’s turn…" : "Hit! Opponent’s turn…"));
       },
-      onPhase: (ph) => {
-        setPhase(ph);
-        if (ph === "play") {
-          if ((asHost && role === "host") || (!asHost && role === "host")) {
-            setTurn("player"); setMsg("Your turn!");
-          } else {
-            setTurn("ai"); setMsg("Opponent starts…");
-          }
-        }
-      },
+
+      onPhase: (ph) => setPhase(ph),
       onRematch: () => resetLocal(),
-      onReady: (ready) => {
-        setBothReady(!!ready.host && !!ready.guest);
-        // Host flips to play exactly once when both ready
-        if (ready.host && ready.guest && role === "host") {
-          rObj().phase("play");
-        }
+      onReady: ({ by, ready }) => {
+        // only care about the other side's readiness
+        const mine = roleRef.current;
+        if (by !== mine) setPeerReady(!!ready);
       },
     });
+
     roomRef.current = r;
     setRole(asHost ? "host" : "guest");
     if (asHost) await r.create();
     else await r.join();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, role, enemyShots, playerGrid, playerShots, playerFleet, resetLocal]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ← no deps; reads current game via refs
 
   React.useEffect(() => {
-    // auto-join via URL
-    const code = parseRoomCodeFromHash();
-    if (entry === "mp" && code && !roomRef.current) {
+  const code = parseRoomCodeFromHash();
+    if (mode === "mp" && code && !roomRef.current) {
       setRoomCode(code);
-      ensureRoom(false);
+      ensureRoom(false); // guest
     }
-    return () => { roomRef.current?.leave(); };
-  }, [entry, ensureRoom]);
+    // only leave on unmount
+    return () => { /* no per-render leave; only when component unmounts */ };
+  }, [mode, ensureRoom]);
 
   /* ---- Placement ---- */
   const onPlaceClick = (r: number, c: number) => {
@@ -323,7 +360,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         setPhase("play"); setTurn("player"); setMsg("Start firing →");
       } else {
         setIAmReady(true);
-        rObj().ready(role, true);       // announce ready
+        rObj().ready(roleRef.current, true); // announce ready
         setMsg("Waiting for opponent to finish placement…");
       }
     }
@@ -362,6 +399,21 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     rObj().shot(role, r, c);
     setMsg("Fired. Waiting for result…");
   };
+
+  React.useEffect(() => {
+    if (mode !== "mp") return;
+    if (phase !== "place") return;
+    if (!iAmReady || !peerReady) return;
+
+    // both ready -> play
+    setPhase("play");
+    const amHost = roleRef.current === "host";
+    setTurn(amHost ? "player" : "ai");
+    setMsg(amHost ? "You go first. Fire when ready." : "Host goes first. Waiting…");
+
+    // optional: broadcast phase so both UIs are in sync
+    try { rObj().phase("play"); } catch {}
+  }, [mode, phase, iAmReady, peerReady]);
 
   const inviteHash = roomCode ? buildInviteHash(roomCode) : "";
 
@@ -494,7 +546,16 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                   onCellClick={onPlaceClick}
                   disabled={toPlace.length === 0}
                 />
-                {iAmReady && <div className="text-sm text-gray-700 dark:text-gray-300">You’re ready. Waiting for opponent…</div>}
+                {iAmReady && !peerReady && (
+                  <div className="text-sm text-gray-700 dark:text-gray-300">
+                    You’re ready. Waiting for opponent…
+                  </div>
+                )}
+                {!iAmReady && peerReady && (
+                  <div className="text-sm text-gray-700 dark:text-gray-300">
+                    Opponent is ready. Place your ships!
+                  </div>
+                )}
               </div>
             )}
             {phase === "play" && (

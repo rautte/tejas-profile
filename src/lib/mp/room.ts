@@ -1,3 +1,4 @@
+// src/lib/mp/room.ts
 import type { MPAdapter, MPEvent, Role, Snapshot } from "./index";
 
 export type RoomHandlers = {
@@ -6,14 +7,13 @@ export type RoomHandlers = {
   onPhase?: (phase: "place" | "play" | "over") => void;
   onRematch?: () => void;
   onPeerHello?: (by: Role) => void;
-  // NEW:
-  onReady?: (ready: { host: boolean; guest: boolean }) => void;
+  onReady?: (payload: { by: Role; ready: boolean }) => void; // boolean
 };
 
 export class Room {
   private unsub: null | (() => void) = null;
 
-  // NEW: keep the aggregate ready flags so we can send full state in each 'ready' event
+  // (Optional) local aggregate state—useful for UI, but never sent on the wire
   private readyState: { host: boolean; guest: boolean } = { host: false, guest: false };
 
   constructor(
@@ -65,11 +65,15 @@ export class Room {
       case "hello":
         this.handlers.onPeerHello?.(ev.by);
         break;
-      // NEW:
-      case "ready":
-        this.readyState = ev.ready;
-        this.handlers.onReady?.(ev.ready);
+      case "ready": {
+        // maintain local aggregate (not required, but handy)
+        this.readyState = {
+          ...this.readyState,
+          [ev.by]: ev.ready,
+        };
+        this.handlers.onReady?.({ by: ev.by, ready: ev.ready });
         break;
+      }
     }
   }
 
@@ -84,13 +88,11 @@ export class Room {
     return this.adapter.append(this.roomId, { t: "phase", phase, ts: Date.now() });
   }
   rematch() {
+    // clear our local aggregate on rematch
+    this.readyState = { host: false, guest: false };
     return this.adapter.append(this.roomId, { t: "rematch", ts: Date.now() });
   }
-
-  // NEW: announce our ready flag; we include merged state each time
-  ready(by: Role, value: boolean) {
-    const merged = { ...this.readyState, [by]: value };
-    this.readyState = merged;
-    return this.adapter.append(this.roomId, { t: "ready", by, ready: merged, ts: Date.now() });
+  ready(by: Role, ready: boolean) {
+    return this.adapter.append(this.roomId, { t: "ready", by, ready, ts: Date.now() });
   }
 }

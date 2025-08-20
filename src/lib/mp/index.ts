@@ -6,11 +6,12 @@ export type MPMode = "bot" | "mp";
 export type MPEvent =
   | { t: "shot"; by: Role; r: number; c: number; ts: number }
   | { t: "result"; to: Role; result: "miss" | "hit" | "sunk"; r: number; c: number; ts: number }
+  | { t: "ready"; by: Role; ready: boolean; ts: number }
   | { t: "phase"; phase: "place" | "play" | "over"; ts: number }
   | { t: "rematch"; ts: number }
   | { t: "hello"; by: Role; ts: number }
   // NEW: announce placement ready-state; carry who changed & the full state
-  | { t: "ready"; by: Role; ready: { host: boolean; guest: boolean }; ts: number };
+//   | { t: "ready"; by: Role; ready: { host: boolean; guest: boolean }; ts: number };
 
 export type Snapshot = { events: MPEvent[] };
 
