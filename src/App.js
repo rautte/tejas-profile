@@ -173,7 +173,7 @@ function App() {
 
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
-  if (hashPath.startsWith('games/')) return; // don't clobber game routes
+  if (hashPath.startsWith('fun-zone/')) return; // don't clobber game routes
     const slug = toSlug(selectedSection);
     if (window.location.hash !== `#/${slug}`) {
       window.location.hash = `/${slug}`;
@@ -348,19 +348,19 @@ function App() {
   const sidebarRound = heroCollapsed ? "rounded-none md:rounded-md" : "rounded-md";
 
   // treat any #/games/* as a game page
-  const isGamePage = hashPath.startsWith("games/");
+  const isGamePage = hashPath.startsWith("fun-zone/");
 
   if (isGamePage) {
     let title = "";
     let game = null;
 
-    if (hashPath === "games/tictactoe") {
+    if (hashPath === "fun-zone/tictactoe") {
       title = "Tic-Tac-Toe (AI)";
       game = <TicTacToeWeb />; // ← no onRegisterReset here
-    } else if (hashPath === "games/minesweeper") {
+    } else if (hashPath === "fun-zone/minesweeper") {
       title = "Minesweeper";
       game = <MinesweeperWeb />; // ← no onRegisterReset
-    } else if (hashPath === "games/battleship") {
+    } else if (hashPath === "fun-zone/battleship") {
       title = "Battleship";
       game = <BattleshipWeb />; // ← no onRegisterReset
     } else {
