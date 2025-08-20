@@ -6,10 +6,16 @@ export type RoomHandlers = {
   onPhase?: (phase: "place" | "play" | "over") => void;
   onRematch?: () => void;
   onPeerHello?: (by: Role) => void;
+  // NEW:
+  onReady?: (ready: { host: boolean; guest: boolean }) => void;
 };
 
 export class Room {
   private unsub: null | (() => void) = null;
+
+  // NEW: keep the aggregate ready flags so we can send full state in each 'ready' event
+  private readyState: { host: boolean; guest: boolean } = { host: false, guest: false };
+
   constructor(
     private adapter: MPAdapter,
     private roomId: string,
@@ -59,6 +65,11 @@ export class Room {
       case "hello":
         this.handlers.onPeerHello?.(ev.by);
         break;
+      // NEW:
+      case "ready":
+        this.readyState = ev.ready;
+        this.handlers.onReady?.(ev.ready);
+        break;
     }
   }
 
@@ -74,5 +85,12 @@ export class Room {
   }
   rematch() {
     return this.adapter.append(this.roomId, { t: "rematch", ts: Date.now() });
+  }
+
+  // NEW: announce our ready flag; we include merged state each time
+  ready(by: Role, value: boolean) {
+    const merged = { ...this.readyState, [by]: value };
+    this.readyState = merged;
+    return this.adapter.append(this.roomId, { t: "ready", by, ready: merged, ts: Date.now() });
   }
 }

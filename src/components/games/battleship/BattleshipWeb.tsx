@@ -14,7 +14,7 @@ import {
 } from "lib/mp";
 import { Room } from "lib/mp/room";
 
-/* ----------------- UI bits (unchanged from your last version) ----------------- */
+/* ----------------- UI bits ----------------- */
 const cellBase =
   "relative aspect-square rounded-md ring-1 transition select-none " +
   "ring-gray-300 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 " +
@@ -26,14 +26,13 @@ const HitMark = () => (
     <line x1="80" y1="20" x2="20" y2="80" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
   </svg>
 );
-
 const MissMark = () => (
   <svg viewBox="0 0 100 100" className="w-1/3 h-1/3 text-gray-500 dark:text-gray-400">
     <circle cx="50" cy="50" r="15" stroke="currentColor" strokeWidth="8" fill="none" />
   </svg>
 );
 
-/* ----------------- sunk overlays (unchanged) ----------------- */
+/* -------- sunk overlays -------- */
 type SunkOverlay = { r0: number; c0: number; r1: number; c1: number; cells: string[]; };
 function computeSunkOverlays(grid: Grid, shots: Shots): SunkOverlay[] {
   const byId: Record<number, Array<[number, number]>> = {};
@@ -59,7 +58,7 @@ function computeSunkOverlays(grid: Grid, shots: Shots): SunkOverlay[] {
 
 function BoardGrid({
   title, grid, shots, revealShips = false, onCellClick, disabled = false,
-  greenEllipseOnly = false, // NEW: for player board green pill
+  greenEllipseOnly = false,
 }: {
   title: string;
   grid: Grid;
@@ -80,8 +79,7 @@ function BoardGrid({
   }, [sunkOverlays]);
 
   React.useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
+    const el = wrapRef.current; if (!el) return;
     const ro = new ResizeObserver(() => {
       const firstBtn = el.querySelector<HTMLButtonElement>('button[data-rc="0,0"]');
       const nextBtn  = el.querySelector<HTMLButtonElement>('button[data-rc="0,1"]');
@@ -123,23 +121,21 @@ function BoardGrid({
               disabled={!canClick}
               aria-label={`${title} ${r},${c}`}
             >
-              {/* Player board: green ellipse pill (if requested) */}
+              {/* Player board: green ellipse pill */}
               {showGreen && greenEllipseOnly && (
                 <span className="absolute inset-0 rounded-full bg-emerald-500/25 dark:bg-emerald-400/20 pointer-events-none" />
               )}
-
-              {/* Enemy board (or any non-pill reveal): original emerald square */}
+              {/* Enemy reveal (square) */}
               {showGreen && !greenEllipseOnly && (
                 <span className="absolute inset-0 rounded-lg bg-emerald-500/20 dark:bg-emerald-400/20 pointer-events-none" />
               )}
-
-              {/* Hide X if whole ship is sunk; still show misses */}
+              {/* X/Miss icons (hide X for fully-sunk) */}
               {!inSunk && (shot === 2 ? <HitMark /> : shot === 1 ? <MissMark /> : null)}
             </button>
           );
         })}
 
-        {/* sunk overlays */}
+        {/* sunk overlays (red pill) */}
         {metrics &&
           sunkOverlays.map((o, idx) => {
             const { cell, gap, pad } = metrics;
@@ -163,31 +159,38 @@ function BoardGrid({
   );
 }
 
-/* ----------------- Main component with Bot / Multiplayer ----------------- */
+/* ----------------- Main ----------------- */
 
 type Phase = "place" | "play" | "over";
 type Props = { onRegisterReset?: (fn: () => void) => void; };
 
 export default function BattleshipWeb({ onRegisterReset }: Props) {
-  // mode & MP
-  const [mode, setMode] = React.useState<MPMode>(() => (parseRoomCodeFromHash() ? "mp" : "bot"));
-  const [role, setRole] = React.useState<Role>("host");
-  const [roomCode, setRoomCode] = React.useState<string>(() => parseRoomCodeFromHash() || "");
-  const roomRef = React.useRef<Room | null>(null);
+  // First-screen UX
+  const inviteFromHash = parseRoomCodeFromHash() || "";
+  const [entry, setEntry] = React.useState<"landing" | "bot" | "mp">(
+    inviteFromHash ? "mp" : "landing"
+  );
 
-  // game state
+  // MP mode wiring
+  const [mode, setMode] = React.useState<MPMode>(() => (inviteFromHash ? "mp" : "bot"));
+  const [role, setRole] = React.useState<Role>(inviteFromHash ? "guest" : "host");
+  const [roomCode, setRoomCode] = React.useState<string>(() => inviteFromHash);
+  const roomRef = React.useRef<Room | null>(null);
+  const rObj = () => roomRef.current!;
+
+  // Game state
   const [phase, setPhase] = React.useState<Phase>("place");
   const [orientation, setOrientation] = React.useState<Orientation>("H");
 
   // Player
   const [playerGrid, setPlayerGrid]   = React.useState<Grid>(() => makeGrid());
   const [playerFleet, setPlayerFleet] = React.useState<Fleet>({});
-  const [playerShots, setPlayerShots] = React.useState<Shots>(() => makeShots()); // Bot's shots on us
+  const [playerShots, setPlayerShots] = React.useState<Shots>(() => makeShots());
 
-  // Enemy (Bot or remote player)
+  // Enemy
   const [enemyGrid, setEnemyGrid]   = React.useState<Grid>(() => makeGrid());
   const [enemyFleet, setEnemyFleet] = React.useState<Fleet>({});
-  const [enemyShots, setEnemyShots] = React.useState<Shots>(() => makeShots()); // our shots on them
+  const [enemyShots, setEnemyShots] = React.useState<Shots>(() => makeShots());
 
   const [toPlace, setToPlace] = React.useState<number[]>(() => [...FLEET_SIZES]);
   const [turn, setTurn] = React.useState<"player" | "ai">("player");
@@ -195,7 +198,11 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
   const aiRef = React.useRef(makeAIState());
 
-  // init enemy for Bot mode
+  // MP ready flags (gate to 'play')
+  const [iAmReady, setIAmReady] = React.useState(false);
+  const [bothReady, setBothReady] = React.useState(false);
+
+  // Bot: seed enemy
   React.useEffect(() => {
     if (mode === "bot") {
       const { grid, fleet } = randomFleet();
@@ -203,7 +210,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     }
   }, [mode]);
 
-  // keyboard R rotate
+  // R hotkey
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (phase === "place" && (e.key === "r" || e.key === "R")) {
@@ -214,7 +221,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase]);
 
-  // Expose "reset" as a full rematch for Bot mode; in MP we'll use room.rematch()
+  // Reset (local)
   const resetLocal = React.useCallback(() => {
     setPhase("place"); setOrientation("H");
     setPlayerGrid(makeGrid()); setPlayerFleet({});
@@ -225,119 +232,115 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     setTurn("player");
     aiRef.current = makeAIState();
     setMsg("Place your ships (Toggle Orientation)");
+    setIAmReady(false); setBothReady(false);
     if (mode === "bot") {
       const { grid, fleet } = randomFleet(); setEnemyGrid(grid); setEnemyFleet(fleet);
     }
   }, [mode]);
+  React.useEffect(() => { onRegisterReset?.(resetLocal); }, [onRegisterReset, resetLocal]);
 
-  React.useEffect(() => { if (onRegisterReset) onRegisterReset(resetLocal); }, [onRegisterReset, resetLocal]);
-
-  /* ----------------- Multiplayer wiring ----------------- */
+  /* ---- MP wiring (event-stream only) ---- */
   const ensureRoom = React.useCallback(async (asHost: boolean) => {
     const adapter = await createFirebaseAdapter();
     const code = asHost ? (roomCode || generateCode()) : roomCode;
     if (!code) return;
     setRoomCode(code);
+
     const r = new Room(adapter, code, asHost ? "host" : "guest", {
       onShot: ({ by, r, c }) => {
-        // if opponent fires on us, we compute result locally, update our board, and send result back
-        if ((by === "host" && role === "guest") || (by === "guest" && role === "host")) {
-          const res = receiveShot(playerGrid, playerShots, playerFleet, r, c);
-          setPlayerShots(res.shots);
-          setPlayerFleet(res.fleet);
-          const result = res.result === "hit" || res.result === "sunk" ? res.result : "miss";
-          rObj().result(by, result as any, r, c); // to attacker
-          // check loss
-          if (allSunk(res.fleet)) {
-            setPhase("over");
-            setMsg("Bot wins!"); // message re-used; in MP it means Opponent wins
-            rObj().phase("over");
-          } else {
-            setTurn("player");
-            setMsg(result === "miss" ? "Opponent missed. Your turn!" : "Opponent hit you! Your turn.");
-          }
+        // defender: compute result locally on our board
+        const res = receiveShot(playerGrid, playerShots, playerFleet, r, c);
+        setPlayerShots(res.shots); setPlayerFleet(res.fleet);
+        const result = (res.result === "hit" || res.result === "sunk") ? res.result : "miss";
+        rObj().result(by, result as any, r, c);
+
+        if (allSunk(res.fleet)) {
+          setPhase("over"); setMsg("Opponent wins!"); rObj().phase("over");
+        } else {
+          setTurn("player");
+          setMsg(result === "miss" ? "Opponent missed. Your turn!" : "Opponent hit you! Your turn.");
         }
       },
       onResult: ({ to, result, r, c }) => {
-        // our shot got a result back
-        if ((to === "host" && role === "host") || (to === "guest" && role === "guest")) {
-          const resShots = enemyShots.map(row => row.slice());
-          resShots[r][c] = result === "miss" ? 1 : 2;
-          setEnemyShots(resShots);
-          if (result === "sunk" || result === "hit") {
-            setMsg(result === "sunk" ? "Sunk! Opponent’s turn…" : "Hit! Opponent’s turn…");
+        // attacker: color our enemyShots
+        const es = enemyShots.map(row => row.slice());
+        es[r][c] = result === "miss" ? 1 : 2;
+        setEnemyShots(es);
+        setTurn("ai");
+        setMsg(result === "miss" ? "You missed. Opponent’s turn…" : (result === "sunk" ? "Sunk! Opponent’s turn…" : "Hit! Opponent’s turn…"));
+      },
+      onPhase: (ph) => {
+        setPhase(ph);
+        if (ph === "play") {
+          if ((asHost && role === "host") || (!asHost && role === "host")) {
+            setTurn("player"); setMsg("Your turn!");
           } else {
-            setMsg("You missed. Opponent’s turn…");
+            setTurn("ai"); setMsg("Opponent starts…");
           }
-          setTurn("ai"); // opponent
         }
       },
-      onPhase: (ph) => setPhase(ph),
       onRematch: () => resetLocal(),
+      onReady: (ready) => {
+        setBothReady(!!ready.host && !!ready.guest);
+        // Host flips to play exactly once when both ready
+        if (ready.host && ready.guest && role === "host") {
+          rObj().phase("play");
+        }
+      },
     });
     roomRef.current = r;
     setRole(asHost ? "host" : "guest");
     if (asHost) await r.create();
     else await r.join();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode, role, playerGrid, playerShots, playerFleet, enemyShots]);
+  }, [roomCode, role, enemyShots, playerGrid, playerShots, playerFleet, resetLocal]);
 
   React.useEffect(() => {
-    // auto-join if URL has battleship-XXXX
+    // auto-join via URL
     const code = parseRoomCodeFromHash();
-    if (mode === "mp" && code && !roomRef.current) {
+    if (entry === "mp" && code && !roomRef.current) {
       setRoomCode(code);
-      ensureRoom(false); // guest
+      ensureRoom(false);
     }
-    // cleanup on unmount
     return () => { roomRef.current?.leave(); };
-  }, [mode, ensureRoom]);
+  }, [entry, ensureRoom]);
 
-  const rObj = () => roomRef.current!;
-
-  /* ----------------- Placement ----------------- */
+  /* ---- Placement ---- */
   const onPlaceClick = (r: number, c: number) => {
     if (phase !== "place" || toPlace.length === 0) return;
     const length = toPlace[0];
-    if (!canPlace(playerGrid, r, c, length, orientation)) {
-      setMsg("Can't place there");
-      return;
-    }
+    if (!canPlace(playerGrid, r, c, length, orientation)) { setMsg("Can't place there"); return; }
     const nextId = Object.keys(playerFleet).length + 1;
     const res = placeShip(playerGrid, playerFleet, nextId, r, c, length, orientation);
-    setPlayerGrid(res.grid);
-    setPlayerFleet(res.fleet);
+    setPlayerGrid(res.grid); setPlayerFleet(res.fleet);
 
     const remaining = toPlace.slice(1);
     setToPlace(remaining);
-    setMsg(remaining.length ? `Placed ${length}. Next: ${remaining[0]} (Toggle Orientation)` : "All placed! Start firing →");
+    setMsg(remaining.length ? `Placed ${length}. Next: ${remaining[0]} (Toggle Orientation)` : "All placed!");
 
     if (remaining.length === 0) {
-      setPhase("play");
-      setTurn("player");
-      if (mode === "mp") rObj().phase("play");
+      if (mode === "bot") {
+        setPhase("play"); setTurn("player"); setMsg("Start firing →");
+      } else {
+        setIAmReady(true);
+        rObj().ready(role, true);       // announce ready
+        setMsg("Waiting for opponent to finish placement…");
+      }
     }
   };
 
-  /* ----------------- Bot turn ----------------- */
+  /* ---- Bot turn ---- */
   const aiTurn = () => {
     const ai = aiRef.current;
     const [rr, cc] = aiPick(playerShots, ai);
     const res = receiveShot(playerGrid, playerShots, playerFleet, rr, cc);
-    setPlayerShots(res.shots);
-    setPlayerFleet(res.fleet);
-
+    setPlayerShots(res.shots); setPlayerFleet(res.fleet);
     if (res.result === "hit" || res.result === "sunk") aiOnHit(rr, cc, res.shots, ai);
-
-    if (allSunk(res.fleet)) {
-      setPhase("over"); setMsg("Bot wins!"); return;
-    }
-
-    setTurn("player");
-    setMsg(res.result === "miss" ? "Bot missed. Your turn!" : "Bot hit you! Your turn.");
+    if (allSunk(res.fleet)) { setPhase("over"); setMsg("Bot wins!"); return; }
+    setTurn("player"); setMsg(res.result === "miss" ? "Bot missed. Your turn!" : "Bot hit you! Your turn.");
   };
 
-  /* ----------------- Fire on enemy (Bot or MP) ----------------- */
+  /* ---- Fire on enemy ---- */
   const onEnemyClick = (r: number, c: number) => {
     if (phase !== "play") return;
 
@@ -345,13 +348,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       if (turn !== "player" || enemyShots[r][c] !== 0) return;
       try {
         const res = receiveShot(enemyGrid, enemyShots, enemyFleet, r, c);
-        setEnemyShots(res.shots);
-        setEnemyFleet(res.fleet);
-
+        setEnemyShots(res.shots); setEnemyFleet(res.fleet);
         if (allSunk(res.fleet)) { setPhase("over"); setMsg("You win! 🎉"); return; }
-
-        setTurn("ai");
-        setMsg(res.result === "miss" ? "You missed. Bot's turn…" : "Hit! Bot's turn…");
+        setTurn("ai"); setMsg(res.result === "miss" ? "You missed. Bot's turn…" : "Hit! Bot's turn…");
         setTimeout(() => aiTurn(), 400);
       } catch { /* noop */ }
       return;
@@ -359,87 +358,90 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
     // MP
     if (turn !== "player" || enemyShots[r][c] !== 0) return;
-    // Optimistically mark we fired (we'll wait for result event to color hit/miss)
-    const resShots = enemyShots.map(row => row.slice());
-    resShots[r][c] = 0; // keep as 0; result will set 1 or 2
-    setEnemyShots(resShots);
-
-    // send shot event
+    // Don’t mark 1/2 yet; wait for 'result'
     rObj().shot(role, r, c);
     setMsg("Fired. Waiting for result…");
   };
 
-  /* ----------------- Top control (mode + MP controls) ----------------- */
   const inviteHash = roomCode ? buildInviteHash(roomCode) : "";
+
+  /* ---- First screen ---- */
+  if (entry === "landing") {
+    return (
+      <div className="w-full flex justify-center">
+        <div className="w-full max-w-xl mx-auto p-6 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800">
+          <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Play with:</h2>
+          <div className="flex gap-3">
+            <button
+              className="px-4 py-2 rounded-lg bg-purple-600 text-white"
+              onClick={() => { setEntry("bot"); setMode("bot"); resetLocal(); }}
+            >Bot</button>
+            <button
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white"
+              onClick={() => { setEntry("mp"); setMode("mp"); resetLocal(); }}
+            >Invite Player</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- MP lobby header ---- */
+  const MPHeader = () => (
+    <div className="p-3 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold text-gray-800 dark:text-gray-200">Mode: Invite Player</div>
+        <button
+          className="px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700"
+          onClick={() => { roomRef.current?.leave(); setEntry("landing"); setMode("bot"); resetLocal(); }}
+        >
+          Change
+        </button>
+      </div>
+
+      {!roomRef.current ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white" onClick={() => ensureRoom(true)}>
+            Create Game
+          </button>
+          <div className="flex items-center gap-2">
+            <input
+              value={roomCode}
+              onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              placeholder="Code (e.g., AX9G)"
+              className="px-2 py-1 rounded-md bg-white/80 dark:bg-gray-700 text-sm"
+            />
+            <button className="px-3 py-1.5 rounded-lg bg-blue-600 text-white" onClick={() => ensureRoom(false)}>
+              Join Game
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-gray-800 dark:text-gray-200">
+            Room: <b>{roomCode}</b> ({role})
+          </span>
+          <button
+            className="px-3 py-1.5 rounded-lg bg-gray-700 text-white"
+            onClick={() => {
+              const { origin, pathname } = window.location;
+              navigator.clipboard.writeText(`${origin}${pathname}${inviteHash}`);
+            }}
+          >
+            Copy Invite Link
+          </button>
+          <a href={inviteHash} className="px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700">Open Link</a>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="w-full flex justify-center">
       <div className="w-full max-w-5xl mx-auto flex flex-col gap-6">
-        {/* Mode switch */}
-        <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800">
-          <div className="font-semibold text-gray-800 dark:text-gray-200">Mode:</div>
-          <button
-            className={`px-3 py-1.5 rounded-lg ${mode === "bot" ? "bg-purple-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200"}`}
-            onClick={() => { roomRef.current?.leave(); setMode("bot"); resetLocal(); }}
-          >Bot</button>
-          <button
-            className={`px-3 py-1.5 rounded-lg ${mode === "mp" ? "bg-purple-600 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200"}`}
-            onClick={() => { setMode("mp"); resetLocal(); }}
-          >Another Player</button>
+        {mode === "mp" && <MPHeader />}
 
-          {mode === "mp" && (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              {!roomRef.current && (
-                <>
-                  <button
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
-                    onClick={() => ensureRoom(true)}
-                  >
-                    Create Room
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={roomCode}
-                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                      placeholder="Code (e.g., AX9G)"
-                      className="px-2 py-1 rounded-md bg-white/80 dark:bg-gray-700 text-sm"
-                    />
-                    <button
-                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-white"
-                      onClick={() => ensureRoom(false)}
-                    >
-                      Join
-                    </button>
-                  </div>
-                </>
-              )}
-              {roomRef.current && (
-                <>
-                  <span className="text-sm text-gray-800 dark:text-gray-200">
-                    Room: <b>{roomCode}</b>
-                  </span>
-                  <button
-                    className="px-3 py-1.5 rounded-lg bg-gray-700 text-white"
-                    onClick={() => {
-                      const { origin, pathname } = window.location;
-                      navigator.clipboard.writeText(`${origin}${pathname}${inviteHash}`);
-                    }}
-                  >
-                    Copy Invite Link
-                  </button>
-                  <a
-                    href={inviteHash}
-                    className="px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700"
-                  >
-                    Open Link
-                  </a>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Placement controls (only during placement) */}
+        {/* Placement controls (placement phase only) */}
         {phase === "place" && (
           <div className="flex items-center justify-between rounded-xl p-3 ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800">
             <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
@@ -458,32 +460,67 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         )}
 
         {/* Boards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Player board: green ellipse pill; X's vanish when sunk; red pill overlay stays */}
-          <BoardGrid
-            title="Your Board"
-            grid={playerGrid}
-            shots={playerShots}
-            revealShips
-            greenEllipseOnly
-            onCellClick={phase === "place" ? onPlaceClick : undefined}
-            disabled={phase !== "place"}
-          />
+        {mode === "bot" ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <BoardGrid
+              title="Your Board"
+              grid={playerGrid}
+              shots={playerShots}
+              revealShips
+              greenEllipseOnly
+              onCellClick={phase === "place" ? onPlaceClick : undefined}
+              disabled={phase !== "place"}
+            />
+            <BoardGrid
+              title="Enemy Board"
+              grid={enemyGrid}
+              shots={enemyShots}
+              revealShips={phase === "over"}
+              onCellClick={onEnemyClick}
+              disabled={phase !== "play" || turn !== "player"}
+            />
+          </div>
+        ) : (
+          <>
+            {phase === "place" && (
+              <div className="grid grid-cols-1 gap-6">
+                {/* Only show player board while placing */}
+                <BoardGrid
+                  title="Your Board (place your ships)"
+                  grid={playerGrid}
+                  shots={playerShots}
+                  revealShips
+                  greenEllipseOnly
+                  onCellClick={onPlaceClick}
+                  disabled={toPlace.length === 0}
+                />
+                {iAmReady && <div className="text-sm text-gray-700 dark:text-gray-300">You’re ready. Waiting for opponent…</div>}
+              </div>
+            )}
+            {phase === "play" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <BoardGrid
+                  title="Your Board"
+                  grid={playerGrid}
+                  shots={playerShots}
+                  revealShips
+                  greenEllipseOnly
+                  disabled
+                />
+                <BoardGrid
+                  title="Enemy Board"
+                  grid={enemyGrid}
+                  shots={enemyShots}
+                  revealShips={phase === "over"}
+                  onCellClick={onEnemyClick}
+                  disabled={turn !== "player"}
+                />
+              </div>
+            )}
+          </>
+        )}
 
-          {/* Enemy board:
-              - Bot: behaves the same as before
-              - MP: at game over (we lost), show enemy unsunk ships with emerald pill; preserve any X we found */}
-          <BoardGrid
-            title="Enemy Board"
-            grid={enemyGrid}
-            shots={enemyShots}
-            revealShips={mode === "bot" ? phase === "over" : phase === "over"} // (MP: reveal on over)
-            onCellClick={onEnemyClick}
-            disabled={phase !== "play" || (mode === "bot" ? (turn !== "player") : false)}
-          />
-        </div>
-
-        {/* Bottom bar: Reset for Bot; Rematch for MP */}
+        {/* Bottom bar */}
         <div className="flex items-center justify-between">
           {mode === "bot" ? (
             <button
@@ -508,6 +545,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     </div>
   );
 }
+
 
 
 

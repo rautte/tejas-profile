@@ -8,7 +8,9 @@ export type MPEvent =
   | { t: "result"; to: Role; result: "miss" | "hit" | "sunk"; r: number; c: number; ts: number }
   | { t: "phase"; phase: "place" | "play" | "over"; ts: number }
   | { t: "rematch"; ts: number }
-  | { t: "hello"; by: Role; ts: number }; // presence
+  | { t: "hello"; by: Role; ts: number }
+  // NEW: announce placement ready-state; carry who changed & the full state
+  | { t: "ready"; by: Role; ready: { host: boolean; guest: boolean }; ts: number };
 
 export type Snapshot = { events: MPEvent[] };
 
@@ -30,8 +32,8 @@ export function generateCode(n = 4) {
 
 export function parseRoomCodeFromHash(): string | null {
   // matches #/fun-zone/battleship-AX9G
-  const h = (window.location.hash || "").toLowerCase();
-  const m = h.match(/#\/fun-zone\/battleship-([a-z0-9]+)/i);
+  const h = (window.location.hash || "");
+  const m = h.match(/^#\/fun-zone\/battleship-([A-Z0-9]{4})$/i);
   return m ? m[1].toUpperCase() : null;
 }
 
@@ -39,9 +41,9 @@ export function buildInviteHash(code: string) {
   return `#/fun-zone/battleship-${code.toUpperCase()}`;
 }
 
-// Consumers will import the concrete adapter they prefer.
-// We re-export a lazy import helper for Firebase adapter.
-export async function createFirebaseAdapter(): Promise<MPAdapter> {
+// lazy import Firebase adapter
+export async function createFirebaseAdapter() {
   const mod = await import("./adapters/firebase");
   return mod.firebaseAdapter();
 }
+
