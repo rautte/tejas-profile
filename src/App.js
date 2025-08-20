@@ -3,10 +3,10 @@
 
 import './App.css';
 import './index.css';
-import TicTacToeWeb from "./components/TicTacToeWeb";
-import MinesweeperWeb from "./components/MinesweeperWeb";
-import BattleshipWeb from "./components/BattleshipWeb";
-import GameLayout from "./components/GameLayout";
+import TicTacToeWeb from "./components/games/tictactoe/TicTacToeWeb";
+import MinesweeperWeb from "./components/games/minesweeper/MinesweeperWeb";
+import BattleshipWeb from "./components/games/battleship/BattleshipWeb";
+import GameLayout from "./components/games/GameLayout";
 import Hero from "./components/Hero";
 import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";

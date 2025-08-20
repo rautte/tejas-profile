@@ -6,7 +6,7 @@ import { FaPlay, FaGithub, FaDownload } from 'react-icons/fa';
 import { GiConsoleController } from 'react-icons/gi';
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { BattleshipSVG, MinesweeperSVG, TicTacToeSVG } from "./GameSVGs";
+import { BattleshipSVG, MinesweeperSVG, TicTacToeSVG } from "./games/GameSVGs";
 
 // helper: package a zip containing the live SVG, a demo source file, README, and requirements.txt
 const downloadZipBySvgId = async (id, baseName) => {
