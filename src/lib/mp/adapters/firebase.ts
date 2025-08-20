@@ -1,61 +1,88 @@
-// Very small Firebase Realtime Database adapter.
-// 1) npm i firebase
-// 2) put your keys in a <script> tag or env and pass here as needed.
-//    For simplicity we read from window.__FIREBASE (optional).
-
-import { initializeApp, getApps } from "firebase/app";
+// RTDB adapter (Firebase v9 modular)
+import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import {
-  getDatabase, ref, set, push, onValue, off, get,
+  getDatabase,
+  ref,
+  set,
+  push,
+  onValue,
+  off,
+  DataSnapshot,
+  Database,
 } from "firebase/database";
 import type { MPAdapter, MPEvent, Snapshot } from "../index";
 
-function ensureApp() {
-  if (!getApps().length) {
-    const cfg = (window as any).__FIREBASE || {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_AUTH_DOMAIN",
-      databaseURL: "YOUR_DB_URL",
-      projectId: "YOUR_PROJECT_ID",
-      appId: "YOUR_APP_ID",
-    };
-    initializeApp(cfg);
+// Read config from a global injected by your HTML (or wherever you put it)
+type FirebaseConfig = {
+  apiKey: string;
+  authDomain?: string;
+  databaseURL: string;
+  projectId?: string;
+  appId?: string;
+};
+
+function ensureApp(): { app: FirebaseApp; db: Database } {
+  // @ts-ignore
+  const cfg: FirebaseConfig | undefined = (window as any).__FIREBASE;
+  if (!cfg?.databaseURL) {
+    throw new Error(
+      "Missing window.__FIREBASE.databaseURL (example: https://your-project-id-default-rtdb.firebaseio.com)"
+    );
   }
-  return getDatabase();
+  const app = getApps().length ? getApps()[0] : initializeApp(cfg);
+  const db = getDatabase(app);
+  return { app, db };
+}
+
+function sortEventsSnap(s: DataSnapshot): MPEvent[] {
+  const val = s.val() as Record<string, MPEvent> | null;
+  if (!val) return [];
+  // Children are random push IDs; stable order by key ensures consistent append order
+  return Object.keys(val)
+    .sort()
+    .map((k) => val[k]);
 }
 
 export function firebaseAdapter(): MPAdapter {
-  const db = ensureApp();
+  const { db } = ensureApp();
 
   return {
-    async create(roomId) {
-      const roomRef = ref(db, `rooms/${roomId}`);
-      const snap = await get(roomRef);
-      if (!snap.exists()) await set(roomRef, { events: [] });
+    async create(roomId: string) {
+      await set(ref(db, `rooms/${roomId}/meta`), { created: Date.now() });
+      // events list is created lazily by push()
     },
-    async join(roomId) {
-      // touch the room to ensure it exists
-      const roomRef = ref(db, `rooms/${roomId}`);
-      const snap = await get(roomRef);
-      if (!snap.exists()) await set(roomRef, { events: [] });
+
+    async join(_roomId: string) {
+      // You can set presence if you want; not required for gameplay
+      return;
     },
-    async leave(_roomId) {
-      // noop (no connection state we must tear down)
+
+    async leave(_roomId: string) {
+      // No-op; we’re not removing rooms or presence here
+      return;
     },
-    async append(roomId, ev: MPEvent) {
-      const listRef = ref(db, `rooms/${roomId}/events`);
-      const node = push(listRef);
-      await set(node, ev);
+
+    async append(roomId: string, ev: MPEvent) {
+      await push(ref(db, `rooms/${roomId}/events`), ev);
     },
-    onSnapshot(roomId, cb) {
-      const roomRef = ref(db, `rooms/${roomId}`);
-      const stop = onValue(roomRef, (s) => {
-        const val = s.val() || { events: [] };
-        const snap: Snapshot = { events: Array.isArray(val.events) ? val.events : Object.values(val.events || {}) };
-        // sort by ts for determinism
-        snap.events.sort((a: any, b: any) => (a.ts ?? 0) - (b.ts ?? 0));
-        cb(snap);
+
+    onSnapshot(roomId: string, cb: (snap: Snapshot) => void) {
+      const eventsRef = ref(db, `rooms/${roomId}/events`);
+      const unsubscribe = onValue(eventsRef, (snap) => {
+        const events = sortEventsSnap(snap);
+        cb({ events });
       });
-      return () => off(roomRef, "value", stop as any);
+      // Return unsubscriber compatible with our Room.watch()
+      return () => {
+        try {
+          off(eventsRef, "value", unsubscribe as any);
+        } catch {
+          // onValue already returns an unsubscribe; call it too
+          try {
+            (unsubscribe as unknown as () => void)();
+          } catch {}
+        }
+      };
     },
   };
 }

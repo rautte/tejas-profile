@@ -1,4 +1,3 @@
-// src/lib/mp/room.ts
 import type { MPAdapter, MPEvent, Role, Snapshot } from "./index";
 
 export type RoomHandlers = {
@@ -7,14 +6,14 @@ export type RoomHandlers = {
   onPhase?: (phase: "place" | "play" | "over") => void;
   onRematch?: () => void;
   onPeerHello?: (by: Role) => void;
-  onReady?: (payload: { by: Role; ready: boolean }) => void; // boolean
+  onReady?: (payload: { by: Role; ready: boolean }) => void;
 };
 
 export class Room {
   private unsub: null | (() => void) = null;
 
-  // (Optional) local aggregate state—useful for UI, but never sent on the wire
-  private readyState: { host: boolean; guest: boolean } = { host: false, guest: false };
+  // Cursor: how many events we've already dispatched
+  private cursor = 0;
 
   constructor(
     private adapter: MPAdapter,
@@ -38,13 +37,19 @@ export class Room {
   leave() {
     if (this.unsub) this.unsub();
     this.unsub = null;
+    this.cursor = 0; // reset if we re-use instance later
     return this.adapter.leave(this.roomId);
   }
 
   private watch() {
     if (this.unsub) this.unsub();
+    this.cursor = 0;
     this.unsub = this.adapter.onSnapshot(this.roomId, (snap: Snapshot) => {
-      for (const ev of snap.events) this.dispatch(ev);
+      const events = snap?.events || [];
+      if (events.length <= this.cursor) return; // nothing new
+      const next = events.slice(this.cursor);
+      this.cursor = events.length;
+      for (const ev of next) this.dispatch(ev);
     });
   }
 
@@ -65,15 +70,9 @@ export class Room {
       case "hello":
         this.handlers.onPeerHello?.(ev.by);
         break;
-      case "ready": {
-        // maintain local aggregate (not required, but handy)
-        this.readyState = {
-          ...this.readyState,
-          [ev.by]: ev.ready,
-        };
+      case "ready":
         this.handlers.onReady?.({ by: ev.by, ready: ev.ready });
         break;
-      }
     }
   }
 
@@ -88,8 +87,6 @@ export class Room {
     return this.adapter.append(this.roomId, { t: "phase", phase, ts: Date.now() });
   }
   rematch() {
-    // clear our local aggregate on rematch
-    this.readyState = { host: false, guest: false };
     return this.adapter.append(this.roomId, { t: "rematch", ts: Date.now() });
   }
   ready(by: Role, ready: boolean) {
