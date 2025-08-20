@@ -42,14 +42,14 @@ function computeSunkOverlays(grid: Grid, shots: Shots): SunkOverlay[] {
   const out: SunkOverlay[] = [];
   for (const id of Object.keys(byId)) {
     const cells = byId[Number(id)];
-    const sunk = cells.every(([r, c]) => shots[r][c] === 2);
+    const sunk = cells.every(([rr, cc]) => shots[rr][cc] === 2);
     if (!sunk) continue;
     let r0 = Infinity, c0 = Infinity, r1 = -1, c1 = -1;
     const keys: string[] = [];
-    for (const [r, c] of cells) {
-      if (r < r0) r0 = r; if (c < c0) c0 = c;
-      if (r > r1) r1 = r; if (c > c1) c1 = c;
-      keys.push(`${r},${c}`);
+    for (const [rr, cc] of cells) {
+      if (rr < r0) r0 = rr; if (cc < c0) c0 = cc;
+      if (rr > r1) r1 = rr; if (cc > c1) c1 = cc;
+      keys.push(`${rr},${cc}`);
     }
     out.push({ r0, c0, r1, c1, cells: keys });
   }
@@ -277,7 +277,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
           r, c
         );
 
-        // update our board using the result (functional updates to avoid races)
+        // update our board
         setPlayerShots(() => res.shots);
         setPlayerFleet(() => res.fleet);
 
@@ -316,8 +316,20 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         setTurn("ai");
       },
 
-      onPhase: (ph) => setPhase(ph),
+      onPhase: (ph) => {
+        setPhase(ph);
+        if (ph === "play") {
+          const amHost = roleRef.current === "host";
+          setTurn(amHost ? "player" : "ai");
+          setMsg(amHost ? "You go first. Fire when ready." : "Host goes first. Waiting…");
+        }
+        if (ph === "over") {
+          setMsg("Game over.");
+        }
+      },
+
       onRematch: () => resetLocal(),
+
       onReady: ({ by, ready }) => {
         // only care about the other side's readiness
         const mine = roleRef.current;
@@ -326,27 +338,40 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     });
 
     roomRef.current = r;
+    // clear stale lobby flags and help the user
+    setIAmReady(false);
+    setPeerReady(false);
+    setMsg("Room ready. Place your ships.");
     setRole(asHost ? "host" : "guest");
     if (asHost) await r.create();
     else await r.join();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ← no deps; reads current game via refs
+  }, []); // no deps; safe via refs
 
   React.useEffect(() => {
-  const code = parseRoomCodeFromHash();
+    const code = parseRoomCodeFromHash();
     if (mode === "mp" && code && !roomRef.current) {
       setRoomCode(code);
-      ensureRoom(false); // guest
+      ensureRoom(false); // guest auto-join
     }
     // only leave on unmount
-    return () => { /* no per-render leave; only when component unmounts */ };
+    return () => { /* noop */ };
   }, [mode, ensureRoom]);
 
   /* ---- Placement ---- */
   const onPlaceClick = (r: number, c: number) => {
     if (phase !== "place" || toPlace.length === 0) return;
+    // MP: must have a room before we allow placement to finish
+    if (mode === "mp" && !roomRef.current) {
+      setMsg("Create or join a room first.");
+      return;
+    }
+
     const length = toPlace[0];
-    if (!canPlace(playerGrid, r, c, length, orientation)) { setMsg("Can't place there"); return; }
+    if (!canPlace(playerGrid, r, c, length, orientation)) {
+      setMsg("Can't place there");
+      return;
+    }
     const nextId = Object.keys(playerFleet).length + 1;
     const res = placeShip(playerGrid, playerFleet, nextId, r, c, length, orientation);
     setPlayerGrid(res.grid); setPlayerFleet(res.fleet);
@@ -396,22 +421,22 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     // MP
     if (turn !== "player" || enemyShots[r][c] !== 0) return;
     // Don’t mark 1/2 yet; wait for 'result'
-    rObj().shot(role, r, c);
+    rObj().shot(roleRef.current, r, c);
     setMsg("Fired. Waiting for result…");
   };
 
+  // when both ready, advance to play (host goes first)
   React.useEffect(() => {
     if (mode !== "mp") return;
     if (phase !== "place") return;
     if (!iAmReady || !peerReady) return;
 
-    // both ready -> play
     setPhase("play");
     const amHost = roleRef.current === "host";
     setTurn(amHost ? "player" : "ai");
     setMsg(amHost ? "You go first. Fire when ready." : "Host goes first. Waiting…");
 
-    // optional: broadcast phase so both UIs are in sync
+    // keep UIs in sync
     try { rObj().phase("play"); } catch {}
   }, [mode, phase, iAmReady, peerReady]);
 
@@ -544,8 +569,13 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                   revealShips
                   greenEllipseOnly
                   onCellClick={onPlaceClick}
-                  disabled={toPlace.length === 0}
+                  disabled={toPlace.length === 0 || (mode === "mp" && !roomRef.current)}
                 />
+                {mode === "mp" && !roomRef.current && (
+                  <div className="text-sm text-amber-700 dark:text-amber-300">
+                    Create or join a game to start placing your ships.
+                  </div>
+                )}
                 {iAmReady && !peerReady && (
                   <div className="text-sm text-gray-700 dark:text-gray-300">
                     You’re ready. Waiting for opponent…
@@ -606,6 +636,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     </div>
   );
 }
+
 
 
 
