@@ -7,6 +7,7 @@ import TicTacToeWeb from "./components/games/tictactoe/TicTacToeWeb";
 import MinesweeperWeb from "./components/games/minesweeper/MinesweeperWeb";
 import BattleshipWeb from "./components/games/battleship/BattleshipWeb";
 import GameLayout from "./components/games/GameLayout";
+// import { parseFunZoneRoute } from "lib/mp";
 import Hero from "./components/Hero";
 import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";
@@ -56,27 +57,43 @@ const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
   return acc;
 }, {});
 
+
 // ——— Dark mode bootstrap helper (single source of truth) ———
 function getInitialTheme() {
   try {
+    // 1) URL param override: ?theme=dark|light
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get("theme");
+    if (fromQuery === "dark") return true;
+    if (fromQuery === "light") return false;
+
+    // 2) stored preference
     const stored = sessionStorage.getItem("theme") || localStorage.getItem("theme");
     if (stored === "dark") return true;
     if (stored === "light") return false;
+
+    // 3) OS preference
     if (window.matchMedia) {
       return window.matchMedia("(prefers-color-scheme: dark)").matches;
     }
   } catch {}
-  return false; // default light
+  return false;
 }
 
 // Accepts: "fun-zone/battleship", "fun-zone/battleship-AX9G", "fun-zone/minesweeper", "fun-zone/tictactoe"
-function parseFunZoneRoute(hashPath) {
-  const m = /^fun-zone\/(battleship(?:-([A-Z0-9]{4}))?|minesweeper|tictactoe)$/i.exec(hashPath || "");
-  if (!m) return { game: null, code: null };
-  const raw = m[1].toLowerCase();
-  const code = (m[2] || null)?.toUpperCase() || null;
-  const game = raw.startsWith("battleship") ? "battleship" : raw; // normalize
-  return { game, code };
+function parseFunZoneRoute(rawHashPath) {
+  const path = decodeURIComponent((rawHashPath || "").trim()).toLowerCase();
+  // quick-accept fun-zone only
+  if (!path.startsWith("fun-zone/")) return { game: null, code: null };
+
+  // battleship variants
+  let m = path.match(/^fun-zone\/battleship(?:-([a-z0-9]{4}))?(?:[/?].*)?$/i);
+  if (m) return { game: "battleship", code: m[1] ? m[1].toUpperCase() : null };
+
+  if (/^fun-zone\/minesweeper(?:[/?].*)?$/.test(path)) return { game: "minesweeper", code: null };
+  if (/^fun-zone\/tictactoe(?:[/?].*)?$/.test(path))   return { game: "tictactoe", code: null };
+
+  return { game: null, code: null };
 }
 
 function App() {
@@ -362,8 +379,6 @@ function App() {
 
   if (isGamePage) {
     const { game, code } = parseFunZoneRoute(hashPath);
-
-    // Title + component selection
     let title = "Game";
     let gameElement = null;
 
@@ -374,7 +389,7 @@ function App() {
       title = "Minesweeper";
       gameElement = <MinesweeperWeb />;
     } else if (game === "battleship") {
-      // Optional: show code in the title if we arrived via invite link
+      // Hide title on the landing (no code); show room title when code is present
       title = code ? `Battleship — Room ${code}` : "Battleship";
       gameElement = <BattleshipWeb />;
     }

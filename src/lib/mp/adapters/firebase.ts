@@ -1,88 +1,105 @@
-// RTDB adapter (Firebase v9 modular)
-import { initializeApp, getApps, FirebaseApp } from "firebase/app";
+// src/lib/mp/adapters/firebase.ts
+import type { MPAdapter, MPEvent, Role, Snapshot } from "../index";
+import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import {
-  getDatabase,
-  ref,
-  set,
-  push,
-  onValue,
-  off,
-  DataSnapshot,
-  Database,
+  getDatabase, ref, child, set, get, push, onChildAdded, onDisconnect, off, Database, DatabaseReference, remove,
 } from "firebase/database";
-import type { MPAdapter, MPEvent, Snapshot } from "../index";
-
-// Read config from a global injected by your HTML (or wherever you put it)
-type FirebaseConfig = {
-  apiKey: string;
-  authDomain?: string;
-  databaseURL: string;
-  projectId?: string;
-  appId?: string;
-};
 
 function ensureApp(): { app: FirebaseApp; db: Database } {
-  // @ts-ignore
-  const cfg: FirebaseConfig | undefined = (window as any).__FIREBASE;
-  if (!cfg?.databaseURL) {
-    throw new Error(
-      "Missing window.__FIREBASE.databaseURL (example: https://your-project-id-default-rtdb.firebaseio.com)"
-    );
+  if (!window || !(window as any).__FIREBASE) {
+    throw new Error("Firebase config missing. Provide window.__FIREBASE in index.html.");
   }
-  const app = getApps().length ? getApps()[0] : initializeApp(cfg);
+  const cfg = (window as any).__FIREBASE;
+  let app = getApps()[0] || initializeApp(cfg);
   const db = getDatabase(app);
   return { app, db };
 }
 
-function sortEventsSnap(s: DataSnapshot): MPEvent[] {
-  const val = s.val() as Record<string, MPEvent> | null;
-  if (!val) return [];
-  // Children are random push IDs; stable order by key ensures consistent append order
-  return Object.keys(val)
-    .sort()
-    .map((k) => val[k]);
-}
+type Unsub = () => void;
 
 export function firebaseAdapter(): MPAdapter {
   const { db } = ensureApp();
 
+  // per-adapter state
+  let eventsUnsub: Unsub | null = null;
+  let roomPath: string | null = null;
+  let myRole: Role | null = null;
+  let presenceRef: DatabaseReference | null = null;
+
+  async function create(roomId: string) {
+    roomPath = `/rooms/${roomId}`;
+    const rRef = ref(db, roomPath);
+    // stay idempotent: only set createdAt if missing
+    const snap = await get(rRef);
+    if (!snap.exists()) {
+      await set(rRef, { createdAt: Date.now() });
+    }
+  }
+
+  async function join(roomId: string) {
+    roomPath = `/rooms/${roomId}`;
+    const rRef = ref(db, roomPath);
+    const snap = await get(rRef);
+    if (!snap.exists()) throw new Error("ROOM_NOT_FOUND");
+  }
+
+  function leave(_roomId: string) {
+    // cleanup listeners
+    if (eventsUnsub) { eventsUnsub(); eventsUnsub = null; }
+    // drop our presence immediately (onDisconnect covers crash cases)
+    if (presenceRef) { remove(presenceRef).catch(()=>{}); presenceRef = null; }
+    myRole = null;
+    roomPath = null;
+    return Promise.resolve();
+  }
+
+  async function append(roomId: string, ev: MPEvent) {
+    if (!roomPath) roomPath = `/rooms/${roomId}`;
+
+    // Enforce occupancy on "hello"
+    if (ev.t === "hello") {
+      myRole = ev.by;
+      const pRef = ref(db, `${roomPath}/presence`);
+      const pSnap = await get(pRef);
+      const presence = (pSnap.exists() ? pSnap.val() : {}) as { host?: boolean; guest?: boolean };
+
+      if (ev.by === "host" && presence.host) throw new Error("HOST_TAKEN");
+      if (ev.by === "guest" && presence.guest) throw new Error("GUEST_TAKEN");
+
+      // set presence and onDisconnect removal
+      presenceRef = child(pRef, ev.by);
+      await set(presenceRef, true);
+      try { onDisconnect(presenceRef).remove(); } catch {}
+
+      // NOTE: presence is independent of events stream; continue to push the event
+    }
+
+    // Normal event push
+    const eRef = ref(db, `${roomPath}/events`);
+    await push(eRef, ev);
+  }
+
+  function onSnapshot(roomId: string, cb: (snap: Snapshot) => void): Unsub {
+    if (!roomPath) roomPath = `/rooms/${roomId}`;
+    const eRef = ref(db, `${roomPath}/events`);
+
+    // stream each new child as it arrives (avoids re-dispatch loops)
+    const detach = onChildAdded(eRef, (snap) => {
+      const v = snap.val() as MPEvent;
+      cb({ events: [v] });
+    });
+
+    eventsUnsub = () => {
+      off(eRef, "child_added", detach as any);
+    };
+    return eventsUnsub;
+  }
+
   return {
-    async create(roomId: string) {
-      await set(ref(db, `rooms/${roomId}/meta`), { created: Date.now() });
-      // events list is created lazily by push()
-    },
-
-    async join(_roomId: string) {
-      // You can set presence if you want; not required for gameplay
-      return;
-    },
-
-    async leave(_roomId: string) {
-      // No-op; we’re not removing rooms or presence here
-      return;
-    },
-
-    async append(roomId: string, ev: MPEvent) {
-      await push(ref(db, `rooms/${roomId}/events`), ev);
-    },
-
-    onSnapshot(roomId: string, cb: (snap: Snapshot) => void) {
-      const eventsRef = ref(db, `rooms/${roomId}/events`);
-      const unsubscribe = onValue(eventsRef, (snap) => {
-        const events = sortEventsSnap(snap);
-        cb({ events });
-      });
-      // Return unsubscriber compatible with our Room.watch()
-      return () => {
-        try {
-          off(eventsRef, "value", unsubscribe as any);
-        } catch {
-          // onValue already returns an unsubscribe; call it too
-          try {
-            (unsubscribe as unknown as () => void)();
-          } catch {}
-        }
-      };
-    },
+    create,
+    join,
+    leave,
+    append,
+    onSnapshot,
   };
 }
