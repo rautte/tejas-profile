@@ -1,5 +1,5 @@
 // src/App.js
-// https://rautte.github.io/my-profile
+// https://rautte.github.io/tejas-profile
 
 import './App.css';
 import './index.css';

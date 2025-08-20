@@ -50,7 +50,7 @@ const downloadZipBySvgId = async (id, baseName) => {
 
   // 3) README with instructions
   const readme = `# ${baseName}
-This ZIP was generated from https://rautte.github.io/my-profile/#/fun-zone.
+This ZIP was generated from https://rautte.github.io/tejas-profile/#/fun-zone.
 
 ## Files
 - \`${baseName}.svg\` — the standalone SVG with animations.
