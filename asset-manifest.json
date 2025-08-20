@@ -1,22 +1,22 @@
 {
   "files": {
     "main.css": "/tejas-profile/static/css/main.a5d09e9d.css",
-    "main.js": "/tejas-profile/static/js/main.662ac7fb.js",
-    "static/js/634.9a3eecd9.chunk.js": "/tejas-profile/static/js/634.9a3eecd9.chunk.js",
+    "main.js": "/tejas-profile/static/js/main.afb84568.js",
+    "static/js/634.226beb4d.chunk.js": "/tejas-profile/static/js/634.226beb4d.chunk.js",
     "static/js/453.6326759e.chunk.js": "/tejas-profile/static/js/453.6326759e.chunk.js",
-    "static/js/387.ab2eb235.chunk.js": "/tejas-profile/static/js/387.ab2eb235.chunk.js",
+    "static/js/387.8539c9f8.chunk.js": "/tejas-profile/static/js/387.8539c9f8.chunk.js",
     "static/media/time-travel-boy.svg": "/tejas-profile/static/media/time-travel-boy.7f176132e67d9a61caf12c7abb5b89e9.svg",
     "static/media/Programming-boy.svg": "/tejas-profile/static/media/Programming-boy.bc2bbad8b8b7de85d351dc7ae223995e.svg",
     "static/media/LI_Profile.jpg": "/tejas-profile/static/media/LI_Profile.17a5f8acf56ffe3d9aa3.jpg",
     "index.html": "/tejas-profile/index.html",
     "main.a5d09e9d.css.map": "/tejas-profile/static/css/main.a5d09e9d.css.map",
-    "main.662ac7fb.js.map": "/tejas-profile/static/js/main.662ac7fb.js.map",
-    "634.9a3eecd9.chunk.js.map": "/tejas-profile/static/js/634.9a3eecd9.chunk.js.map",
+    "main.afb84568.js.map": "/tejas-profile/static/js/main.afb84568.js.map",
+    "634.226beb4d.chunk.js.map": "/tejas-profile/static/js/634.226beb4d.chunk.js.map",
     "453.6326759e.chunk.js.map": "/tejas-profile/static/js/453.6326759e.chunk.js.map",
-    "387.ab2eb235.chunk.js.map": "/tejas-profile/static/js/387.ab2eb235.chunk.js.map"
+    "387.8539c9f8.chunk.js.map": "/tejas-profile/static/js/387.8539c9f8.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.a5d09e9d.css",
-    "static/js/main.662ac7fb.js"
+    "static/js/main.afb84568.js"
   ]
 }
