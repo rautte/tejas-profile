@@ -1,7 +1,7 @@
 {
   "files": {
     "main.css": "/tejas-profile/static/css/main.4e72c6ae.css",
-    "main.js": "/tejas-profile/static/js/main.0aa9e761.js",
+    "main.js": "/tejas-profile/static/js/main.d814401f.js",
     "static/js/634.9a3eecd9.chunk.js": "/tejas-profile/static/js/634.9a3eecd9.chunk.js",
     "static/js/453.6326759e.chunk.js": "/tejas-profile/static/js/453.6326759e.chunk.js",
     "static/js/387.ab2eb235.chunk.js": "/tejas-profile/static/js/387.ab2eb235.chunk.js",
@@ -10,13 +10,13 @@
     "static/media/LI_Profile.jpg": "/tejas-profile/static/media/LI_Profile.17a5f8acf56ffe3d9aa3.jpg",
     "index.html": "/tejas-profile/index.html",
     "main.4e72c6ae.css.map": "/tejas-profile/static/css/main.4e72c6ae.css.map",
-    "main.0aa9e761.js.map": "/tejas-profile/static/js/main.0aa9e761.js.map",
+    "main.d814401f.js.map": "/tejas-profile/static/js/main.d814401f.js.map",
     "634.9a3eecd9.chunk.js.map": "/tejas-profile/static/js/634.9a3eecd9.chunk.js.map",
     "453.6326759e.chunk.js.map": "/tejas-profile/static/js/453.6326759e.chunk.js.map",
     "387.ab2eb235.chunk.js.map": "/tejas-profile/static/js/387.ab2eb235.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.4e72c6ae.css",
-    "static/js/main.0aa9e761.js"
+    "static/js/main.d814401f.js"
   ]
 }
