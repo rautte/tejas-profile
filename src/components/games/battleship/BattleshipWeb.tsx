@@ -110,13 +110,6 @@ const TeamEmblem: React.FC<{
   );
 };
 
-// --- Whole-emblem watermark (badge + exact colors) ---
-type Anchor = Partial<Record<"top" | "right" | "bottom" | "left", number | string>>;
-type WMPos =
-  | "center"
-  | "top-left" | "top-right" | "bottom-left" | "bottom-right"
-  | "top" | "bottom" | "left" | "right";
-
 const WATERMARK_SAFE_INSET = 4; // ← tweak this: 48..96 works well
 
 const WatermarkEmblem: React.FC<{
@@ -336,8 +329,8 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const playerGridRef = React.useRef(playerGrid);
   const playerFleetRef = React.useRef(playerFleet);
   const playerShotsRef = React.useRef(playerShots);
-  // presence ack bookkeeping
-  const lastHelloFromPeerAtRef = React.useRef(0);
+  // // presence ack bookkeeping
+  // const lastHelloFromPeerAtRef = React.useRef(0);
   const lastHelloAckSentAtRef = React.useRef(0);
   // [FIX] indicates a grace-resume is in progress (prevents resetting turn)
   const resumedWithinGraceRef = React.useRef(false);
@@ -375,6 +368,16 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const lastByeAtRef = React.useRef<number | null>(null);
   const RESUME_WINDOW_MS = 30_000;
 
+   // [FIX] use localStorage so new tabs (invite link) can resume within 30s
+  const saveLocalResume = React.useCallback(
+    (code: string, role: Role, blob: ResumeBlob) => {
+      try {
+        localStorage.setItem(resumeKey(code, role), JSON.stringify(blob));
+      } catch {}
+    },
+    [] // no closures; safe to keep empty
+  );
+
   React.useEffect(() => {
     const onBeforeUnload = () => {
       if (!roomCode || !roomRef.current) return; // no active MP session
@@ -390,7 +393,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [roomCode]); // rebind when room changes
+  }, [roomCode, saveLocalResume]); // rebind when room changes
 
   // [ADD] sessionStorage key helpers for per-room, per-role resumes
   const resumeKey = (code: string, role: Role) => `bs:${code}:${role}:resume-v1` as const;
@@ -403,10 +406,6 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     turn: "player" | "ai";        // [FIX] preserve whose turn it was
   };
 
-  // [FIX] use localStorage so new tabs (invite link) can resume within 30s
-  function saveLocalResume(code: string, role: Role, blob: ResumeBlob) {
-    try { localStorage.setItem(resumeKey(code, role), JSON.stringify(blob)); } catch {}
-  }
   function loadLocalResume(code: string, role: Role): ResumeBlob | null {
     try {
       const raw = localStorage.getItem(resumeKey(code, role));
@@ -856,7 +855,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
     // clear the flag once we've transitioned
     resumedWithinGraceRef.current = false;
-  }, [mode, phase, iAmReady, peerReady]);
+  }, [mode, phase, iAmReady, peerReady, captureStateSnapshot]);
 
   const inviteHash = roomCode ? buildInviteHash(roomCode) : "";
 
