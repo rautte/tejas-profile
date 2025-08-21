@@ -1,7 +1,7 @@
 {
   "files": {
-    "main.css": "/tejas-profile/static/css/main.e1c86c09.css",
-    "main.js": "/tejas-profile/static/js/main.f0c943a2.js",
+    "main.css": "/tejas-profile/static/css/main.e5ff2717.css",
+    "main.js": "/tejas-profile/static/js/main.4aa7c0c4.js",
     "static/js/634.3ade7744.chunk.js": "/tejas-profile/static/js/634.3ade7744.chunk.js",
     "static/js/453.6326759e.chunk.js": "/tejas-profile/static/js/453.6326759e.chunk.js",
     "static/js/387.c7851031.chunk.js": "/tejas-profile/static/js/387.c7851031.chunk.js",
@@ -14,14 +14,14 @@
     "static/media/trident-waves.svg": "/tejas-profile/static/media/trident-waves.83a5e51b62f6e210cbaa829acae92fde.svg",
     "static/media/compass-shield.svg": "/tejas-profile/static/media/compass-shield.ec7985ad8c29a1c566f316e08b440759.svg",
     "static/media/helm-star.svg": "/tejas-profile/static/media/helm-star.f0840d68041cdbf3ec93325726ee64a6.svg",
-    "main.e1c86c09.css.map": "/tejas-profile/static/css/main.e1c86c09.css.map",
-    "main.f0c943a2.js.map": "/tejas-profile/static/js/main.f0c943a2.js.map",
+    "main.e5ff2717.css.map": "/tejas-profile/static/css/main.e5ff2717.css.map",
+    "main.4aa7c0c4.js.map": "/tejas-profile/static/js/main.4aa7c0c4.js.map",
     "634.3ade7744.chunk.js.map": "/tejas-profile/static/js/634.3ade7744.chunk.js.map",
     "453.6326759e.chunk.js.map": "/tejas-profile/static/js/453.6326759e.chunk.js.map",
     "387.c7851031.chunk.js.map": "/tejas-profile/static/js/387.c7851031.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.e1c86c09.css",
-    "static/js/main.f0c943a2.js"
+    "static/css/main.e5ff2717.css",
+    "static/js/main.4aa7c0c4.js"
   ]
 }
