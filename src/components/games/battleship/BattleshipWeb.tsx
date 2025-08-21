@@ -899,54 +899,98 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     }
   }, [role, peerPresent, peerReady, peerState, phase]);
 
-  /* ---- Landing with inline Join ---- */
+  /* ---- Landing with Local / Online sections ---- */
   if (entry === "landing") {
     return (
       <div className="w-full mt-16 flex justify-center">
-        <div className="w-full max-w-sm mx-auto p-6 rounded-xl bg-gray-100 dark:bg-gray-800 shadow-md transition-all border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col items-center gap-6">
-            <button
-              className="w-full max-w-[180px] px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 text-white"
-              onClick={() => { setEntry("bot"); setMode("bot"); resetLocal(); }}
-            >
-              <span className="inline-flex items-center gap-2">
-                <IconCpu className="w-4 h-4 opacity-90" aria-hidden="true" />
-                Play with Bot
-              </span>
-            </button>
+        <div
+          className="
+            relative overflow-hidden
+            w-full max-w-sm mx-auto p-6 rounded-2xl
+            min-h-[220px] md:min-h-[260px]
+            bg-white/[0.08] dark:bg-white/[0.045]
+            backdrop-blur-xl backdrop-saturate-150
+            border border-white/15 dark:border-white/[0.06]
+            ring-1 ring-white/[0.06] dark:ring-black/[0.25]
+            shadow-[0_4px_16px_rgba(0,0,0,0.35)]
+            transition-all
+          "
+        >
+          {/* glass highlight (subtle gradient sheen) */}
+          <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/25 via-white/10 to-transparent dark:from-gray-800/60 dark:via-gray-900/40 dark:to-transparent" />
 
-            <button
-              className="w-full max-w-[180px] px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 text-white"
-              onClick={() => { setEntry("mp"); setMode("mp"); resetLocal(); ensureRoom(true); }}
-            >
-              <span className="inline-flex items-center gap-2">
-                <IconSignal className="w-4 h-4 opacity-90" aria-hidden="true" />
-                Create Room
-              </span>
-            </button>
+          {/* content (lift above the sheen) */}
+          <div className="relative z-10 flex flex-col items-center gap-1">
+            
+            {/* LOCAL */}
+            <div className="pl-0 md:pl-0">
+              <div className="text-sm text-center mb-2 font-semibold tracking-wide text-gray-700 dark:text-gray-200">
+                Local
+              </div>
+              <div className="mt-2 h-px w-40 sm:w-20 md:w-44 bg-gray-300 dark:bg-white/10 backdrop-blur-lg rounded-full mx-auto" />
+            </div>
 
-            {!landingJoinOpen ? (
+            <div className="mt-4 flex justify-center">
               <button
-                className="w-full max-w-[180px] px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 text-white"
-                onClick={() => { setLandingJoinOpen(true); setJoinCode(""); }}
+                className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 text-white"
+                onClick={() => { setEntry("bot"); setMode("bot"); resetLocal(); }}
               >
                 <span className="inline-flex items-center gap-2">
-                  <IconLink className="w-4 h-4 opacity-90" aria-hidden="true" />
-                  Join Room
+                  {/* keep your CPU icon component if you added it earlier */}
+                  <IconCpu className="w-4 h-4 opacity-90" aria-hidden="true" />
+                  Play with Bot
                 </span>
               </button>
+            </div>
+
+            {/* ONLINE */}
+            <div className="mt-8 pl-0 md:pl-0">
+              <div className="text-sm text-center mb-2 font-semibold tracking-wide text-gray-700 dark:text-gray-200">
+                Online
+              </div>
+              <div className="mt-2 h-px w-40 sm:w-20 md:w-44 bg-gray-300 dark:bg-white/10 backdrop-blur-sm rounded-full mx-auto" />
+            </div>
+
+            {!landingJoinOpen ? (
+              // two centered buttons
+              <div className="mt-4 flex items-center justify-center gap-8">
+                <button
+                  className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 text-white"
+                  onClick={() => { setEntry("mp"); setMode("mp"); resetLocal(); ensureRoom(true); }}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <IconSignal className="w-4 h-4 opacity-90" aria-hidden="true" />
+                    Create Room
+                  </span>
+                </button>
+
+                <button
+                  className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 text-white"
+                  onClick={() => { setLandingJoinOpen(true); setJoinCode(""); }}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <IconLink className="w-4 h-4 opacity-90" aria-hidden="true" />
+                    Join Room
+                  </span>
+                </button>
+              </div>
             ) : (
-              <div className="w-full flex flex-col items-center gap-2">
-                <div className="flex gap-4">
+              // centered join form keeps same functionality
+              <div className="mt-4 flex flex-col items-center gap-3">
+                <div className="w-full flex items-center justify-center gap-3">
                   <input
                     autoFocus
                     inputMode="text"
                     pattern="[A-Za-z0-9]{4}"
                     maxLength={4}
                     value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0,4))}
+                    onChange={(e) =>
+                      setJoinCode(
+                        e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4)
+                      )
+                    }
                     placeholder="Code (e.g., AX9G)"
-                    className="flex-1 px-3 py-2 rounded-md bg-white/90 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 ring-1 ring-black/10 dark:ring-white/10 outline-none"
+                    className="w-40 px-3 py-2 rounded-md bg-white/90 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 ring-1 ring-black/10 dark:ring-white/10 outline-none text-center tracking-widest"
                     aria-label="Room code"
                   />
                   <button
@@ -962,7 +1006,10 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                       setMsg("Joining room…");
                     }}
                   >
-                    Join
+                    <span className="inline-flex items-center gap-2">
+                      Join
+                      <IconLink className="w-4 h-4 opacity-90" aria-hidden="true" />
+                    </span>
                   </button>
                 </div>
                 <button
