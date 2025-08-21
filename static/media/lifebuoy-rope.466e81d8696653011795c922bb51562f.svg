@@ -1,0 +1,26 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- buoy rings -->
+  <circle cx="64" cy="64" r="46" fill="none" stroke="currentColor" stroke-width="5"></circle>
+  <circle cx="64" cy="64" r="26" fill="none" stroke="currentColor" stroke-width="5"></circle>
+  <!-- buoy panels -->
+  <g stroke="currentColor" stroke-width="8" stroke-linecap="round">
+    <path d="M64 14v20"></path>
+    <path d="M64 94v20"></path>
+    <path d="M14 64h20"></path>
+    <path d="M94 64h20"></path>
+  </g>
+  <!-- rope (subtle) -->
+  <g fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="3">
+    <path d="M30 28c12-9 25-14 34-14 9 0 22 5 34 14"></path>
+    <path d="M98 100c-12 9-25 14-34 14-9 0-22-5-34-14"></path>
+  </g>
+  <!-- rope ties -->
+  <g stroke="currentColor" stroke-width="3" stroke-linecap="round">
+    <path d="M43 23l6 10"></path>
+    <path d="M85 23l-6 10"></path>
+    <path d="M43 105l6-10"></path>
+    <path d="M85 105l-6-10"></path>
+  </g>
+  <!-- soft glow -->
+  <circle cx="64" cy="64" r="46" fill="currentColor" fill-opacity=".05"></circle>
+</svg>

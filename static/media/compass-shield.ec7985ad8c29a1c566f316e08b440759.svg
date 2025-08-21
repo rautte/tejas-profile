@@ -1,0 +1,16 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- shield -->
+  <path d="M64 10c-18 0-36 9-44 16v28c0 30 18 56 44 74c26-18 44-44 44-74V26c-8-7-26-16-44-16Z" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="3"></path>
+  <!-- compass circle -->
+  <circle cx="64" cy="68" r="32" fill="none" stroke="currentColor" stroke-width="3"></circle>
+  <circle cx="64" cy="68" r="4" fill="currentColor"></circle>
+  <!-- NSEW ticks -->
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M64 34v10"></path><path d="M64 92v10"></path><path d="M30 68h10"></path><path d="M88 68h10"></path>
+  </g>
+  <!-- rose -->
+  <g fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+    <path d="M64 42l8 20l20 8l-20 8l-8 20l-8-20l-20-8l20-8z"></path>
+    <path d="M64 50l5 12l12 5l-12 5l-5 12l-5-12l-12-5l12-5z" fill-opacity=".2"></path>
+  </g>
+</svg>

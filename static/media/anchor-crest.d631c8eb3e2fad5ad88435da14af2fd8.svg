@@ -1,0 +1,25 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- shield -->
+  <path d="M64 8C45 8 29 16 20 23v26c0 30 18 57 44 79c26-22 44-49 44-79V23c-9-7-25-15-44-15Z" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="3"></path>
+  <!-- subtle inner highlight -->
+  <path d="M24 32c8-6 22-12 40-12s32 6 40 12" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"></path>
+  <!-- anchor -->
+  <circle cx="64" cy="32" r="6.5" fill="none" stroke="currentColor" stroke-width="3"></circle>
+  <path d="M64 38v40" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+  <path d="M46 58h36" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+  <path d="M34 84c9 18 21 24 30 24s21-6 30-24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+  <path d="M34 84h8M94 84h-8" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+  <!-- laurels -->
+  <g fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M22 74c6 12 14 20 24 26" stroke-linecap="round"></path>
+    <path d="M106 74c-6 12-14 20-24 26" stroke-linecap="round"></path>
+    <g stroke-linecap="round" stroke-linejoin="round">
+      <path d="M28 72c2 3 5 6 8 8"></path>
+      <path d="M32 66c2 3 5 6 8 8"></path>
+      <path d="M100 72c-2 3-5 6-8 8"></path>
+      <path d="M96 66c-2 3-5 6-8 8"></path>
+    </g>
+  </g>
+  <!-- ribbon -->
+  <path d="M36 104h56l-6 10H42z" fill="currentColor" fill-opacity=".1" stroke="currentColor" stroke-width="2"></path>
+</svg>

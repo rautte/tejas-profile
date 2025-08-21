@@ -1,22 +1,27 @@
 {
   "files": {
-    "main.css": "/tejas-profile/static/css/main.231b266e.css",
-    "main.js": "/tejas-profile/static/js/main.e2f9b6f6.js",
-    "static/js/634.77da08a1.chunk.js": "/tejas-profile/static/js/634.77da08a1.chunk.js",
+    "main.css": "/tejas-profile/static/css/main.e1c86c09.css",
+    "main.js": "/tejas-profile/static/js/main.f0c943a2.js",
+    "static/js/634.3ade7744.chunk.js": "/tejas-profile/static/js/634.3ade7744.chunk.js",
     "static/js/453.6326759e.chunk.js": "/tejas-profile/static/js/453.6326759e.chunk.js",
-    "static/js/387.4c5467e6.chunk.js": "/tejas-profile/static/js/387.4c5467e6.chunk.js",
+    "static/js/387.c7851031.chunk.js": "/tejas-profile/static/js/387.c7851031.chunk.js",
     "static/media/time-travel-boy.svg": "/tejas-profile/static/media/time-travel-boy.7f176132e67d9a61caf12c7abb5b89e9.svg",
     "static/media/Programming-boy.svg": "/tejas-profile/static/media/Programming-boy.bc2bbad8b8b7de85d351dc7ae223995e.svg",
     "static/media/LI_Profile.jpg": "/tejas-profile/static/media/LI_Profile.17a5f8acf56ffe3d9aa3.jpg",
     "index.html": "/tejas-profile/index.html",
-    "main.231b266e.css.map": "/tejas-profile/static/css/main.231b266e.css.map",
-    "main.e2f9b6f6.js.map": "/tejas-profile/static/js/main.e2f9b6f6.js.map",
-    "634.77da08a1.chunk.js.map": "/tejas-profile/static/js/634.77da08a1.chunk.js.map",
+    "static/media/anchor-crest.svg": "/tejas-profile/static/media/anchor-crest.d631c8eb3e2fad5ad88435da14af2fd8.svg",
+    "static/media/lifebuoy-rope.svg": "/tejas-profile/static/media/lifebuoy-rope.466e81d8696653011795c922bb51562f.svg",
+    "static/media/trident-waves.svg": "/tejas-profile/static/media/trident-waves.83a5e51b62f6e210cbaa829acae92fde.svg",
+    "static/media/compass-shield.svg": "/tejas-profile/static/media/compass-shield.ec7985ad8c29a1c566f316e08b440759.svg",
+    "static/media/helm-star.svg": "/tejas-profile/static/media/helm-star.f0840d68041cdbf3ec93325726ee64a6.svg",
+    "main.e1c86c09.css.map": "/tejas-profile/static/css/main.e1c86c09.css.map",
+    "main.f0c943a2.js.map": "/tejas-profile/static/js/main.f0c943a2.js.map",
+    "634.3ade7744.chunk.js.map": "/tejas-profile/static/js/634.3ade7744.chunk.js.map",
     "453.6326759e.chunk.js.map": "/tejas-profile/static/js/453.6326759e.chunk.js.map",
-    "387.4c5467e6.chunk.js.map": "/tejas-profile/static/js/387.4c5467e6.chunk.js.map"
+    "387.c7851031.chunk.js.map": "/tejas-profile/static/js/387.c7851031.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.231b266e.css",
-    "static/js/main.e2f9b6f6.js"
+    "static/css/main.e1c86c09.css",
+    "static/js/main.f0c943a2.js"
   ]
 }
