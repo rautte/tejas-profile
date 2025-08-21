@@ -1,63 +1,80 @@
 // src/lib/mp/index.ts
-
 export type Role = "host" | "guest";
 export type MPMode = "bot" | "mp";
 
-export type MPEvent =
-  | { t: "shot"; by: Role; r: number; c: number; ts: number }
-  | { t: "result"; to: Role; result: "miss" | "hit" | "sunk"; r: number; c: number; ts: number }
-  | { t: "phase"; phase: "place" | "play" | "over"; ts: number }
-  // legacy rematch (no payload) — keep for backwards compat
-  | { t: "rematch"; ts: number }
-  // structured rematch handshake
-  | { t: "rematch"; action: "propose" | "accept" | "decline"; by: Role; ts: number }
-  // explicit quit
-  | { t: "quit"; by: Role; ts: number }
-  // session reset marker
-  | { t: "epoch"; n: number; ts: number }
-  // presence / greetings
-  | { t: "hello"; by: Role; ts: number }
-  // ✅ ADD: readiness signal
-  | { t: "ready"; by: Role; ready: boolean; ts: number }
-  // ✅ ADD: optional peer-leave marker (only if your adapter emits it)
-  | { t: "bye"; by: Role; ts: number }
-  | { t: "reveal"; by: Role; grid: number[][]; fleet: Record<string, any>; ts: number };
+/** Optional shape – keep generic to avoid UI/logic coupling */
+export type StatePayload = unknown;
 
-export type Snapshot = { events: MPEvent[] };
+export type MPEvent =
+  | { t: "hello"; by: Role; at: number }
+  | { t: "bye"; by: Role; at: number }
+  | { t: "shot"; by: Role; r: number; c: number; at: number }
+  | { t: "result"; to: Role; result: "miss" | "hit" | "sunk"; r: number; c: number; at: number }
+  | { t: "phase"; phase: "place" | "play" | "over"; at: number }
+  /** Legacy rematch (kept for back-compat) */
+  | { t: "rematch"; at: number }
+  /** Structured rematch */
+  | { t: "rematch2"; action: "propose" | "accept" | "decline"; by: Role; at: number }
+  | { t: "ready"; by: Role; ready: boolean; at: number }
+  | { t: "quit"; by: Role; at: number }
+  | { t: "reveal"; by: Role; grid: number[][]; fleet: Record<string, unknown>; at: number }
+  | { t: "epoch"; n: number; at: number }
+  /** NEW: host-to-guest resume snapshot */
+  | { t: "state"; by: Role; state: StatePayload; at: number };
+
+export type RoomHandlers = {
+  onShot?: (args: { by: Role; r: number; c: number }) => void;
+  onResult?: (args: { to: Role; result: "miss" | "hit" | "sunk"; r: number; c: number }) => void;
+  onPhase?: (phase: "place" | "play" | "over") => void;
+  onRematch?: () => void; // legacy
+  onRematchSignal?: (args: { action: "propose" | "accept" | "decline"; by: Role }) => void;
+  onQuit?: (by: Role) => void;
+  onEpoch?: (n: number) => void;
+  onPeerHello?: (by: Role) => void;
+  onPeerBye?: (by: Role) => void;
+  onReady?: (args: { by: Role; ready: boolean }) => void;
+  onReveal?: (args: { by: Role; grid: number[][]; fleet: Record<string, unknown> }) => void;
+  /** NEW */
+  onState?: (args: { by: Role; state: StatePayload }) => void;
+};
 
 export interface MPAdapter {
-  create(roomId: string): Promise<void>;
-  join(roomId: string): Promise<void>;
-  leave(roomId: string): Promise<void>;
-  append(roomId: string, ev: MPEvent): Promise<void>;
-  onSnapshot(roomId: string, cb: (snap: Snapshot) => void): () => void;
+  /** Start listening/sending for a given epoch; returns current epoch number */
+  connect(code: string, role: Role, onEvent: (e: MPEvent) => void): Promise<number>;
+  send(ev: MPEvent): Promise<void>;
+  /** Increments epoch and emits an {t:'epoch'} in the new stream */
+  bumpEpoch(): Promise<number>;
+  leave(): Promise<void>;
 }
 
-// ---- helpers ----
-const ALPH = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-export function generateCode(n = 4) {
+/** 4-char room code (A-Z0-9) */
+export function generateCode(len = 4): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
-  for (let i = 0; i < n; i++) s += ALPH[Math.floor(Math.random() * ALPH.length)];
+  for (let i = 0; i < len; i++) s += alphabet[(Math.random() * alphabet.length) | 0];
   return s;
 }
 
-export function parseRoomCodeFromHash(): string | null {
-  // Accept:
-  //   #/fun-zone/battleship-ABCD
-  //   #/fun-zone/battleship-abcd
-  //   #/fun-zone/battleship-abcd/        (trailing slash)
-  //   #/fun-zone/battleship-abcd?x=y     (accidental params after hash)
-  //   #/FUN-ZONE/BATTLESHIP-ABCD         (any case)
-  const h = window.location.hash || "";
-  const m = h.match(/#\/fun-zone\/battleship-([A-Z0-9]{4})(?:[/?].*)?$/i);
-  return m ? m[1].toUpperCase() : null;
-}
-
-export function buildInviteHash(code: string) {
+/** Hash router uses '#/fun-zone/battleship-ABCD' */
+export function buildInviteHash(code: string): string {
   return `#/fun-zone/battleship-${code.toUpperCase()}`;
 }
 
+/** Parse code from current hash if present (Battleship route only) */
+export function parseRoomCodeFromHash(): string | null {
+  try {
+    const raw = (window.location.hash || "").replace(/^#\/?/, "");
+    const m = raw.match(/fun-zone\/battleship-([A-Za-z0-9]{4})/i);
+    return m ? m[1].toUpperCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lazy-load the Firebase adapter */
 export async function createFirebaseAdapter(): Promise<MPAdapter> {
-  const mod = await import("./adapters/firebase");
-  return mod.firebaseAdapter();
+  const mod: any = await import("./adapters/firebase");
+  if (typeof mod.createFirebaseAdapter === "function") return mod.createFirebaseAdapter();
+  if (typeof mod.default === "function") return mod.default();
+  throw new Error("Firebase adapter must export createFirebaseAdapter() or default()");
 }

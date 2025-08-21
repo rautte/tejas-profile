@@ -1,0 +1,15 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- wheel rim -->
+  <circle cx="64" cy="64" r="40" fill="none" stroke="currentColor" stroke-width="5"></circle>
+  <!-- spokes -->
+  <g stroke="currentColor" stroke-width="4" stroke-linecap="round">
+    <path d="M64 20v20M64 88v20"></path>
+    <path d="M20 64h20M88 64h20"></path>
+    <path d="M33 33l14 14M81 81l14 14"></path>
+    <path d="M95 33L81 47M47 81L33 95"></path>
+  </g>
+  <!-- hub -->
+  <circle cx="64" cy="64" r="14" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="3"></circle>
+  <!-- star -->
+  <path d="M64 54l3.5 7.5 8.3 1.1-6 5.8 1.4 8.3-7.2-3.8-7.2 3.8 1.4-8.3-6-5.8 8.3-1.1z" fill="currentColor" fill-opacity=".2" stroke="currentColor" stroke-width="1.5"></path>
+</svg>

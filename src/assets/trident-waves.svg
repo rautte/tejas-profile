@@ -1,0 +1,19 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- stars -->
+  <g fill="currentColor" fill-opacity=".6">
+    <circle cx="24" cy="20" r="2"></circle><circle cx="38" cy="28" r="1.8"></circle>
+    <circle cx="100" cy="22" r="2"></circle><circle cx="86" cy="30" r="1.8"></circle>
+  </g>
+  <!-- trident -->
+  <g stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M64 18l-8 10h16z"></path>
+    <path d="M56 28v42"></path><path d="M72 28v42"></path><path d="M64 24v64"></path>
+    <path d="M48 52l8-6"></path><path d="M80 52l-8-6"></path>
+  </g>
+  <!-- waves -->
+  <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-opacity=".9">
+    <path d="M16 92c8 0 12-8 20-8s12 8 20 8s12-8 20-8s12 8 20 8s12-8 20-8"></path>
+    <path d="M16 104c8 0 12-8 20-8s12 8 20 8s12-8 20-8s12 8 20 8s12-8 20-8" stroke-opacity=".6"></path>
+    <path d="M16 116c8 0 12-8 20-8s12 8 20 8s12-8 20-8s12 8 20 8s12-8 20-8" stroke-opacity=".35"></path>
+  </g>
+</svg>

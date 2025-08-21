@@ -1,134 +1,123 @@
 // src/lib/mp/room.ts
-import type { MPAdapter, MPEvent, Role, Snapshot } from "./index";
-
-export type RoomHandlers = {
-  onShot?: (payload: { by: Role; r: number; c: number }) => void;
-  onResult?: (payload: { to: Role; result: "miss" | "hit" | "sunk"; r: number; c: number }) => void;
-  onPhase?: (phase: "place" | "play" | "over") => void;
-  onRematch?: () => void; // legacy support (no payload)
-  onPeerHello?: (by: Role) => void;
-  onReady?: (payload: { by: Role; ready: boolean }) => void;
-
-  // already present in your latest:
-  onPeerBye?: (by: Role) => void;
-  onEpoch?: (n: number) => void;
-
-  // NEW:
-  onQuit?: (by: Role) => void;
-  onRematchSignal?: (payload: { action: "propose" | "accept" | "decline"; by: Role }) => void;
-
-  onReveal?: (payload: { by: Role; grid: number[][]; fleet: Record<string, any> }) => void;
-};
+import type { MPAdapter, MPEvent, Role, RoomHandlers } from "./index";
 
 export class Room {
-  private unsub: null | (() => void) = null;
+  private adapter: MPAdapter;
+  private code: string;
+  private role: Role;
+  private handlers: RoomHandlers;
 
-  constructor(
-    private adapter: MPAdapter,
-    private roomId: string,
-    private role: Role,
-    private handlers: RoomHandlers = {}
-  ) {}
+  constructor(adapter: MPAdapter, code: string, role: Role, handlers: RoomHandlers) {
+    this.adapter = adapter;
+    this.code = code;
+    this.role = role;
+    this.handlers = handlers;
+  }
 
   async create() {
-    await this.adapter.create(this.roomId);
-    await this.adapter.append(this.roomId, { t: "hello", by: this.role, ts: Date.now() });
-    this.watch();
+    await this.connect();
+    // Host announces presence
+    await this.adapter.send({ t: "hello", by: this.role, at: Date.now() });
   }
 
   async join() {
-    await this.adapter.join(this.roomId);
-    await this.adapter.append(this.roomId, { t: "hello", by: this.role, ts: Date.now() });
-    this.watch();
+    await this.connect();
+    // Guest announces presence
+    await this.adapter.send({ t: "hello", by: this.role, at: Date.now() });
   }
 
-  leave() {
-    if (this.unsub) this.unsub();
-    this.unsub = null;
-    return this.adapter.leave(this.roomId);
-  }
-
-  private watch() {
-    if (this.unsub) this.unsub();
-    this.unsub = this.adapter.onSnapshot(this.roomId, (snap: Snapshot) => {
-      for (const ev of snap.events) this.dispatch(ev);
-    });
-  }
-
-  private dispatch(ev: MPEvent) {
-    switch (ev.t) {
-      case "shot":
-        this.handlers.onShot?.({ by: ev.by, r: ev.r, c: ev.c });
-        break;
-      case "result":
-        this.handlers.onResult?.({ to: ev.to, result: ev.result, r: ev.r, c: ev.c });
-        break;
-      case "phase":
-        this.handlers.onPhase?.(ev.phase);
-        break;
-      case "rematch":
-        if ("action" in ev) this.handlers.onRematchSignal?.({ action: ev.action, by: ev.by });
-        else this.handlers.onRematch?.(); // legacy
-        break;
-      case "quit":
-        this.handlers.onQuit?.(ev.by);
-        break;
-      case "epoch":
-        this.handlers.onEpoch?.(ev.n);
-        break;
-      case "hello":
-        this.handlers.onPeerHello?.(ev.by);
-        break;
-      case "ready":
-        this.handlers.onReady?.({ by: ev.by, ready: ev.ready });
-        break;
-      // (optional) if your adapter ever emits this
-      case "bye":
-        this.handlers.onPeerBye?.(ev.by);
-        break;
-      case "reveal":
-        this.handlers.onReveal?.({ by: ev.by, grid: ev.grid, fleet: ev.fleet });
-        break;
+  async leave() {
+    try {
+      await this.adapter.send({ t: "bye", by: this.role, at: Date.now() });
+    } finally {
+      await this.adapter.leave();
     }
   }
 
-  // ----- actions -----
+  private async connect() {
+    await this.adapter.connect(this.code, this.role, (e) => this.onEvent(e));
+  }
+
+  // ---- Outbound (UI → adapter) ----
   shot(by: Role, r: number, c: number) {
-    return this.adapter.append(this.roomId, { t: "shot", by, r, c, ts: Date.now() });
+    return this.adapter.send({ t: "shot", by, r, c, at: Date.now() });
   }
   result(to: Role, result: "miss" | "hit" | "sunk", r: number, c: number) {
-    return this.adapter.append(this.roomId, { t: "result", to, result, r, c, ts: Date.now() });
+    return this.adapter.send({ t: "result", to, result, r, c, at: Date.now() });
   }
-  phase(phase: "place" | "play" | "over") {
-    return this.adapter.append(this.roomId, { t: "phase", phase, ts: Date.now() });
+  phase(p: "place" | "play" | "over") {
+    return this.adapter.send({ t: "phase", phase: p, at: Date.now() });
   }
-
-  // NEW: structured rematch handshake (propose/accept/decline)
-  rematch(action?: "propose" | "accept" | "decline", by?: Role) {
-    const ts = Date.now();
-    if (action && by) {
-      return this.adapter.append(this.roomId, { t: "rematch", action, by, ts });
-    }
-    // legacy fallback (no payload)
-    return this.adapter.append(this.roomId, { t: "rematch", ts });
+  /** Legacy ping */
+  rematch() {
+    return this.adapter.send({ t: "rematch", at: Date.now() });
   }
-
-  reveal(by: Role, grid: number[][], fleet: Record<string, any>) {
-    return this.adapter.append(this.roomId, { t: "reveal", by, grid, fleet, ts: Date.now() });
+  rematchSignal(action: "propose" | "accept" | "decline", by: Role) {
+    return this.adapter.send({ t: "rematch2", action, by, at: Date.now() });
   }
-
-  // NEW: explicit quit event
-  quit(by: Role) {
-    return this.adapter.append(this.roomId, { t: "quit", by, ts: Date.now() });
-  }
-
-  // already added earlier in your code:
   ready(by: Role, ready: boolean) {
-    return this.adapter.append(this.roomId, { t: "ready", by, ready, ts: Date.now() });
+    return this.adapter.send({ t: "ready", by, ready, at: Date.now() });
+  }
+  hello(by: Role = this.role) {
+    // [NOTE] explicit presence ping so peers can ACK on rejoin
+    return this.adapter.send({ t: "hello", by, at: Date.now() });
+  }
+  quit(by: Role) {
+    return this.adapter.send({ t: "quit", by, at: Date.now() });
+  }
+  reveal(by: Role, grid: number[][], fleet: Record<string, unknown>) {
+    return this.adapter.send({ t: "reveal", by, grid, fleet, at: Date.now() });
+  }
+  /** NEW: host sends a snapshot to a rejoining guest */
+  state(by: Role, state: unknown) {
+    return this.adapter.send({ t: "state", by, state, at: Date.now() });
+  }
+  bumpEpoch() {
+    return this.adapter.bumpEpoch();
   }
 
-  // already added earlier:
-  bumpEpoch() {
-    return this.adapter.append(this.roomId, { t: "epoch", n: Date.now(), ts: Date.now() });
+  // ---- Inbound (adapter → UI) ----
+  private onEvent(e: MPEvent) {
+    switch (e.t) {
+      case "hello":
+        if (e.by !== this.role) this.handlers.onPeerHello?.(e.by);
+        break;
+      case "bye":
+        if (e.by !== this.role) this.handlers.onPeerBye?.(e.by);
+        break;
+      case "shot":
+        this.handlers.onShot?.({ by: e.by, r: e.r, c: e.c });
+        break;
+      case "result":
+        this.handlers.onResult?.({ to: e.to, result: e.result, r: e.r, c: e.c });
+        break;
+      case "phase":
+        this.handlers.onPhase?.(e.phase);
+        break;
+      case "rematch":
+        this.handlers.onRematch?.();
+        break;
+      case "rematch2":
+        this.handlers.onRematchSignal?.({ action: e.action, by: e.by });
+        break;
+      case "ready":
+        this.handlers.onReady?.({ by: e.by, ready: e.ready });
+        break;
+      case "quit":
+        this.handlers.onQuit?.(e.by);
+        break;
+      case "reveal":
+        this.handlers.onReveal?.({ by: e.by, grid: e.grid, fleet: e.fleet });
+        break;
+      case "epoch":
+        this.handlers.onEpoch?.(e.n);
+        break;
+      case "state":
+        this.handlers.onState?.({ by: e.by, state: e.state });
+        break;
+      default:
+        // ignore unknown for forward-compat
+        break;
+    }
   }
 }

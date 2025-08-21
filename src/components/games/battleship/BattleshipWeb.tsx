@@ -1,4 +1,11 @@
 // src/components/games/battleship/BattleshipWeb.tsx
+
+import { ReactComponent as AnchorCrest } from "../../../assets/anchor-crest.svg";
+import { ReactComponent as LifebuoyRope } from "../../../assets/lifebuoy-rope.svg";
+import { ReactComponent as CompassShield } from "../../../assets/compass-shield.svg";
+import { ReactComponent as TridentWaves } from "../../../assets/trident-waves.svg";
+import { ReactComponent as HelmStar } from "../../../assets/helm-star.svg";
+
 import React from "react";
 import {
   SIZE, FLEET_SIZES, Orientation,
@@ -20,6 +27,22 @@ const cellBase =
   "ring-gray-300 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 " +
   "hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center";
 
+// Controls the width of the *single* placement grid (MP only)
+const PLACE_GRID_WIDTH = "min(92vw, 520px)"; // tweak freely (e.g., "min(90vw, 460px)")
+
+// --- Emblem pool (ordered list) ---
+const EMBLEMS = [AnchorCrest, LifebuoyRope, CompassShield, TridentWaves, HelmStar] as const;
+
+// --- Deterministic hash (FNV-1a-ish) to keep picks stable per session ---
+function hashSeed(str: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
 const HitMark = () => (
   <svg viewBox="0 0 100 100" className="w-2/3 h-2/3 text-rose-500 dark:text-rose-300">
     <line x1="20" y1="20" x2="80" y2="80" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
@@ -31,6 +54,102 @@ const MissMark = () => (
     <circle cx="50" cy="50" r="15" stroke="currentColor" strokeWidth="8" fill="none" />
   </svg>
 );
+
+// simple, crisp line icons that inherit currentColor
+const IconSignal: React.FC<React.SVGProps<SVGSVGElement>> = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em" {...p}>
+    <path d="M2 20a10 10 0 0 1 20 0" />
+    <path d="M6 20a6 6 0 0 1 12 0" />
+    <path d="M10 20a2 2 0 0 1 4 0" />
+  </svg>
+);
+
+const IconLink: React.FC<React.SVGProps<SVGSVGElement>> = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em" {...p}>
+    <path d="M10 13a5 5 0 0 0 7.07 0l1.17-1.17a5 5 0 0 0-7.07-7.07L9.9 5"/>
+    <path d="M14 11a5 5 0 0 0-7.07 0L5.76 12.2a5 5 0 0 0 7.07 7.07L14.1 19"/>
+  </svg>
+);
+
+const IconCpu: React.FC<React.SVGProps<SVGSVGElement>> = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round" width="1em" height="1em" {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2"/>
+    <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>
+  </svg>
+);
+
+// --- Team emblem badge (SVG from assets; accepts a chosen Icon) ---
+const TeamEmblem: React.FC<{
+  role: Role;
+  Icon?: React.FunctionComponent<React.SVGProps<SVGSVGElement>>;
+  size?: number;
+  title?: string;
+}> = ({ role, Icon, size = 40, title }) => {
+  const bubble =
+    role === "host"
+      ? "bg-blue-600/10 text-blue-700 dark:text-blue-300"
+      : "bg-emerald-600/10 text-emerald-600 dark:text-emerald-300";
+
+  const iconSize = Math.max(10, size - 4);
+  // Fallback: if no Icon passed, default to basic role icons
+  const Fallback = role === "host" ? AnchorCrest : LifebuoyRope;
+  const IconToUse = Icon ?? Fallback;
+
+  return (
+    <span
+      className={`inline-flex items-center justify-center rounded-full ring-1 ring-black/10 dark:ring-white/10 ${bubble}`}
+      style={{ width: size, height: size }}
+      aria-label={title ?? (role === "host" ? "Host emblem" : "Guest emblem")}
+      title={title ?? (role === "host" ? "Host emblem" : "Guest emblem")}
+    >
+      <IconToUse width={iconSize} height={iconSize} aria-hidden="true" />
+    </span>
+  );
+};
+
+// --- Whole-emblem watermark (badge + exact colors) ---
+type Anchor = Partial<Record<"top" | "right" | "bottom" | "left", number | string>>;
+type WMPos =
+  | "center"
+  | "top-left" | "top-right" | "bottom-left" | "bottom-right"
+  | "top" | "bottom" | "left" | "right";
+
+const WATERMARK_SAFE_INSET = 4; // ← tweak this: 48..96 works well
+
+const WatermarkEmblem: React.FC<{
+  role: Role;
+  Icon: React.FunctionComponent<React.SVGProps<SVGSVGElement>>;
+  size?: number | string;    // px number or CSS string (e.g., "56vw")
+  opacity?: number;          // overall fade (0..1)
+  ring?: boolean;            // keep subtle ring
+}> = ({ role, Icon, size = 520, opacity = 1, ring = true }) => {
+  // EXACT same palette as TeamEmblem
+  const bubbleBgClass = role === "host" ? "bg-blue-600/10" : "bg-emerald-600/10";
+  const iconColorClass = role === "host"
+    ? "text-blue-700 dark:text-blue-300"
+    : "text-emerald-600 dark:text-emerald-300";
+  const ringClass = ring ? "ring-1 ring-black/10 dark:ring-white/10" : "";
+
+  const dim = typeof size === "number" ? `${size}px` : size;
+
+  return (
+    // sized box; parent flex will center this in the viewport
+    <div className="relative pointer-events-none" style={{ width: dim, height: dim, opacity }}>
+      {/* badge (big circle) */}
+      <div className={`absolute inset-0 rounded-full ${bubbleBgClass} ${ringClass}`} aria-hidden />
+      {/* emblem icon tinted exactly like TeamEmblem */}
+      <Icon
+        className={`absolute ${iconColorClass}`}
+        style={{ top: 12, right: 12, bottom: 12, left: 12, position: "absolute" }} // inner padding
+        aria-hidden="true"
+      />
+    </div>
+  );
+};
+
 
 /* -------- sunk overlays -------- */
 type SunkOverlay = { r0: number; c0: number; r1: number; c1: number; cells: string[]; };
@@ -60,7 +179,7 @@ function BoardGrid({
   title, grid, shots, revealShips = false, onCellClick, disabled = false,
   greenEllipseOnly = false,
 }: {
-  title: string;
+  title: React.ReactNode;
   grid: Grid;
   shots: Shots;
   revealShips?: boolean;
@@ -180,11 +299,16 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
   // MP
   const roomRef = React.useRef<Room | null>(null);
-  const rObj = () => roomRef.current!;
+
+  // [FIX] Show emblem only after we've ever seen the peer at least once this session
+  const everHadPeerRef = React.useRef(false);
 
   // Game state
   const [phase, setPhase] = React.useState<Phase>("place");
   const [orientation, setOrientation] = React.useState<Orientation>("H");
+
+  // [FIX] session id for emblem seeding
+  const [epoch, setEpoch] = React.useState<number>(0);
 
   // Player
   const [playerGrid, setPlayerGrid]   = React.useState<Grid>(() => makeGrid());
@@ -203,12 +327,22 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   // ask/answer flow for rematch when game is over (incl. quit)
   const [rematchAskFromPeer, setRematchAskFromPeer] = React.useState<null | Role>(null);
 
+  const turnRef = React.useRef(turn);
+  React.useEffect(() => { turnRef.current = turn; }, [turn]);
+
   // live refs for MP handlers
+  const phaseRef = React.useRef(phase);
   const roleRef = React.useRef(role);
   const playerGridRef = React.useRef(playerGrid);
   const playerFleetRef = React.useRef(playerFleet);
   const playerShotsRef = React.useRef(playerShots);
+  // presence ack bookkeeping
+  const lastHelloFromPeerAtRef = React.useRef(0);
+  const lastHelloAckSentAtRef = React.useRef(0);
+  // [FIX] indicates a grace-resume is in progress (prevents resetting turn)
+  const resumedWithinGraceRef = React.useRef(false);
 
+  React.useEffect(() => { phaseRef.current = phase; }, [phase]);
   React.useEffect(() => { roleRef.current = role; }, [role]);
   React.useEffect(() => { playerGridRef.current = playerGrid; }, [playerGrid]);
   React.useEffect(() => { playerFleetRef.current = playerFleet; }, [playerFleet]);
@@ -216,16 +350,121 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
   // reveal state
   const [enemyRevealed, setEnemyRevealed] = React.useState(false);
-  const sentRevealRef = React.useRef(false); 
+  const sentRevealRef = React.useRef(false);
 
   const aiRef = React.useRef(makeAIState());
 
   // Ready flags
   const [iAmReady, setIAmReady] = React.useState(false);
   const [peerReady, setPeerReady] = React.useState(false);
-  // Opponent presence/state
+
+  const peerReadyRef = React.useRef(peerReady);
+  React.useEffect(() => { peerReadyRef.current = peerReady; }, [peerReady]);
+
+  const iAmReadyRef = React.useRef(iAmReady);
+  React.useEffect(() => { iAmReadyRef.current = iAmReady; }, [iAmReady]);
+
+  // MP presence/status of the *opponent*
   const [peerPresent, setPeerPresent] = React.useState(false);
-  const [peerState, setPeerState] = React.useState<"unknown" | "joining" | "present" | "left" | "quit">("unknown");
+  const [peerState, setPeerState] = React.useState<"joining" | "placing" | "ready" | "quit" | "left">("joining");
+
+  // Presence tracking for timers
+  const peerPresentRef = React.useRef(peerPresent);
+  React.useEffect(() => { peerPresentRef.current = peerPresent; }, [peerPresent]);
+  const rejoinTimerRef = React.useRef<number | null>(null);
+  const lastByeAtRef = React.useRef<number | null>(null);
+  const RESUME_WINDOW_MS = 30_000;
+
+  React.useEffect(() => {
+    const onBeforeUnload = () => {
+      if (!roomCode || !roomRef.current) return; // no active MP session
+      try {
+        saveLocalResume(roomCode, roleRef.current, {
+          exp: Date.now() + RESUME_WINDOW_MS,
+          playerGrid: playerGridRef.current,
+          playerFleet: playerFleetRef.current,
+          iAmReady: iAmReadyRef.current ?? false,
+          turn: turnRef.current, // [FIX]
+        });
+      } catch {}
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [roomCode]); // rebind when room changes
+
+  // [ADD] sessionStorage key helpers for per-room, per-role resumes
+  const resumeKey = (code: string, role: Role) => `bs:${code}:${role}:resume-v1` as const;
+
+  type ResumeBlob = {
+    exp: number;                  // expiry timestamp
+    playerGrid: Grid;
+    playerFleet: Fleet;
+    iAmReady: boolean;
+    turn: "player" | "ai";        // [FIX] preserve whose turn it was
+  };
+
+  // [FIX] use localStorage so new tabs (invite link) can resume within 30s
+  function saveLocalResume(code: string, role: Role, blob: ResumeBlob) {
+    try { localStorage.setItem(resumeKey(code, role), JSON.stringify(blob)); } catch {}
+  }
+  function loadLocalResume(code: string, role: Role): ResumeBlob | null {
+    try {
+      const raw = localStorage.getItem(resumeKey(code, role));
+      if (!raw) return null;
+      const data = JSON.parse(raw) as ResumeBlob;
+      if (!data || Date.now() > data.exp) return null; // expired
+      return data;
+    } catch { return null; }
+  }
+  function clearLocalResume(code: string, role: Role) {
+    try { localStorage.removeItem(resumeKey(code, role)); } catch {}
+  }
+
+  // Snapshot buffer for resume
+  const lastSnapshotRef = React.useRef<any>(null);
+
+  // helper: build a compact state snapshot to send to the peer
+  const buildStateSnapshot = React.useCallback(() => ({
+    phase,
+    turn,
+    playerGrid,
+    playerFleet,
+    playerShots,
+    enemyGrid,
+    enemyFleet,
+    enemyShots,
+    iAmReady,
+    peerReady,
+    msg,
+  }), [
+    phase, turn,
+    playerGrid, playerFleet, playerShots,
+    enemyGrid, enemyFleet, enemyShots,
+    iAmReady, peerReady, msg
+  ]);
+
+  // apply a snapshot received from the peer (used when I rejoin)
+  const applyStateSnapshot = React.useCallback((s: any) => {
+    try {
+      if (s.phase) setPhase(s.phase);
+      if (s.turn) setTurn(s.turn);
+      if (s.playerGrid) setPlayerGrid(s.playerGrid);
+      if (s.playerFleet) setPlayerFleet(s.playerFleet);
+      if (s.playerShots) setPlayerShots(s.playerShots);
+      if (s.enemyGrid) setEnemyGrid(s.enemyGrid);
+      if (s.enemyFleet) setEnemyFleet(s.enemyFleet);
+      if (s.enemyShots) setEnemyShots(s.enemyShots);
+      if (typeof s.iAmReady === "boolean") setIAmReady(s.iAmReady);
+      if (typeof s.peerReady === "boolean") setPeerReady(s.peerReady);
+      if (typeof s.msg === "string") setMsg(s.msg);
+      setEnemyRevealed(false); // on resume, do NOT reveal
+    } catch {}
+  }, []);
+
+  // keep snapshot fresh at key points (local only)
+  const captureStateSnapshot = React.useCallback(() => {
+    lastSnapshotRef.current = buildStateSnapshot();
+  }, [buildStateSnapshot]);
 
   // Seed bot enemy when needed
   React.useEffect(() => {
@@ -250,7 +489,6 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
   // Reset (local)
   const resetLocal = React.useCallback(() => {
-    // keep peerPresent as-is; just clear quit marker back to present if they’re still here
     setPeerState(prev => (prev === "quit" ? (peerPresent ? "present" : "left") : prev));
     setPhase("place"); setOrientation("H");
     setPlayerGrid(makeGrid()); setPlayerFleet({});
@@ -263,13 +501,13 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     setMsg("Place your ships (Toggle Orientation)");
     setIAmReady(false); setPeerReady(false);
     setEnemyRevealed(false);
-
-    sentRevealRef.current = false;   // ← add this line
+    sentRevealRef.current = false;
+    lastSnapshotRef.current = null;
 
     if (mode === "bot") {
       const { grid, fleet } = randomFleet(); setEnemyGrid(grid); setEnemyFleet(fleet);
     }
-  }, [mode]);
+  }, [mode, peerPresent]);
 
   /* ---- MP wiring ---- */
   const ensureRoom = React.useCallback(async (asHost: boolean) => {
@@ -302,13 +540,14 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
         if (allSunk(res.fleet)) {
           setPhase("over");
-          setEnemyRevealed(true); // reveal opponent ships when we lose (your screen)
+          setEnemyRevealed(true);
           setMsg("Opponent wins!");
           roomRef.current?.phase("over");
         } else {
           setTurn("player");
           setMsg(res.result === "miss" ? "Opponent missed. Your turn!" : "Opponent hit you! Your turn.");
         }
+        captureStateSnapshot();
       },
 
       onResult: ({ to, result, r, c }) => {
@@ -325,49 +564,84 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                               "You missed. Opponent’s turn…"
         );
         setTurn("ai");
+        captureStateSnapshot();
       },
 
       onPhase: (ph) => {
+        if (ph === "over" && !peerPresentRef.current) return;
         setPhase(ph);
-        if (ph === "over") {
-          // End-of-game: reveal opponent ships on your screen
-          setEnemyRevealed(true);
-        }
+        captureStateSnapshot();
       },
 
       onRematch: () => resetLocal(),
 
       onReady: ({ by, ready }) => {
-        const mine = roleRef.current;
-        if (by !== mine) setPeerReady(!!ready);
+        const me = roleRef.current;
+        if (by === me) {
+          setIAmReady(ready);
+        } else {
+          setPeerReady(ready);
+        }
+
+        // [FIX] If both are ready and we’re not in play, host authoritatively resumes play.
+        // This covers rejoin where the leaver re-emits ready after restoring.
+        const bothReady = (by === me ? ready : iAmReadyRef.current) && (by === me ? peerReadyRef.current : ready);
+        if (bothReady && phaseRef.current !== "play" && me === "host") {
+          try { roomRef.current?.phase("play"); } catch {}
+        }
       },
 
-      // Optional hooks if your adapter supports them:
-      onPeerBye: async (_by) => {
+      // 30s grace on disconnect — no reveal, no reset yet
+      onPeerBye: async () => {
+        lastByeAtRef.current = Date.now();
         setPeerPresent(false);
         setPeerState("left");
         setPeerReady(false);
-        setMsg("Opponent left. Waiting for a new player…");
-        resetLocal();
-        // If you implemented bumpEpoch on the Room, host can call it here to clear history
-        try { await roomRef.current?.bumpEpoch?.(); } catch {}
+        setMsg("Opponent left. Waiting up to 30s to rejoin…");
+
+        if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
+        rejoinTimerRef.current = window.setTimeout(async () => {
+          rejoinTimerRef.current = null;
+          if (peerPresentRef.current) return; // returned in time
+          if (roleRef.current === "host") {
+            try { await roomRef.current?.bumpEpoch(); } catch {}
+          }
+          resetLocal();
+          setPeerState("joining");
+          setMsg("Opponent did not return. Waiting for a new player…");
+        }, RESUME_WINDOW_MS); // <— use constant
       },
 
-      onPeerHello: () => {
+      onPeerHello: (by) => {
+        const now = Date.now();
+
+        everHadPeerRef.current = true; // [FIX] we have seen the peer in this session
         setPeerPresent(true);
-        setPeerState("present");
+        setPeerState(phase === "place" ? "placing" : "present");
+        setMsg(phase === "play" ? "Game resumed." : "Opponent joined.");
+
+        if (rejoinTimerRef.current) {
+          clearTimeout(rejoinTimerRef.current);
+          rejoinTimerRef.current = null;
+        }
+
+        if (now - lastHelloAckSentAtRef.current > 2000) {
+          try { roomRef.current?.hello(roleRef.current); } catch {}
+          lastHelloAckSentAtRef.current = now;
+        }
       },
 
-      onQuit: (by) => {
-        // Opponent (or me) triggered quit — enter over state and reveal.
+      onQuit: () => {
         setPeerState("quit");
         setPhase("over");
         setMsg("Opponent quit. Revealing boards…");
-        // Ensure I send my board once, so both sides can reveal each other
+        // reveal only on Quit (never on Leave)
         if (!sentRevealRef.current) {
           sentRevealRef.current = true;
           try {
-            roomRef.current?.reveal(roleRef.current, playerGridRef.current as unknown as number[][], playerFleetRef.current as unknown as Record<string, any>);
+            roomRef.current?.reveal(
+              roleRef.current, playerGridRef.current as any, playerFleetRef.current as any
+            );
           } catch {}
         }
       },
@@ -375,11 +649,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       onRematchSignal: ({ action, by }) => {
         const me = roleRef.current;
         if (action === "propose" && by !== me) {
-          // Peer asked — show Yes/No prompt locally
           setRematchAskFromPeer(by);
           setMsg("Opponent wants a rematch. Accept?");
         } else if (action === "accept") {
-          // Either side accepted -> both reset
           setRematchAskFromPeer(null);
           resetLocal();
           setMsg("Rematch starting. Place your ships.");
@@ -389,28 +661,96 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         }
       },
 
-      onEpoch: (_n) => {
-        // host marked a fresh session (e.g., after guest leaves or host exits)
+      onEpoch: (n) => {
+        setEpoch(typeof n === "number" ? n : 0);
+        everHadPeerRef.current = false; // [FIX] new session: no peer yet
         resetLocal();
         setMsg("New session started.");
       },
-      
+
       onReveal: ({ by, grid, fleet }) => {
-        // If the reveal is from the other side, that is my "enemy" board
         const mine = roleRef.current;
-        if (by === mine) return; // ignore my own echo
+        if (by === mine) return;
         setEnemyGrid(grid as unknown as Grid);
         setEnemyFleet(fleet as unknown as Fleet);
         setEnemyRevealed(true);
+      },
+
+      // Resume handler: apply peer’s snapshot if I’m the one who rejoined
+      onState: ({ by, state }) => {
+        const me = roleRef.current;
+        if (by === me) return;
+        applyStateSnapshot(state);
+        setMsg("Resumed match.");
       },
     });
 
     roomRef.current = r;
     setRole(asHost ? "host" : "guest");
-    if (asHost) await r.create();
-    else await r.join();
+
+    if (asHost) {
+      const e = (await (r.create() as unknown)) as number | void; // may return epoch
+      setPeerPresent(false);
+      setPeerState("joining");
+      if (typeof e === "number") setEpoch(e); // [FIX] seed from connect
+
+      const blobH = loadLocalResume(code, "host");
+      if (blobH) {
+        setPlayerGrid(blobH.playerGrid);
+        setPlayerFleet(blobH.playerFleet);
+        setIAmReady(!!blobH.iAmReady);
+        setTurn(blobH.turn); // [FIX]
+        try {
+          if (blobH.iAmReady) { roomRef.current?.ready("host", true); }
+        } catch {}
+        clearLocalResume(code, "host");
+        resumedWithinGraceRef.current = true; // [FIX]
+        setMsg("Resumed your board. Waiting for guest…");
+      }
+
+    } else {
+      const e = (await (r.join() as unknown)) as number | void; // may return epoch
+      if (typeof e === "number") setEpoch(e); // [FIX] seed from connect
+
+      // [ADD] Attempt local resume if within 30s and same room
+      const blob = loadLocalResume(code, "guest");
+      if (blob) {
+        setPlayerGrid(blob.playerGrid);
+        setPlayerFleet(blob.playerFleet);
+        setIAmReady(!!blob.iAmReady);
+        setTurn(blob.turn); // [FIX] keep the real turn
+        try {
+          if (blob.iAmReady) { roomRef.current?.ready("guest", true); }
+        } catch {}
+        clearLocalResume(code, "guest");
+        resumedWithinGraceRef.current = true; // [FIX] don't reset turn in ready gate
+        setMsg("Resumed your board. Waiting for opponent/status…");
+      }
+    }
+    // proactively say hello once we’re connected (idempotent)
+    try { roomRef.current?.hello(roleRef.current); } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // [ADD] if both ready but not in play (e.g., rejoin ordering), host asserts play once.
+  React.useEffect(() => {
+    if (iAmReady && peerReady && phase !== "play" && roleRef.current === "host" && roomRef.current) {
+      try { roomRef.current.phase("play"); } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iAmReady, peerReady, phase]);
+
+  // nudge the peer if we still think they're absent shortly after connect
+  React.useEffect(() => {
+    if (!peerPresent && roomRef.current) {
+      const id = window.setTimeout(() => {
+        if (!peerPresent && roomRef.current) {
+          try { roomRef.current.hello(roleRef.current); } catch {}
+        }
+      }, 1000); // 1s after mount/rejoin
+      return () => clearTimeout(id);
+    }
+  }, [peerPresent]);
 
   // DIRECT INVITE: auto-join room immediately (skip 3-button landing)
   React.useEffect(() => {
@@ -437,6 +777,8 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     setToPlace(remaining);
     setMsg(remaining.length ? `Placed ${length}. Next: ${remaining[0]} (Toggle Orientation)` : "All placed!");
 
+    captureStateSnapshot();
+
     if (remaining.length === 0) {
       if (mode === "bot") {
         setPhase("play"); setTurn("player"); setMsg("Start firing →");
@@ -445,40 +787,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         try { roomRef.current?.ready(roleRef.current, true); } catch {}
         setMsg("Waiting for opponent to finish placement…");
       }
+      captureStateSnapshot();
     }
   };
-
-  const opponentStatus = React.useMemo(() => {
-    const isHost = role === "host";
-
-    // Map role → opponent label
-    const opp = isHost ? "Guest" : "Host";
-
-    // Special rules for guest: never show "Host joining..." or "Host left room"
-    if (!isHost) {
-      if (peerState === "quit") return `${opp} quit game`;
-      // During placement: show ready/placing if we know their readiness
-      if (phase === "place") {
-        return peerReady ? `${opp} is ready` : `${opp} placing ships...`;
-      }
-      if (phase === "play") return `${opp} in game`;
-      if (phase === "over") return `${opp} in game`;
-      return ""; // no "Host joining/left" per your requirement
-    }
-
-    // Host view (show full set)
-    switch (peerState) {
-      case "joining": return "Guest joining...";
-      case "left":    return "Guest left room";
-      case "quit":    return "Guest quit game";
-      case "present":
-      default:
-        if (phase === "place") return peerReady ? "Guest is ready" : "Guest placing ships...";
-        if (phase === "play")  return "Guest in game";
-        if (phase === "over")  return "Guest in game";
-        return "Guest joining...";
-    }
-  }, [role, peerState, phase, peerReady]);
 
   /* ---- Bot turn ---- */
   const aiTurn = () => {
@@ -489,7 +800,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     if (res.result === "hit" || res.result === "sunk") aiOnHit(rr, cc, res.shots, ai);
     if (allSunk(res.fleet)) {
       setPhase("over");
-      setEnemyRevealed(true); // reveal enemy when you lose vs bot
+      setEnemyRevealed(true);
       setMsg("Bot wins!");
       return;
     }
@@ -517,7 +828,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     }
 
     // MP
-    if (turn !== "player" || enemyShots[r][c] !== 0) return;
+    if (turn !== "player" || enemyShots[r][c] !== 0 || !peerPresent) return;
     roomRef.current?.shot(roleRef.current, r, c);
     setMsg("Fired. Waiting for result…");
   };
@@ -529,44 +840,104 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     if (!iAmReady || !peerReady) return;
 
     setPhase("play");
-    const amHost = roleRef.current === "host";
-    setTurn(amHost ? "player" : "ai");
-    setMsg(amHost ? "You go first. Fire when ready." : "Host goes first. Waiting…");
+
+    if (!resumedWithinGraceRef.current) {
+      // [FIX] only set initial turn for fresh games
+      const amHost = roleRef.current === "host";
+      setTurn(amHost ? "player" : "ai");
+      setMsg(amHost ? "You go first. Fire when ready." : "Host goes first. Waiting…");
+    } else {
+      // [FIX] resume path: keep existing turn, just update status
+      setMsg(turnRef.current === "player" ? "Your turn. Resume firing." : "Opponent's turn. Waiting…");
+    }
+
     try { roomRef.current?.phase("play"); } catch {}
+    captureStateSnapshot();
+
+    // clear the flag once we've transitioned
+    resumedWithinGraceRef.current = false;
   }, [mode, phase, iAmReady, peerReady]);
 
   const inviteHash = roomCode ? buildInviteHash(roomCode) : "";
+
+  // [FIX] Pick a stable emblem per role for this session (roomCode + epoch)
+  const [HostEmblemIcon, GuestEmblemIcon] = React.useMemo(() => {
+    if (!roomCode) return [EMBLEMS[0], EMBLEMS[1]] as const;
+    const seed = hashSeed(`${roomCode}|${epoch}`);
+    const hostIdx = seed % EMBLEMS.length;
+
+    // derive a second index for guest; ensure distinct
+    let guestIdx = ((seed * 1103515245 + 12345) >>> 0) % EMBLEMS.length;
+    if (guestIdx === hostIdx) guestIdx = (guestIdx + 1) % EMBLEMS.length;
+
+    return [EMBLEMS[hostIdx], EMBLEMS[guestIdx]] as const;
+  }, [roomCode, epoch]);
+
+  // [ADD] pick my own emblem icon for the watermark
+  const MyEmblemIcon = role === "host" ? HostEmblemIcon : GuestEmblemIcon;
+
+  // Compute opponent status (must be before any early returns so hooks are not conditional)
+  const opponentStatus = React.useMemo(() => {
+    const isHost = role === "host";
+
+    if (!peerPresent) {
+      if (isHost) {
+        return peerState === "left" ? "Guest (signal lost)" : "Guest (making radio contact...)";
+      }
+      // Guest never shows "Host (making radio contact...)"
+      return "";
+    }
+
+    if (isHost) {
+      if (peerState === "quit") return "Guest (surrendered)";
+      if (phase === "place")    return peerReady ? "Guest (battle ready)" : "Guest (charting the grid...)";
+      return "Guest (at war)";
+    } else {
+      if (peerState === "quit") return "Host (surrendered)";
+      if (phase === "place")    return peerReady ? "Host (battle ready)" : "Host (charting the grid...)";
+      return "Host (at war)";
+    }
+  }, [role, peerPresent, peerReady, peerState, phase]);
 
   /* ---- Landing with inline Join ---- */
   if (entry === "landing") {
     return (
       <div className="w-full mt-16 flex justify-center">
         <div className="w-full max-w-sm mx-auto p-6 rounded-xl bg-gray-100 dark:bg-gray-800 shadow-md transition-all border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-6">
             <button
-              className="w-full max-w-[220px] px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 text-white"
+              className="w-full max-w-[180px] px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 text-white"
               onClick={() => { setEntry("bot"); setMode("bot"); resetLocal(); }}
             >
-              Play with Bot
+              <span className="inline-flex items-center gap-2">
+                <IconCpu className="w-4 h-4 opacity-90" aria-hidden="true" />
+                Play with Bot
+              </span>
             </button>
 
             <button
-              className="w-full max-w-[220px] px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 text-white"
+              className="w-full max-w-[180px] px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 text-white"
               onClick={() => { setEntry("mp"); setMode("mp"); resetLocal(); ensureRoom(true); }}
             >
-              Create Room (Online)
+              <span className="inline-flex items-center gap-2">
+                <IconSignal className="w-4 h-4 opacity-90" aria-hidden="true" />
+                Create Room
+              </span>
             </button>
 
             {!landingJoinOpen ? (
               <button
-                className="w-full max-w-[220px] px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 text-white"
+                className="w-full max-w-[180px] px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 text-white"
                 onClick={() => { setLandingJoinOpen(true); setJoinCode(""); }}
               >
-                Join Room (Online)
+                <span className="inline-flex items-center gap-2">
+                  <IconLink className="w-4 h-4 opacity-90" aria-hidden="true" />
+                  Join Room
+                </span>
               </button>
             ) : (
               <div className="w-full flex flex-col items-center gap-2">
-                <div className="w-full flex gap-2">
+                <div className="flex gap-4">
                   <input
                     autoFocus
                     inputMode="text"
@@ -608,12 +979,34 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     );
   }
 
-  /* ---- MP header ---- */
   const MPHeader = () => (
     <div className="p-3 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-800 dark:text-gray-200">
-          {opponentStatus || "Invite Player"}
+        <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+          {opponentStatus ? (
+            <div className="font-semibold text-sm text-gray-800 dark:text-gray-200 flex items-center gap-2">
+              {/* [FIX] Opponent emblem:
+                  - hidden initially (making radio contact) until we ever saw them
+                  - visible during 30s grace (rejoinTimerRef.current != null)
+                  - visible when present
+              */}
+              {(everHadPeerRef.current && (peerPresent || rejoinTimerRef.current != null)) && (
+                <TeamEmblem
+                  role={role === "host" ? "guest" : "host"}
+                  Icon={role === "host" ? GuestEmblemIcon : HostEmblemIcon}
+                  size={40}
+                />
+              )}
+
+              {/* presence dot (red when not present; green when present) */}
+              <span
+                className={`inline-block ${peerPresent ? "bg-emerald-500" : "bg-rose-500"} w-3 h-3 rounded-full`}
+                aria-hidden
+              />
+
+              <span>{opponentStatus}</span>
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -629,11 +1022,13 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
               onClick={() => {
                 try {
                   roomRef.current?.quit(roleRef.current);
-                  // After quitting, send my reveal once
                   if (!sentRevealRef.current) {
                     sentRevealRef.current = true;
-                    // playerGrid / playerFleet are my placements; cast to JSON-y shapes
-                    roomRef.current?.reveal(roleRef.current, playerGrid as unknown as number[][], playerFleet as unknown as Record<string, any>);
+                    roomRef.current?.reveal(
+                      roleRef.current,
+                      playerGrid as unknown as number[][],
+                      playerFleet as unknown as Record<string, any>
+                    );
                   }
                 } catch {}
                 setPhase("over");
@@ -647,12 +1042,25 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
             <button
               className="px-3 py-1.5 rounded-lg bg-gray-700 text-white"
               onClick={async () => {
-                // If host, mark a fresh session so the next guest starts clean
-                if (roleRef.current === "host") {
-                  try { await roomRef.current?.bumpEpoch(); } catch {}
-                }
-                await roomRef.current?.leave();
-                setEntry("landing"); setMode("bot"); resetLocal();
+                // persist my local placement + ready so I can resume within 30s
+                try {
+                  if (roomCode) {
+                    saveLocalResume(roomCode, roleRef.current, {
+                      exp: Date.now() + RESUME_WINDOW_MS,
+                      playerGrid: playerGridRef.current,
+                      playerFleet: playerFleetRef.current,
+                      iAmReady: iAmReadyRef.current ?? false,
+                      turn: turnRef.current, // [FIX]
+                    });
+                  }
+                } catch {}
+
+                // tell the room we are leaving; do NOT call quit() or bumpEpoch() here
+                try { await roomRef.current?.leave(); } catch {}
+
+                // go back to landing or your default
+                setEntry("landing");
+                // (don’t resetLocal() if you want to keep single-player state; optional)
               }}
               title="Leave room"
             >
@@ -690,176 +1098,226 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
   return (
     <div className="w-full flex justify-center">
-      <div className="w-full max-w-5xl mx-auto flex flex-col gap-6">
-        {mode === "mp" && <MPHeader />}
-
-        {/* Placement controls */}
-        {phase === "place" && (
-          <div className="flex items-center justify-between rounded-xl p-3 ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800">
-            <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
-              Ships to place: <span className="tracking-wide">{toPlace.join(", ")}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-700 dark:text-gray-300">Orientation:</span>
-              <button
-                onClick={() => setOrientation((o) => (o === "H" ? "V" : "H"))}
-                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
-              >
-                {orientation === "H" ? "Horizontal" : "Vertical"} (R)
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Boards */}
-        {mode === "bot" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <BoardGrid
-              title="Your Board"
-              grid={playerGrid}
-              shots={playerShots}
-              revealShips
-              greenEllipseOnly
-              onCellClick={phase === "place" ? onPlaceClick : undefined}
-              disabled={phase !== "place"}
-            />
-            <BoardGrid
-              title="Enemy Board"
-              grid={enemyGrid}
-              shots={enemyShots}
-              revealShips={phase === "over" && enemyRevealed}
-              onCellClick={onEnemyClick}
-              disabled={phase !== "play" || turn !== "player"}
-            />
-          </div>
-        ) : (
-          <>
-            {phase === "place" && (
-              <div className="grid grid-cols-1 gap-6">
-                <BoardGrid
-                  title="Your Board (place your ships)"
-                  grid={playerGrid}
-                  shots={playerShots}
-                  revealShips
-                  greenEllipseOnly
-                  onCellClick={onPlaceClick}
-                  disabled={toPlace.length === 0}
-                />
-                {iAmReady && !peerReady && (
-                  <div className="text-sm text-gray-700 dark:text-gray-300">
-                    You’re ready. Waiting for opponent…
-                  </div>
-                )}
-                {!iAmReady && peerReady && (
-                  <div className="text-sm text-gray-700 dark:text-gray-300">
-                    Opponent is ready. Place your ships!
-                  </div>
-                )}
-              </div>
-            )}
-            {phase === "play" && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <BoardGrid
-                  title="Your Board"
-                  grid={playerGrid}
-                  shots={playerShots}
-                  revealShips
-                  greenEllipseOnly
-                  disabled
-                />
-                <BoardGrid
-                  title="Enemy Board"
-                  grid={enemyGrid}
-                  shots={enemyShots}
-                  revealShips={false}
-                  onCellClick={onEnemyClick}
-                  disabled={turn !== "player"}
-                />
-              </div>
-            )}
-            {phase === "over" && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <BoardGrid
-                  title="Your Board"
-                  grid={playerGrid}
-                  shots={playerShots}
-                  revealShips
-                  greenEllipseOnly
-                  disabled
-                />
-                <BoardGrid
-                  title="Enemy Board"
-                  grid={enemyGrid}
-                  shots={enemyShots}
-                  revealShips={enemyRevealed}
-                  onCellClick={() => {}}
-                  disabled
-                />
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Bottom bar */}
-        <div className="flex items-center justify-between">
-          {mode === "bot" ? (
-            <button
-              onClick={resetLocal}
-              className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
-            >
-              Reset
-            </button>
-          ) : roomRef.current ? (
-            phase === "over" ? (
-              <button
-                onClick={() => {
-                  try { roomRef.current?.rematch("propose", roleRef.current); } catch {}
-                  setMsg("Asked for a rematch…");
-                }}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
-              >
-                Rematch
-              </button>
-            ) : (
-              <div />
-            )
-          ) : (
-            <div />
-          )}
-          <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{msg}</div>
+      {/* container with stacking context so watermark can sit behind content */}
+      {/* <div className="w-full max-w-5xl mx-auto relative overflow-hidden"> */}
+      <div className="w-full max-w-5xl mx-auto relative">
+        {/* Watermark — your own emblem, faint and behind all cards/dialogs */}
+        <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+          <WatermarkEmblem
+            role={role}
+            Icon={MyEmblemIcon}
+            // max 1060px, but never wider than (container width - 2 × SAFE_INSET)
+            size={`min(1060px, calc(100% - ${WATERMARK_SAFE_INSET * 2}px))`}
+            opacity={0.1}
+          />
         </div>
 
-        {rematchAskFromPeer && (
-          <div className="flex items-center gap-3 text-sm text-gray-800 dark:text-gray-200">
-            Opponent wants a rematch. Accept?
-            <button
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
-              onClick={() => {
-                try { roomRef.current?.rematch("accept", roleRef.current); } catch {}
-                setRematchAskFromPeer(null);
-                resetLocal();
-                setMsg("Rematch starting. Place your ships.");
-              }}
-            >
-              Yes
-            </button>
-            <button
-              className="px-3 py-1.5 rounded-lg bg-gray-600 text-white"
-              onClick={() => {
-                try { roomRef.current?.rematch("decline", roleRef.current); } catch {}
-                setRematchAskFromPeer(null);
-                setMsg("Rematch declined.");
-              }}
-            >
-              No
-            </button>
-          </div>
-        )}
+        {/* Foreground content sits above watermark */}
+        <div className="flex flex-col gap-6 relative z-10">
+          {mode === "mp" && <MPHeader />}
 
-      </div>
+          {/* Placement controls */}
+          {phase === "place" && (
+            <div className="flex items-center justify-between rounded-xl p-3 ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800">
+              <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                Ships to place: <span className="tracking-wide">{toPlace.join(", ")}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-700 dark:text-gray-300">Orientation:</span>
+                <button
+                  onClick={() => setOrientation((o) => (o === "H" ? "V" : "H"))}
+                  className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
+                >
+                  {orientation === "H" ? "Horizontal" : "Vertical"} (R)
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Boards */}
+          {mode === "bot" ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <BoardGrid
+                title={
+                  <span className="inline-flex items-center gap-2">
+                    <TeamEmblem role={role} Icon={role === "host" ? HostEmblemIcon : GuestEmblemIcon} size={14} />
+                    Your Board
+                  </span>
+                }
+                grid={playerGrid}
+                shots={playerShots}
+                revealShips
+                greenEllipseOnly
+                onCellClick={phase === "place" ? onPlaceClick : undefined}
+                disabled={phase !== "place"}
+              />
+              <BoardGrid
+                title={
+                  <span className="inline-flex items-center gap-2">
+                    <TeamEmblem role={role === "host" ? "guest" : "host"} Icon={role === "host" ? GuestEmblemIcon : HostEmblemIcon} size={14} />
+                    Enemy Board
+                  </span>
+                }
+                grid={enemyGrid}
+                shots={enemyShots}
+                revealShips={phase === "over" && enemyRevealed}
+                onCellClick={onEnemyClick}
+                disabled={phase !== "play" || turn !== "player"}
+              />
+            </div>
+          ) : (
+            <>
+              {phase === "place" && (
+                <div className="grid grid-cols-1 gap-6">
+                  <div className="mx-auto w-full" style={{ width: PLACE_GRID_WIDTH }}>
+                    <BoardGrid
+                      title="Your Board (place your ships)"
+                      grid={playerGrid}
+                      shots={playerShots}
+                      revealShips
+                      greenEllipseOnly
+                      onCellClick={onPlaceClick}
+                      disabled={toPlace.length === 0}
+                    />
+                  </div>
+
+                  {iAmReady && !peerReady && (
+                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                      You’re ready. Waiting for opponent…
+                    </div>
+                  )}
+                  {!iAmReady && peerReady && (
+                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                      Opponent is ready. Place your ships!
+                    </div>
+                  )}
+                </div>
+              )}
+              {phase === "play" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <BoardGrid
+                    title={
+                      <span className="inline-flex items-center gap-2">
+                        <TeamEmblem role={role} Icon={role === "host" ? HostEmblemIcon : GuestEmblemIcon} size={14} />
+                        Your Board
+                      </span>
+                    }
+                    grid={playerGrid}
+                    shots={playerShots}
+                    revealShips
+                    greenEllipseOnly
+                    disabled
+                  />
+                  <BoardGrid
+                    title={
+                      <span className="inline-flex items-center gap-2">
+                        <TeamEmblem role={role === "host" ? "guest" : "host"} Icon={role === "host" ? GuestEmblemIcon : HostEmblemIcon} size={14} />
+                        Enemy Board
+                      </span>
+                    }
+                    grid={enemyGrid}
+                    shots={enemyShots}
+                    revealShips={phase === "over" && enemyRevealed}
+                    onCellClick={onEnemyClick}
+                    disabled={!peerPresent || phase !== "play" || turn !== "player"} // [FIX]
+                  />
+                </div>
+              )}
+              {phase === "over" && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <BoardGrid
+                    title={
+                      <span className="inline-flex items-center gap-2">
+                        <TeamEmblem role={role} Icon={role === "host" ? HostEmblemIcon : GuestEmblemIcon} size={14} />
+                        Your Board
+                      </span>
+                    }
+                    grid={playerGrid}
+                    shots={playerShots}
+                    revealShips
+                    greenEllipseOnly
+                    disabled
+                  />
+                  <BoardGrid
+                    title={
+                      <span className="inline-flex items-center gap-2">
+                        <TeamEmblem role={role === "host" ? "guest" : "host"} Icon={role === "host" ? GuestEmblemIcon : HostEmblemIcon} size={14} />
+                        Enemy Board
+                      </span>
+                    }
+                    grid={enemyGrid}
+                    shots={enemyShots}
+                    revealShips={enemyRevealed}
+                    onCellClick={() => {}}
+                    disabled
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Bottom bar */}
+          <div className="flex items-center justify-between">
+            {mode === "bot" ? (
+              <button
+                onClick={resetLocal}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
+              >
+                Reset
+              </button>
+            ) : roomRef.current ? (
+              phase === "over" ? (
+                <button
+                  onClick={() => {
+                    try { roomRef.current?.rematch("propose", roleRef.current); } catch {}
+                    setMsg("Asked for a rematch…");
+                  }}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
+                >
+                  Rematch
+                </button>
+              ) : (
+                <div />
+              )
+            ) : (
+              <div />
+            )}
+            <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{msg}</div>
+          </div>
+
+          {rematchAskFromPeer && (
+            <div className="flex items-center gap-3 text-sm text-gray-800 dark:text-gray-200">
+              Opponent wants a rematch. Accept?
+              <button
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
+                onClick={() => {
+                  try { roomRef.current?.rematch("accept", roleRef.current); } catch {}
+                  setRematchAskFromPeer(null);
+                  resetLocal();
+                  setMsg("Rematch starting. Place your ships.");
+                }}
+              >
+                Yes
+              </button>
+              <button
+                className="px-3 py-1.5 rounded-lg bg-gray-600 text-white"
+                onClick={() => {
+                  try { roomRef.current?.rematch("decline", roleRef.current); } catch {}
+                  setRematchAskFromPeer(null);
+                  setMsg("Rematch declined.");
+                }}
+              >
+                No
+              </button>
+            </div>
+          )}
+
+        </div> {/* end: foreground content wrapper */}
+      </div>   {/* end: max-w container with watermark */}
     </div>
   );
 }
+
 
 
 
