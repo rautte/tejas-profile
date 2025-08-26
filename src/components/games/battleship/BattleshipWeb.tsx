@@ -16,9 +16,13 @@ import {
   createFirebaseAdapter,
 } from "lib/mp";
 
+import SideSpin from "./dev/SideSpin";
+import { SIDE_FRAMES_BY_ID } from "../../../assets/ships/sprites/side"; // adjust path if needed
+
 import { BoardGrid, NavalCompass, SignalDeck, TeamEmblem, WatermarkEmblem } from "./ui";
-import type { IntelLine } from "./ui";
+import { TOP_SPRITES } from "../../../assets/ships/sprites/top";
 import { EMBLEMS, hashSeed } from "./utils";
+import type { IntelLine } from "./ui";
 import { Room } from "lib/mp/room";
 
 /* ----------------- Icons & small UI helpers ----------------- */
@@ -50,16 +54,6 @@ const IconCpu: React.FC<React.SVGProps<SVGSVGElement>> = (p) => (
 
 /* ----------------- Styling constants ----------------- */
 
-// const cellBase =
-//   "relative aspect-square rounded-md ring-1 transition select-none " +
-//   "ring-gray-300 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 " +
-//   "hover:bg-gray-200 dark:hover:bg-gray-700 flex items-center justify-center";
-
-const cellBase =
-  "relative aspect-square transition select-none flex items-center justify-center " +
-  "ring-0 bg-transparent rounded-[10px] " +                     // no per-cell border/fill
-  "hover:bg-black/[0.1] dark:hover:bg-white/[0.1]";  
-
 // width for the single placement grid (MP only)
 const PLACE_GRID_WIDTH = "min(92vw, 520px)";
 // left/right rail width (same on both sides) — tweak this to scale the center board
@@ -77,6 +71,20 @@ type Entry = "landing" | "bot" | "mp";
 type Props = { onRegisterReset?: (fn: () => void) => void; };
 
 export default function BattleshipWeb({ onRegisterReset }: Props) {
+  // HashRouter-safe harbor path for your site:
+  const HARBOR_HASH_PATH = "/fun-zone/battleship";
+  const gotoHarbor = React.useCallback(() => {
+    const finalHash = `#${HARBOR_HASH_PATH}`;
+    // Changing location.hash triggers HashRouter + any title logic you have.
+    if (window.location.hash !== finalHash) {
+      window.location.hash = finalHash;
+    } else {
+      // If it already matches, manually poke listeners.
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
+    try { document.title = "Battleship"; } catch {}
+  }, []);
+
   // deep-link / invite detection
   const codeFromHash = parseRoomCodeFromHash() || "";
   const fromInvite = !!codeFromHash;
@@ -86,6 +94,16 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const [mode, setMode] = React.useState<MPMode>(() => (fromInvite ? "mp" : "bot"));
   const [role, setRole] = React.useState<Role>(fromInvite ? "guest" : "host");
   const [roomCode, setRoomCode] = React.useState<string>(() => codeFromHash);
+
+  // Keep tab title in sync with room vs harbor
+  React.useEffect(() => {
+    const base = "Battleship";
+    if (!roomRef.current || entry === "landing") {
+      try { document.title = base; } catch {}
+    } else if (roomCode) {
+      try { document.title = `${base} — Room ${roomCode}`; } catch {}
+    }
+  }, [entry, roomCode]);
 
   // landing join UX
   const [landingJoinOpen, setLandingJoinOpen] = React.useState(false);
@@ -114,12 +132,30 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const [turn, setTurn]               = React.useState<"player" | "ai">("player");
   const [msg, setMsg]                 = React.useState("Deploy your fleet (press R to rotate)");
   const [rematchAskFromPeer, setRematchAskFromPeer] = React.useState<null | Role>(null);
+  
+  // reverse countdown while waiting for peer to rejoin
+  const [graceLeftMs, setGraceLeftMs] = React.useState<number | null>(null);
+  const graceTimerRef = React.useRef<number | null>(null);
+  const fmtMMSS = (ms: number) => {
+    const s = Math.ceil(ms / 1000);
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, "0");
+    return `${m}:${ss}`;
+  };
+
+  // clear on unmount just in case
+  React.useEffect(() => () => {
+    if (graceTimerRef.current) clearInterval(graceTimerRef.current);
+  }, []);
 
   // Compass heading (remembers last H and V picks)
   type CompassDir = "N" | "E" | "S" | "W";
   const [compassDir, setCompassDir] = React.useState<CompassDir>("E");
   const lastHDirRef = React.useRef<Extract<CompassDir,"E"|"W">>("E");
   const lastVDirRef = React.useRef<Extract<CompassDir,"N"|"S">>("N");
+
+  const [headingsById, setHeadingsById] = React.useState<Record<number,"N"|"E"|"S"|"W">>({});
+
 
   const onCompassChoose = (d: CompassDir) => {
     setCompassDir(d);
@@ -131,6 +167,13 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       setOrientation("H");
     }
   };
+
+  // keep "toPlace" synced to what's already placed (only during placement)
+  React.useEffect(() => {
+    if (phase !== "place") return;
+    const placed = Object.keys(playerFleet).length;
+    setToPlace(FLEET_SIZES.slice(placed));
+  }, [phase, playerFleet]);
 
   // keep compass in sync if orientation changes via keyboard (R) or other paths
   React.useEffect(() => {
@@ -288,6 +331,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       if (s.turn) setTurn(s.turn);
       if (s.playerGrid) setPlayerGrid(s.playerGrid);
       if (s.playerFleet) setPlayerFleet(s.playerFleet);
+      if (s.playerFleet && phaseRef.current === "place") {
+        try { setToPlace(FLEET_SIZES.slice(Object.keys(s.playerFleet).length)); } catch {}
+      }
       if (s.playerShots) setPlayerShots(s.playerShots);
       if (s.enemyGrid) setEnemyGrid(s.enemyGrid);
       if (s.enemyFleet) setEnemyFleet(s.enemyFleet);
@@ -330,6 +376,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     setPeerState(prev => (prev === "quit" ? (peerPresent ? "present" : "left") : prev));
     setPhase("place"); setOrientation("H");
     setIntelLog([]);
+    setHeadingsById({});
     setPlayerGrid(makeGrid()); setPlayerFleet({});
     setPlayerShots(makeShots());
     setEnemyGrid(makeGrid()); setEnemyFleet({});
@@ -469,9 +516,25 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         setPeerReady(false);
         setMsg("Contact lost—holding station for 30 s...");
 
+        // start reverse countdown
+        setGraceLeftMs(RESUME_WINDOW_MS);
+        if (graceTimerRef.current) clearInterval(graceTimerRef.current);
+        graceTimerRef.current = window.setInterval(() => {
+          setGraceLeftMs(prev => {
+            if (prev == null) return null;
+            const next = prev - 1000;
+            return next <= 0 ? 0 : next;
+          });
+        }, 1000);
+
         if (rejoinTimerRef.current) clearTimeout(rejoinTimerRef.current);
         rejoinTimerRef.current = window.setTimeout(async () => {
           rejoinTimerRef.current = null;
+
+          // stop countdown when grace ends
+          if (graceTimerRef.current) { clearInterval(graceTimerRef.current); graceTimerRef.current = null; }
+          setGraceLeftMs(null);
+
           if (peerPresentRef.current) return;
           if (roleRef.current === "host") {
             try { await roomRef.current?.bumpEpoch(); } catch {}
@@ -488,7 +551,21 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         everHadPeerRef.current = true;
         setPeerPresent(true);
         setPeerState(phase === "place" ? "placing" : "present");
-        setMsg(phase === "play" ? "Comms restored—engagement resumes." : "New contact—battle stations.");
+
+        // if we were in grace, it’s a reconnection; otherwise it’s a fresh contact
+        const wasInGrace = !!graceTimerRef.current;
+        if (wasInGrace) {
+          setMsg(phaseRef.current === "play"
+            ? "Link re-established—engagement resumes."
+            : "Link re-established—standing by."
+          );
+        } else {
+          setMsg(phase === "play" ? "Comms restored—engagement resumes." : "New contact—battle stations.");
+        }
+
+        // stop grace countdown immediately on return
+        if (graceTimerRef.current) { clearInterval(graceTimerRef.current); graceTimerRef.current = null; }
+        setGraceLeftMs(null);
 
         if (rejoinTimerRef.current) {
           clearTimeout(rejoinTimerRef.current);
@@ -566,6 +643,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       if (blobH) {
         setPlayerGrid(blobH.playerGrid);
         setPlayerFleet(blobH.playerFleet);
+        setToPlace(FLEET_SIZES.slice(Object.keys(blobH?.playerFleet ?? {}).length));
         setIAmReady(!!blobH.iAmReady);
         setTurn(blobH.turn);
         try { if (blobH.iAmReady) roomRef.current?.ready("host", true); } catch {}
@@ -582,6 +660,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       if (blob) {
         setPlayerGrid(blob.playerGrid);
         setPlayerFleet(blob.playerFleet);
+        setToPlace(FLEET_SIZES.slice(Object.keys(blob?.playerFleet ?? {}).length));
         setIAmReady(!!blob.iAmReady);
         setTurn(blob.turn);
         try { if (blob.iAmReady) roomRef.current?.ready("guest", true); } catch {}
@@ -631,10 +710,17 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const onPlaceClick = (r: number, c: number) => {
     if (phase !== "place" || toPlace.length === 0) return;
     const length = toPlace[0];
-    if (!canPlace(playerGrid, r, c, length, orientation)) { setMsg("Negative—collision course."); return; }
+    const width  = (length === 5) ? 2 : 1;
+    if (!canPlace(playerGrid, r, c, length, orientation, width)) {
+      setMsg("Negative—collision course.");
+      return;
+    }
     const nextId = Object.keys(playerFleet).length + 1;
-    const res = placeShip(playerGrid, playerFleet, nextId, r, c, length, orientation);
-    setPlayerGrid(res.grid); setPlayerFleet(res.fleet);
+    const res = placeShip(playerGrid, playerFleet, nextId, r, c, length, orientation, width);
+    const headingNow = compassDir; // "N" | "E" | "S" | "W" from your compass
+    setHeadingsById(prev => ({ ...prev, [nextId]: headingNow }));
+    setPlayerGrid(res.grid);
+    setPlayerFleet(res.fleet);
 
     const remaining = toPlace.slice(1);
     setToPlace(remaining);
@@ -733,7 +819,13 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const opponentStatus = React.useMemo(() => {
     const isHost = role === "host";
     if (!peerPresent) {
-      if (isHost) return peerState === "left" ? "Guest (signal lost)" : "Guest (raising radio contact...)";
+      if (isHost) {
+        if (peerState === "left") {
+          const tail = graceLeftMs != null ? ` ${fmtMMSS(graceLeftMs)}` : "";
+          return `Guest (signal lost. waiting for...${tail ? " " + tail : ""})`;
+        }
+        return "Guest (raising radio contact...)";
+      }
       return "";
     }
     if (isHost) {
@@ -745,7 +837,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       if (phase === "place")    return peerReady ? "Host (battle ready)" : "Host (charting the grid...)";
       return "Host (at war)";
     }
-  }, [role, peerPresent, peerReady, peerState, phase]);
+  }, [role, peerPresent, peerReady, peerState, phase, graceLeftMs]);
 
   /* ----------------- Landing ----------------- */
 
@@ -846,7 +938,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                       setRoomCode(joinCode);
                       resetLocal();
                       ensureRoom(false);
-                      setMsg("Joining room…");
+                      setMsg("Directing comms...");
                     }}
                   >
                     <span className="inline-flex items-center gap-2">
@@ -872,7 +964,8 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   /* ----------------- MP header (narrow container) ----------------- */
 
   const MPHeader = () => (
-    <div className="p-3 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 space-y-3 shadow-lg">
+    // <div className="p-3 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 space-y-3 shadow-lg">
+    <div className="relative overflow-hidden p-3 rounded-xl ring-1 ring-black/10 dark:ring-white/10 bg-gray-100 dark:bg-gray-800 space-y-3 shadow-lg">
       <div className="flex items-center justify-between">
         <div className="font-semibold text-sm text-gray-800 dark:text-gray-200">
           {opponentStatus ? (
@@ -892,10 +985,14 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         <div className="flex items-center gap-2">
           <button
             className="px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600"
-            onClick={() => { roomRef.current?.leave(); setEntry("landing"); setMode("bot"); resetLocal(); }}
-            title="Return to harbor"
+            onClick={async () => {
+              try { roomRef.current?.leave(); } catch {}
+              setEntry("landing"); setMode("bot"); resetLocal();
+              gotoHarbor();
+            }}
+            title="Back"
           >
-            ← Back to Harbor
+            ← Harbor
           </button>
           {roomRef.current && phase !== "over" && (
             <button
@@ -936,7 +1033,8 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                   }
                 } catch {}
                 try { await roomRef.current?.leave(); } catch {}
-                setEntry("landing");
+                resetLocal(); setMode("bot"); setEntry("landing");
+                gotoHarbor();
               }}
               title="Leave room"
             >
@@ -968,6 +1066,47 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
           </button>
         </div>
       )}
+
+      {/* 360° side preview — only during ship placement */}
+      {phase === "place" && (() => {
+        // no hooks here; just compute
+        const nextId = Object.keys(playerFleet).length + 1;
+        const frames = SIDE_FRAMES_BY_ID[nextId] || [];
+        if (!frames.length) return null;
+
+        return (
+          <div
+            key="mp-side-spin" // stable identity; prevents remount churn
+            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+            aria-hidden
+            style={{
+              zIndex: 0,
+              transform: "translateZ(0)",
+              backfaceVisibility: "hidden",
+              willChange: "transform, opacity",
+              contain: "paint",
+            }}
+          >
+            {/* size of the animation box; tweak to taste */}
+            <div
+              className="relative"
+              style={{
+                width: 760,        // px
+                height: 460,       // px
+                left: "-6%",       // nudge a bit left from center
+                top: "-12%",
+                opacity: 0.9,
+                transform: "translateZ(0)",
+                backfaceVisibility: "hidden",
+                willChange: "transform",
+              }}
+            >
+              {/* NOTE: no dynamic key here — keeps the canvas instance stable */}
+              <SideSpin frames={frames} fps={50} />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 
@@ -1057,7 +1196,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                   grid={playerGrid}
                   shots={playerShots}
                   revealShips
-                  greenEllipseOnly
+                  // greenEllipseOnly
                   onCellClick={phase === "place" ? onPlaceClick : undefined}
                   disabled={phase !== "place"}
                 />
@@ -1070,7 +1209,8 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                   }
                   grid={enemyGrid}
                   shots={enemyShots}
-                  revealShips={phase === "over" && enemyRevealed}
+                  revealShips={phase === "over" || enemyRevealed}
+                  shipTopSprites={TOP_SPRITES}  
                   onCellClick={onEnemyClick}
                   disabled={phase !== "play" || turn !== "player"}
                   aimAssist
@@ -1112,7 +1252,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                                   grid={playerGrid}
                                   shots={playerShots}
                                   revealShips
-                                  greenEllipseOnly
+                                  // greenEllipseOnly
                                   disabled
                                 />
                               </div>
@@ -1132,9 +1272,11 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                                   grid={playerGrid}
                                   shots={playerShots}
                                   revealShips
-                                  greenEllipseOnly
+                                  // greenEllipseOnly
                                   onCellClick={onPlaceClick}
                                   disabled={toPlace.length === 0}
+                                  shipTopSprites={TOP_SPRITES}
+                                  headingsById={headingsById}
                                 />
                               </div>
 
@@ -1163,7 +1305,8 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                               }
                               grid={enemyGrid}
                               shots={enemyShots}
-                              revealShips={phase === "over" && enemyRevealed}
+                              revealShips={phase === "over" || enemyRevealed}
+                              shipTopSprites={TOP_SPRITES}  
                               onCellClick={phase === "play" ? onEnemyClick : undefined}
                               disabled={!peerPresent || phase !== "play" || turn !== "player"}
                               aimAssist
@@ -1189,7 +1332,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                             )}
 
                             {/* Shrunk board, centered within the rail */}
-                            <div className="rounded-2xl ring-1 ring-white/10 bg-white/5 shadow-lg p-3 text-sm text-gray-200 backdrop-blur">
+                            <div className="rounded-2xl ring-1 ring-white/10 bg-white/5 shadow-lg p-3 text-sm text-gray-800 dark:text-gray-100 backdrop-blur">
                               <div className="font-semibold mb-1">Wardroom</div>
                               <div className="text-xs text-gray-400">Chat docks here…</div>
                             </div>
@@ -1226,7 +1369,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                         grid={playerGrid}
                         shots={playerShots}
                         revealShips
-                        greenEllipseOnly
+                        // greenEllipseOnly
+                        shipTopSprites={TOP_SPRITES}
+                        headingsById={headingsById}
                         onCellClick={onPlaceClick}
                         disabled={toPlace.length === 0}
                       />
@@ -1238,7 +1383,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                         grid={playerGrid}
                         shots={playerShots}
                         revealShips
-                        greenEllipseOnly
+                        // greenEllipseOnly
+                        shipTopSprites={TOP_SPRITES}
+                        headingsById={headingsById}
                         disabled
                       />
                       <BoardGrid
@@ -1246,6 +1393,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                         grid={enemyGrid}
                         shots={enemyShots}
                         revealShips={phase === "over" && enemyRevealed}
+                        topHeadingDeg={0}
                         onCellClick={phase === "play" ? onEnemyClick : undefined}
                         disabled={!peerPresent || phase !== "play" || turn !== "player"}
                       />

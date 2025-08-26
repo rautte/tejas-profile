@@ -1,9 +1,9 @@
 // src/components/games/battleship/utils/emblems.ts
-import { ReactComponent as AnchorCrest } from "../../../../assets/anchor-crest.svg";
-import { ReactComponent as LifebuoyRope } from "../../../../assets/lifebuoy-rope.svg";
-import { ReactComponent as CompassShield } from "../../../../assets/compass-shield.svg";
-import { ReactComponent as TridentWaves } from "../../../../assets/trident-waves.svg";
-import { ReactComponent as HelmStar } from "../../../../assets/helm-star.svg";
+import { ReactComponent as AnchorCrest } from "../../../../assets/svg/battleship-emblems/anchor-crest.svg";
+import { ReactComponent as LifebuoyRope } from "../../../../assets/svg/battleship-emblems/lifebuoy-rope.svg";
+import { ReactComponent as CompassShield } from "../../../../assets/svg/battleship-emblems/compass-shield.svg";
+import { ReactComponent as TridentWaves } from "../../../../assets/svg/battleship-emblems/trident-waves.svg";
+import { ReactComponent as HelmStar } from "../../../../assets/svg/battleship-emblems/helm-star.svg";
 
 export const EMBLEMS = [AnchorCrest, LifebuoyRope, CompassShield, TridentWaves, HelmStar] as const;
 

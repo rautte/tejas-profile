@@ -1,17 +1,27 @@
+// src/components/games/battleship/ui/BoardGrid.tsx
 import React from "react";
 import { SIZE } from "lib/battleship";
 import type { Grid, Shots } from "lib/battleship";
+import ShipTopView from "../dev/ShipTopView";
+import { TOP_SPRITES } from "../../../../assets/ships/sprites/top";
 import { computeSunkOverlays } from "../utils/overlays";
 
 /** Marks */
 const HitMark = () => (
-  <svg viewBox="0 0 100 100" className="w-2/3 h-2/3 text-rose-500 dark:text-rose-300">
+  <svg
+    viewBox="0 0 100 100"
+    className="relative z-[30] w-2/3 h-2/3 text-rose-500 dark:text-rose-300"
+  >
     <line x1="20" y1="20" x2="80" y2="80" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
     <line x1="80" y1="20" x2="20" y2="80" stroke="currentColor" strokeWidth="12" strokeLinecap="round" />
   </svg>
 );
+
 const MissMark = () => (
-  <svg viewBox="0 0 100 100" className="w-1/3 h-1/3 text-gray-500 dark:text-gray-400">
+  <svg
+    viewBox="0 0 100 100"
+    className="relative z-[30] w-1/3 h-1/3 text-gray-500 dark:text-gray-400"
+  >
     <circle cx="50" cy="50" r="15" stroke="currentColor" strokeWidth="8" fill="none" />
   </svg>
 );
@@ -21,6 +31,14 @@ const cellBase =
   "relative aspect-square transition select-none flex items-center justify-center " +
   "ring-0 bg-transparent rounded-[10px] hover:bg-black/[0.1] dark:hover:bg-white/[0.1]";
 
+// How tightly the ship should fill its rect (compensates for transparent PNG padding).
+// 0.82–0.9 works well. You can tune per ship id if needed.
+const SPRITE_FILL_DEFAULT = 0.3;
+const SPRITE_FILL_BY_ID: Record<number, number> = {
+  // override per ship if one looks smaller/larger than others
+  1: 0.3, 2: 0.18, 3: 0.25, 4: 0.25, 5: 0.25,
+};
+
 export const BoardGrid: React.FC<{
   title: React.ReactNode;
   grid: Grid;
@@ -29,16 +47,24 @@ export const BoardGrid: React.FC<{
   onCellClick?: (r: number, c: number) => void;
   disabled?: boolean;
   greenEllipseOnly?: boolean;
+
+  // Aim overlay props
   aimAssist?: boolean;
   aimColorClass?: string;
   aimAlsoOnShotCells?: boolean;
   confirmPulseMs?: number;
+  shipTopSprites?: Record<number, string>;
+  headingsById?: Record<number, "N" | "E" | "S" | "W">;
+  topHeadingDeg?: 0 | 90 | 180 | 270;
 }> = ({
   title, grid, shots, revealShips = false, onCellClick, disabled = false, greenEllipseOnly = false,
   aimAssist = false,
   aimColorClass = "text-rose-700 dark:text-rose-300",
   aimAlsoOnShotCells = true,
   confirmPulseMs = 350,
+  topHeadingDeg = 0, 
+  shipTopSprites,
+  headingsById = {},
 }) => {
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [metrics, setMetrics] = React.useState<{ cell: number; gap: number; padX: number; padY: number } | null>(null);
@@ -48,24 +74,20 @@ export const BoardGrid: React.FC<{
   // show brief pulse where we clicked
   const [confirmAt, setConfirmAt] = React.useState<{ r: number; c: number } | null>(null);
 
-  // measure label sizes so axis gaps fully cover the cards
+  // === upsert 1: label refs + measurer for exact-sized axis holes ===
   const vLabelRef = React.useRef<HTMLDivElement>(null);
   const hLabelRef = React.useRef<HTMLDivElement>(null);
-  const [labelHoleHalf, setLabelHoleHalf] = React.useState<{ v: number; h: number }>({ v: 18, h: 18 });
+  const [labelHoleHalf, setLabelHoleHalf] = React.useState<{ v: number; h: number }>({ v: 10, h: 16 });
 
   React.useLayoutEffect(() => {
-  if (!hoverRC || !metrics) return;
-  // wait one frame so labels render, then measure
-  const raf = requestAnimationFrame(() => {
     const vb = vLabelRef.current?.getBoundingClientRect();
     const hb = hLabelRef.current?.getBoundingClientRect();
-    if (vb && hb) {
-    const vHalf = Math.ceil(vb.height / 2) + 2; // vertical axis gap uses label's *screen height*
-    const hHalf = Math.ceil(hb.width  / 2) + 2; // horizontal axis gap uses label's *screen width*
-    setLabelHoleHalf(prev => (prev.v !== vHalf || prev.h !== hHalf ? { v: vHalf, h: hHalf } : prev));
+    if (vb || hb) {
+      setLabelHoleHalf(prev => ({
+        v: vb ? vb.height / 2 : prev.v, // vertical label uses its *height*
+        h: hb ? hb.width  / 2 : prev.h, // horizontal label uses its *width*
+      }));
     }
-  });
-  return () => cancelAnimationFrame(raf);
   }, [hoverRC, metrics]);
 
   const sunkOverlays = React.useMemo(() => computeSunkOverlays(grid, shots), [grid, shots]);
@@ -77,10 +99,63 @@ export const BoardGrid: React.FC<{
 
   // can we shoot this cell?
   const canShootAt = React.useCallback(
-  (r: number, c: number) => !!onCellClick && !disabled && shots[r][c] === 0,
-  [onCellClick, disabled, shots]
+    (r: number, c: number) => !!onCellClick && !disabled && shots[r][c] === 0,
+    [onCellClick, disabled, shots]
   );
 
+//   function computeShipRects(grid: number[][]) {
+//     const seen = new Set<number>();
+//     const rects: Array<{ id:number; r0:number; c0:number; r1:number; c1:number }> = [];
+//     const N = grid.length;
+//     for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+//         const id = grid[r][c];
+//         if (id <= 0 || seen.has(id)) continue;
+//         seen.add(id);
+//         let r0 = r, c0 = c, r1 = r, c1 = c;
+//         for (let rr = 0; rr < N; rr++) for (let cc = 0; cc < N; cc++) {
+//         if (grid[rr][cc] === id) {
+//             if (rr < r0) r0 = rr; if (cc < c0) c0 = cc;
+//             if (rr > r1) r1 = rr; if (cc > c1) c1 = cc;
+//         }
+//         }
+//         rects.push({ id, r0, c0, r1, c1 });
+//     }
+//     return rects;
+//     }
+
+  // === boxes of placed ships (in grid units) ===
+  const shipBoxes = React.useMemo(() => {
+    const boxes = new Map<number, { r0:number; c0:number; r1:number; c1:number }>();
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        const id = grid[r][c];
+        if (id > 0) {
+        const b = boxes.get(id) || { r0:r, c0:c, r1:r, c1:c };
+        if (r < b.r0) b.r0 = r; if (c < b.c0) b.c0 = c;
+        if (r > b.r1) b.r1 = r; if (c > b.c1) b.c1 = c;
+        boxes.set(id, b);
+        }
+    }
+    return [...boxes.entries()].map(([id, b]) => ({ id, ...b }));
+  }, [grid]);
+
+  // === per-ship damage status (none / partial / sunk) during reveal ===
+  const shipDamage = React.useMemo(() => {
+    const status: Array<{ id:number; r0:number; c0:number; r1:number; c1:number; damage:"none"|"partial"|"sunk" }> = [];
+    for (const b of shipBoxes) {
+        let total = 0, hits = 0;
+        for (let r = b.r0; r <= b.r1; r++) for (let c = b.c0; c <= b.c1; c++) {
+        if (grid[r][c] === b.id) {
+            total++;
+            if (shots[r][c] === 2) hits++;
+        }
+        }
+        const damage = hits === 0 ? "none" : (hits >= total ? "sunk" : "partial");
+        status.push({ ...b, damage });
+    }
+    return status;
+  }, [shipBoxes, grid, shots]);
+
+  // mouse tracking that snaps to actual cells (not the gaps)
   const onBoardMouseMove = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!metrics) return;
     const { cell, gap, padX, padY } = metrics;
@@ -90,20 +165,17 @@ export const BoardGrid: React.FC<{
     const x = e.clientX - rect.left - padX;
     const y = e.clientY - rect.top  - padY;
 
-    // Outside the 10x10 area?
     if (x < 0 || y < 0) return setHoverRC(null);
     const c = Math.floor(x / step);
     const r = Math.floor(y / step);
     if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return setHoverRC(null);
 
-    // (Optional) only snap when actually over a cell, not the gaps:
     const inCellX = (x % step) <= cell;
     const inCellY = (y % step) <= cell;
     if (!inCellX || !inCellY) return setHoverRC(null);
 
     setHoverRC({ r, c });
   }, [metrics]);
-
 
   React.useLayoutEffect(() => {
     const el = wrapRef.current; if (!el) return;
@@ -133,7 +205,7 @@ export const BoardGrid: React.FC<{
       <div
         ref={wrapRef}
         onMouseLeave={() => setHoverRC(null)}
-        onMouseMove={onBoardMouseMove} 
+        onMouseMove={onBoardMouseMove}
         className="
           relative w-full grid grid-cols-10 gap-1 p-2 rounded-xl
           bg-transparent ring-1 ring-black/10 dark:ring-white/10 shadow-2xl
@@ -249,7 +321,7 @@ export const BoardGrid: React.FC<{
                   </filter>
                 </defs>
 
-                {/* group 1: light + (also visible in dark due to class), with wavy paths + blobs */}
+                {/* group 1: light */}
                 <g className="stroke-black/60 dark:stroke-white/60" filter="url(#ct-soft)">
                   {[
                     { seed: 11, base: total * 0.22, amp: total * 0.07, k1: 0.7, k2: 1.3, tilt: total * 0.04 },
@@ -301,7 +373,7 @@ export const BoardGrid: React.FC<{
                   })()}
                 </g>
 
-                {/* group 2: dark-only duplicate (wavy + blobs) to match previous */}
+                {/* group 2: dark-only duplicate */}
                 <g className="hidden dark:block stroke-white/55" filter="url(#ct-soft)">
                   {[
                     { seed: 11, base: total * 0.22, amp: total * 0.07, k1: 0.7, k2: 1.3, tilt: total * 0.04 },
@@ -354,14 +426,22 @@ export const BoardGrid: React.FC<{
                 </g>
               </svg>
 
-              {/* lines */}
-              <div className="absolute inset-0 pointer-events-none z-0" aria-hidden>
+              {/* lines — nudge the whole grid line system 2px left & 2px up */}
+              <div
+                className="absolute inset-0 pointer-events-none z-0"
+                aria-hidden
+                style={{ transform: "translate(-0.5px, -0.5px)" }}  // tweak here
+              >
                 {Array.from({ length: SIZE + 1 }, (_, i) => vLine(i))}
                 {Array.from({ length: SIZE + 1 }, (_, i) => hLine(i))}
               </div>
 
               {/* ticks */}
-              <div className="absolute inset-0 pointer-events-none z-0" aria-hidden>
+              <div
+                className="absolute inset-0 pointer-events-none z-0"
+                aria-hidden
+                style={{ transform: "translate(-0.5px, -0.5px)" }}  // tweak here
+              >
                 {Array.from({ length: SIZE + 1 }, (_, i) => topTick(i))}
                 {Array.from({ length: SIZE + 1 }, (_, i) => bottomTick(i))}
                 {Array.from({ length: SIZE + 1 }, (_, i) => leftTick(i))}
@@ -369,7 +449,11 @@ export const BoardGrid: React.FC<{
               </div>
 
               {/* labels */}
-              <div className="absolute inset-0 pointer-events-none z-0" aria-hidden>
+              <div
+                className="absolute inset-0 pointer-events-none z-0"
+                aria-hidden
+                style={{ transform: "translate(-0.5px, -0.5px)" }}  // tweak here
+              >
                 {Array.from({ length: SIZE }, (_, i) => topLabel(i))}
                 {Array.from({ length: SIZE }, (_, i) => bottomLabel(i))}
                 {Array.from({ length: SIZE }, (_, i) => leftLabel(i))}
@@ -377,7 +461,11 @@ export const BoardGrid: React.FC<{
               </div>
 
               {/* corners */}
-              <div className="absolute pointer-events-none z-0" aria-hidden>
+              <div
+                className="absolute inset-0 pointer-events-none z-0"
+                aria-hidden
+                style={{ transform: "translate(-0.5px, -0.5px)" }}  // tweak here
+              >
                 <div className="absolute w-[6px] h-[6px] rounded-[2px] bg-gray-700/90 dark:bg-gray-200/80" style={{ left: lineX(0) - 3,  top: lineY(0) - 3 }} />
                 <div className="absolute w-[6px] h-[6px] rounded-[2px] bg-gray-700/90 dark:bg-gray-200/80" style={{ left: lineX(SIZE) - 3, top: lineY(0) - 3 }} />
                 <div className="absolute w-[6px] h-[6px] rounded-[2px] bg-gray-700/90 dark:bg-gray-200/80" style={{ left: lineX(0) - 3,  top: lineY(SIZE) - 3 }} />
@@ -397,26 +485,24 @@ export const BoardGrid: React.FC<{
           const classes = cellBase + (canClick ? " cursor-pointer" : " cursor-default");
 
           const inSunk = sunkCells.has(`${r},${c}`);
-          const showGreen = revealShips && shipId > 0;
+          const showGreen = revealShips && shipId > 0 && !shipTopSprites;
 
           return (
             <button
               key={`cell-${title}-${r}-${c}`}
               data-rc={`${r},${c}`}
-              className={`${classes} w-full z-10`}
+              className={`${classes} w-full z-20`}
               onMouseEnter={() => setHoverRC({ r, c })}
               onMouseLeave={() => setHoverRC(null)}
               onClick={
                 canClick
-                ? () => {
-                    setConfirmAt({ r, c });
-                    if (confirmPulseMs) {
-                        setTimeout(() => setConfirmAt(null), confirmPulseMs);
+                  ? () => {
+                      setConfirmAt({ r, c });
+                      if (confirmPulseMs) setTimeout(() => setConfirmAt(null), confirmPulseMs);
+                      onCellClick!(r, c);
+                      setHoverRC(null);
                     }
-                    onCellClick!(r, c);
-                    setHoverRC(null); // optional: hide overlay after shot
-                    }
-                : undefined
+                  : undefined
               }
               disabled={!canClick}
               aria-label={`${title} ${r},${c}`}
@@ -424,13 +510,76 @@ export const BoardGrid: React.FC<{
               {showGreen && greenEllipseOnly && (
                 <span className="absolute inset-0 rounded-full bg-emerald-500/25 dark:bg-emerald-400/20 pointer-events-none" />
               )}
-              {showGreen && !greenEllipseOnly && (
+              {showGreen && !greenEllipseOnly && false && (
                 <span className="absolute inset-0 rounded-lg bg-emerald-500/20 dark:bg-emerald-400/20 pointer-events-none" />
               )}
               {!inSunk && (shot === 2 ? <HitMark /> : shot === 1 ? <MissMark /> : null)}
             </button>
           );
         })}
+
+        {/* Ship top-view sprites (replace green cells) */}
+        {metrics && revealShips && (() => {
+        const { cell, gap, padX, padY } = metrics;
+
+        // derive heading from each box if caller didn't supply one
+        const headingOf = (b: { r0:number; r1:number; c0:number; c1:number }) =>
+            (b.c1 - b.c0 + 1) >= (b.r1 - b.r0 + 1) ? "E" : "N";
+
+        return shipBoxes.map((b) => {
+            const atlas = shipTopSprites ?? TOP_SPRITES;
+            const src = atlas[b.id];
+            // or, if you import TOP_SPRITES here: const src = TOP_SPRITES[b.id];
+            if (!src) return null;
+
+            // grid → pixels
+            const spanCols = b.c1 - b.c0 + 1;
+            const spanRows = b.r1 - b.r0 + 1;
+            const w = spanCols * cell + (spanCols - 1) * gap;
+            const h = spanRows * cell + (spanRows - 1) * gap;
+            const x = padX + b.c0 * (cell + gap);
+            const y = padY + b.r0 * (cell + gap);
+
+            // scale inside the rect to compensate for PNG padding
+            const fill = SPRITE_FILL_BY_ID[b.id] ?? SPRITE_FILL_DEFAULT;
+            const scale = 1 / fill;
+
+            const heading = (headingsById?.[b.id] ?? headingOf(b)) as any;
+
+            return (
+            <ShipTopView
+                key={`spr-${b.id}`}
+                src={src}
+                rect={{ x, y, w, h }}
+                heading={heading}
+                scale={scale}
+            />
+            );
+        });
+        })()}
+
+        {/* Reveal overlays for intact/partial ships (green) — match red geometry & layer */}
+        {metrics && revealShips && (() => {
+          const { cell, gap, padX, padY } = metrics;
+          return shipDamage.map(({ r0, c0, r1, c1, damage }, idx) => {
+            if (damage === "sunk") return null; // red pill handles sunk
+            // Use the SAME bbox math as red overlays so it never bleeds outside cells
+            const x = padX + c0 * (cell + gap);
+            const y = padY + r0 * (cell + gap);
+            const w = (c1 - c0 + 1) * cell + (c1 - c0) * gap;
+            const h = (r1 - r0 + 1) * cell + (r1 - r0) * gap;
+            const radius = Math.min(w, h) / 2;
+            return (
+              <div
+                key={`rev-green-${idx}`}
+                className="absolute pointer-events-none z-22 bg-emerald-500/30 ring-1 ring-emerald-600/60"
+                style={{ left: x, top: y, width: w, height: h, borderRadius: radius }}
+                aria-hidden
+                title={damage === "none" ? "Undamaged ship" : "Damaged ship"}
+              />
+            );
+          });
+        })()}
 
         {/* Sunk overlays */}
         {metrics &&
@@ -444,194 +593,197 @@ export const BoardGrid: React.FC<{
             return (
               <div
                 key={`sunk-${idx}`}
-                className="absolute pointer-events-none bg-rose-500/30 ring-1 ring-rose-500/40 z-20"
+                className="absolute pointer-events-none z-[12] bg-rose-500/30 ring-1 ring-rose-600/40"
                 style={{ left: x, top: y, width: w, height: h, borderRadius: radius }}
                 aria-hidden
                 title="Sunk vessel"
               />
             );
-        })}
+          })}
 
-        {/* === AIM OVERLAY (crosshair axes + animated reticle + measured label holes) === */}
-        {metrics && aimAssist && !disabled && hoverRC && (aimAlsoOnShotCells || canShootAt(hoverRC.r, hoverRC.c)) && (() => {
+        {/* Reveal overlays for intact/partial ships (green) */}
+        {/* {metrics && revealShips && (() => {
         const { cell, gap, padX, padY } = metrics;
-        const { r: hr, c: hc } = hoverRC;
-
-        const total     = SIZE * cell + (SIZE - 1) * gap;
-        const boardLeft = padX - gap / 2;
-        const boardTop  = padY - gap / 2;
-        const boardW    = total + gap;
-        const boardH    = total + gap;
-
-        // center of hovered cell
-        const cx = padX + hc * (cell + gap) + cell / 2;
-        const cy = padY + hr * (cell + gap) + cell / 2;
-
-        // reticle geometry (keep your current numbers)
-        const d  = cell * 0.68;
-        const rr = d / 2;
-
-        const shootable       = canShootAt(hr, hc);
-        const lineOpacity     = shootable ? 0.9 : 0.5;
-        const reticleOpacity  = shootable ? 0.95 : 0.55;
-        const axisThicknessPx = 2.5;
-
-        // reticle hole
-        const ringPad   = Math.max(6, Math.round(cell * 0.05));
-        const holeTop   = cy - rr - ringPad;
-        const holeBot   = cy + rr + ringPad;
-        const holeLeft  = cx - rr - ringPad;
-        const holeRight = cx + rr + ringPad;
-
-        // lat/long texts
-        const num2 = (n:number) => n.toString().padStart(2, "0");
-
-        // equal spacing from ring for both labels
-        const labelGap = Math.max(8, Math.round(cell * 0.08));
-
-        // measured half-sizes (already set via useLayoutEffect)
-        const vHalf = labelHoleHalf.v; // vertical label: uses its *rendered height* / 2
-        const hHalf = labelHoleHalf.h; // horizontal label: uses its *rendered width*  / 2
-
-        // === CENTER POSITIONS for labels (so they sit inside their holes) ===
-        // vertical label hole center: above the ring by `labelGap`
-        const vCenterY = (holeTop - labelGap) - vHalf; // center of the vertical label card
-        // horizontal label hole center: right of the ring by `labelGap`
-        const hCenterX = (holeRight + labelGap) + hHalf; // center of the horizontal label card
-
-        // --- draw axes segments (unchanged) using vCenterY/vHalf and hCenterX/hHalf ---
-        const vTopHoleStart = vCenterY - vHalf;
-        const vTopHoleEnd   = vCenterY + vHalf;
-        const hHoleStart    = hCenterX - hHalf;
-        const hHoleEnd      = hCenterX + hHalf;
-
-        // axis segment helpers
-        const VSeg = (y1: number, y2: number, key: string) => {
-            const top = Math.max(boardTop, Math.min(y1, y2));
-            const bot = Math.min(boardTop + boardH, Math.max(y1, y2));
-            if (bot - top <= 0) return null;
+        return shipDamage.map(({ r0, c0, r1, c1, damage }, idx) => {
+            if (damage === "sunk") return null; // red overlay handles sunk
+            const x = padX + c0 * (cell + gap);
+            const y = padY + r0 * (cell + gap);
+            const w = (c1 - c0 + 1) * cell + (c1 - c0) * gap;
+            const h = (r1 - r0 + 1) * cell + (r1 - r0) * gap;
+            const radius = Math.min(w, h) / 2;
             return (
             <div
-                key={key}
-                className="absolute"
-                style={{
-                left: cx,
-                top,
-                height: bot - top,
-                width: 0,
-                borderLeft: `${axisThicknessPx}px dashed currentColor`,
-                opacity: lineOpacity,
-                transform: "translateX(-0.5px)",
-                }}
+                key={`rev-green-${idx}`}
+                className="absolute pointer-events-none z-[18] bg-emerald-400/28 ring-1 ring-emerald-400/45"
+                style={{ left: x, top: y, width: w, height: h, borderRadius: radius }}
+                aria-hidden
+                title={damage === "none" ? "Undamaged ship" : "Damaged ship"}
             />
             );
-        };
-        const HSeg = (x1: number, x2: number, key: string) => {
-            const left  = Math.max(boardLeft, Math.min(x1, x2));
-            const right = Math.min(boardLeft + boardW, Math.max(x1, x2));
-            if (right - left <= 0) return null;
-            return (
-            <div
-                key={key}
-                className="absolute"
-                style={{
-                top: cy,
-                left,
-                width: right - left,
-                height: 0,
-                borderTop: `${axisThicknessPx}px dashed currentColor`,
-                opacity: lineOpacity,
-                transform: "translateY(-0.5px)",
-                }}
-            />
-            );
-        };
+        });
+        })()} */}
 
-        // vertical axis: draw with two holes (label, then reticle)
-        const vSegs = [
-            [boardTop, vTopHoleStart, "v-0"],
-            [vTopHoleEnd, holeTop,    "v-1"],
-            [holeBot,     boardTop + boardH, "v-2"],
-        ] as const;
+        {/* === upsert 2: AIM OVERLAY (crosshair axes + animated reticle + edge-aware lat/lon labels) === */}
+        {metrics && aimAssist && !disabled && hoverRC && (aimAlsoOnShotCells || canShootAt(hoverRC.r, hoverRC.c)) && (() => {
+          const { cell, gap, padX, padY } = metrics;
+          const { r: hr, c: hc } = hoverRC;
 
-        // horizontal axis: draw with two holes (reticle, then label)
-        const hSegs = [
-            [boardLeft, holeLeft, "h-0"],
-            [holeRight, hHoleStart, "h-1"],
-            [hHoleEnd,  boardLeft + boardW, "h-2"],
-        ] as const;
+          const total = SIZE * cell + (SIZE - 1) * gap;
+          const boardLeft = padX - gap / 2;
+          const boardTop  = padY - gap / 2;
+          const boardW    = total + gap;
+          const boardH    = total + gap;
 
-        return (
+          const cx = padX + hc * (cell + gap) + cell / 2;
+          const cy = padY + hr * (cell + gap) + cell / 2;
+
+          // reticle geometry
+          const d  = cell * 0.68;
+          const rr = d / 2;
+
+          const shootable = canShootAt(hr, hc);
+          const lineOpacity    = shootable ? 0.9  : 0.5;
+          const reticleOpacity = shootable ? 0.95 : 0.55;
+
+          // edge-aware sides: rows 0–1 => vertical label below, cols 8–9 => horizontal label left
+          const vSide: "above" | "below" = hr <= 1 ? "below" : "above";
+          const hSide: "left" | "right"  = hc >= SIZE - 2 ? "left" : "right";
+
+          const labelGap = Math.max(6, Math.round(cell * 0.14));
+          const ringPad  = Math.max(4, Math.round(cell * 0.10));
+
+          const vCenterY = vSide === "above"
+            ? (cy - rr) - labelGap - labelHoleHalf.v
+            : (cy + rr) + labelGap + labelHoleHalf.v;
+          const hCenterX = hSide === "right"
+            ? (cx + rr) + labelGap + labelHoleHalf.h
+            : (cx - rr) - labelGap - labelHoleHalf.h;
+
+          const vRingTop = cy - (rr + ringPad), vRingBot = cy + (rr + ringPad);
+          const hRingL   = cx - (rr + ringPad), hRingR   = cx + (rr + ringPad);
+
+          const vHoleStart = vCenterY - labelHoleHalf.v, vHoleEnd = vCenterY + labelHoleHalf.v;
+          const hHoleStart = hCenterX - labelHoleHalf.h, hHoleEnd = hCenterX + labelHoleHalf.h;
+
+          function segmentsFromHoles(start: number, end: number, holes: Array<[number, number]>) {
+            const hs = holes
+              .map(([a, b]) => [Math.max(start, Math.min(a, b)), Math.min(end, Math.max(a, b))] as [number, number])
+              .filter(([a, b]) => b > a)
+              .sort((A, B) => A[0] - B[0]);
+
+            const out: Array<[number, number]> = [];
+            let cur = start;
+            for (const [a, b] of hs) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, b); }
+            if (cur < end) out.push([cur, end]);
+            return out;
+          }
+
+          const vSegs = segmentsFromHoles(boardTop, boardTop + boardH, [[vRingTop, vRingBot], [vHoleStart, vHoleEnd]]);
+          const hSegs = segmentsFromHoles(boardLeft, boardLeft + boardW, [[hRingL, hRingR],   [hHoleStart, hHoleEnd]]);
+
+          const axisThicknessPx = 2.5;
+
+          const VSeg: React.FC<{ y0: number; y1: number }> = ({ y0, y1 }) => (
+          <div
+            className="absolute"
+            style={{
+            left: cx,
+            top: y0,
+            height: y1 - y0,
+            width: 0,
+            borderLeft: `${axisThicknessPx}px dashed currentColor`,
+            opacity: lineOpacity,
+            transform: "translateX(-0.5px)",
+            }}
+          />
+          );
+
+          const HSeg: React.FC<{ x0: number; x1: number }> = ({ x0, x1 }) => (
+          <div
+            className="absolute"
+            style={{
+            top: cy,
+            left: x0,
+            width: x1 - x0,
+            height: 0,
+            borderTop: `${axisThicknessPx}px dashed currentColor`,
+            opacity: lineOpacity,
+            transform: "translateY(-0.5px)",
+            }}
+          />
+          );
+
+          const num2 = (n: number) => n.toString().padStart(2, "0");
+
+          return (
             <div className={`absolute inset-0 pointer-events-none z-30 ${aimColorClass}`} aria-hidden>
-            {/* Vertical axis with measured label hole + reticle hole */}
-            {vSegs.map(([a, b, k]) => VSeg(a, b, k))}
-            {/* Horizontal axis with reticle hole + measured label hole */}
-            {hSegs.map(([a, b, k]) => HSeg(a, b, k))}
+              {/* axes with holes (reticle + labels) */}
+              {vSegs.map(([y0, y1], i) => <VSeg key={`v-${i}`} y0={y0} y1={y1} />)}
+              {hSegs.map(([x0, x1], i) => <HSeg key={`h-${i}`} x0={x0} x1={x1} />)}
 
-            {/* Reticle (unchanged except for your spin speed) */}
-            <svg
+              {/* rotating reticle */}
+              <svg
                 className={`absolute ${shootable ? "animate-[spin_2.5s_linear_infinite]" : ""}`}
                 style={{ left: cx - rr, top: cy - rr, width: d, height: d, opacity: reticleOpacity }}
                 viewBox="0 0 100 100"
-            >
+              >
                 <circle cx="50" cy="50" r="55" fill="none" stroke="currentColor" strokeWidth="8" opacity="0.9" />
                 <line x1="50" y1="12" x2="50" y2="24" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
                 <line x1="88" y1="50" x2="76" y2="50" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
                 <line x1="50" y1="76" x2="50" y2="88" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
                 <line x1="24" y1="50" x2="12" y2="50" stroke="currentColor" strokeWidth="8" strokeLinecap="round" />
                 <circle cx="50" cy="50" r="8" fill="currentColor" />
-            </svg>
+              </svg>
 
-            {/* Click pulse */}
-            {confirmAt && confirmAt.r === hr && confirmAt.c === hc && (
+              {/* click pulse */}
+              {confirmAt && confirmAt.r === hr && confirmAt.c === hc && (
                 <span
-                className="absolute rounded-full border-2 border-current animate-ping"
-                style={{ left: cx - rr, top: cy - rr, width: d, height: d, opacity: 0.8 }}
+                  className="absolute rounded-full border-2 border-current animate-ping"
+                  style={{ left: cx - rr, top: cy - rr, width: d, height: d, opacity: 0.8 }}
                 />
-            )}
+              )}
 
-            {/* === Tactical labels (lat/long) === */}
-            {/* LAT (row) — center on (cx, vCenterY), then rotate -90° */}
-            <div
-            ref={vLabelRef}
-            className="
-                absolute px-1.5 py-[2px] rounded
-                font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.18em]
-                bg-black/5 dark:bg-white/5 shadow-sm backdrop-blur-[1px]
-                transform -translate-x-1/2 -translate-y-1/2 -rotate-90
-            "
-            style={{
-                left: cx,           // anchor at center of the card
-                top:  vCenterY,     // anchor at center of the card
-                opacity: reticleOpacity,
-                transformOrigin: "50% 50%",
-            }}
-            >
-            {`N${num2(hr)}°`}
-            </div>
+              {/* edge-aware, center-anchored label cards */}
+              {/* vertical (lat) — rotates 90°, flips below for rows 0–1 */}
+              <div
+                ref={vLabelRef}
+                className="
+                  absolute px-1.5 py-[2px] rounded
+                  font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.18em]
+                  bg-black/5 dark:bg-white/5 shadow-sm backdrop-blur-[1px]
+                  transform -translate-x-1/2 -translate-y-1/2 -rotate-90
+                "
+                style={{
+                  left: cx,
+                  top: vCenterY,
+                  transformOrigin: "50% 50%",
+                  opacity: reticleOpacity,
+                }}
+              >
+                {`N${num2(hr)}°`}
+              </div>
 
-            {/* LON (col) — center on (hCenterX, cy), no rotation */}
-            <div
-            ref={hLabelRef}
-            className="
-                absolute px-1.5 py-[2px] rounded
-                font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.18em]
-                bg-black/5 dark:bg-white/5 shadow-sm backdrop-blur-[1px]
-                transform -translate-x-1/2 -translate-y-1/2
-            "
-            style={{
-                left: hCenterX,     // anchor at center of the card
-                top:  cy,           // anchor at center of the card
-                opacity: reticleOpacity,
-            }}
-            >
-            {`E${num2(hc)}°`}
+              {/* horizontal (lon) — flips to left for cols 8–9 */}
+              <div
+                ref={hLabelRef}
+                className="
+                  absolute px-1.5 py-[2px] rounded
+                  font-mono text-[10px] sm:text-[11px] uppercase tracking-[0.18em]
+                  bg-black/5 dark:bg-white/5 shadow-sm backdrop-blur-[1px]
+                  transform -translate-x-1/2 -translate-y-1/2
+                "
+                style={{
+                  left: hCenterX,
+                  top: cy,
+                  opacity: reticleOpacity,
+                }}
+              >
+                {`E${num2(hc)}°`}
+              </div>
             </div>
-          </div>
-        );
+          );
         })()}
       </div>
     </div>
   );
 };
-

@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from "react";
-import innovationBoy from "../assets/time-travel-boy.svg";
-import programmingBoy from "../assets/Programming-boy.svg";
+import innovationBoy from "../assets/svg/timeline/time-travel-boy.svg";
+import programmingBoy from "../assets/svg/timeline/Programming-boy.svg";
 import { FaMapMarkedAlt } from "react-icons/fa";
 import { MdArrowBackIosNew, MdArrowForwardIos } from "react-icons/md";
 import { AnimatePresence } from "framer-motion";

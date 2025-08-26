@@ -1,7 +1,7 @@
 // components/AboutMe.js
 import React from "react";
 import { FaUser } from 'react-icons/fa';
-import profilePic from "../assets/LI_Profile.jpg"; // Replace with your image path
+import profilePic from "../assets/images/LI_Profile.jpg"; // Replace with your image path
 
 export default function AboutMe() {
   const [expanded, setExpanded] = React.useState(null);

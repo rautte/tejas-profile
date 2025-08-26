@@ -24,3 +24,37 @@ export function computeSunkOverlays(grid: Grid, shots: Shots): SunkOverlay[] {
   }
   return out;
 }
+
+export type ShipOverlay = {
+  id: number;
+  r0: number; c0: number; r1: number; c1: number;
+  o: "H" | "V"; // derived
+  len: number;  // long side
+  wid: number;  // short side
+};
+
+export function computeShipOverlays(grid: Grid): ShipOverlay[] {
+  const byId: Record<number, Array<[number, number]>> = {};
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const id = grid[r][c];
+    if (id > 0) (byId[id] ||= []).push([r, c]);
+  }
+
+  const out: ShipOverlay[] = [];
+  for (const idStr of Object.keys(byId)) {
+    const id = Number(idStr);
+    const cells = byId[id];
+    let r0 = Infinity, c0 = Infinity, r1 = -1, c1 = -1;
+    for (const [r, c] of cells) {
+      if (r < r0) r0 = r; if (c < c0) c0 = c;
+      if (r > r1) r1 = r; if (c > c1) c1 = c;
+    }
+    const h = r1 - r0 + 1;
+    const w = c1 - c0 + 1;
+    const o: "H" | "V" = w >= h ? "H" : "V";
+    const len = Math.max(h, w);
+    const wid = Math.min(h, w);
+    out.push({ id, r0, c0, r1, c1, o, len, wid });
+  }
+  return out;
+}
