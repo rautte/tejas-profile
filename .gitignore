@@ -22,5 +22,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# heavy assets moved to S3
+# heavy assets live in S3
 src/assets/ships/raw/
+src/assets/ships/sprites/*/side/
+# optional: big texture formats you don’t want in git
+src/assets/ships/**/textures/*.tga
+src/assets/ships/**/textures/*.tif
