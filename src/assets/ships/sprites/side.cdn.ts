@@ -34,9 +34,9 @@ const CDN_BASE = pickCdnBase();
 
 /** Ship-ID → folder key. Adjust if you want different ship order. */
 const SHIP_ID_TO_KEY: Record<number, string> = {
-  1: "k130",
+  1: "lcs-independence",
   2: "lcs-freedom",
-  3: "lcs-independence",
+  3: "k130",
   4: "saar6",
   5: "visby",
 };
