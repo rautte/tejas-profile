@@ -29,4 +29,12 @@ export const TOP_SPRITES: Record<number, string> = Object.fromEntries(
   ])
 );
 
+export const TOP_OFFSETS: Record<number, { x: number; y: number }> = {
+  // Fine-tune per ship here. Start with the big one:
+  1: { x: 0, y: -4 },   // nudge up a few pixels
+  // 2: { x: 0, y: 0 },
+  // 3: { x: 0, y: 0 },
+  // ...
+};
+
 export const TOP_CDN_BASE = CDN_BASE;

@@ -3,7 +3,7 @@ import React from "react";
 import { SIZE } from "lib/battleship";
 import type { Grid, Shots } from "lib/battleship";
 import ShipTopView from "../dev/ShipTopView";
-import { TOP_SPRITES } from "../../../../assets/ships/sprites/top.cdn";
+import { TOP_OFFSETS, TOP_SPRITES } from "../../../../assets/ships/sprites/top.cdn"; // adjust relative path if needed
 import { computeSunkOverlays } from "../utils/overlays";
 
 /** Marks */
@@ -553,6 +553,8 @@ export const BoardGrid: React.FC<{
                 rect={{ x, y, w, h }}
                 heading={heading}
                 scale={scale}
+                opacity={1}
+                offsetPx={TOP_OFFSETS[b.id]}
             />
             );
         });

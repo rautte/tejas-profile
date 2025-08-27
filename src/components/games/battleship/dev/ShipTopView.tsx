@@ -11,6 +11,8 @@ type Props = {
   opacity?: number;
   /** compensates for transparent padding in the PNG (1.0 = no extra scale) */
   scale?: number;
+  /** small per-ship pixel nudge after alpha-centering (optional) */
+  offsetPx?: { x: number; y: number };
 };
 
 /* cache: opaque-bbox center offsets (normalized) */
@@ -18,7 +20,7 @@ const contentCenterCache = new Map<string, { ox: number; oy: number }>();
 
 const ROT: Record<Heading, number> = { N: 0, E: 90, S: 180, W: 270 };
 
-const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale = 1 }) => {
+const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale = 1, offsetPx }) => {
   const [alphaOff, setAlphaOff] = React.useState<{ ox: number; oy: number }>({ ox: 0, oy: 0 });
   const [imgSize, setImgSize] = React.useState<{ w: number; h: number }>({ w: 1, h: 1 });
 
@@ -81,6 +83,8 @@ const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale =
   // OFFSETS: image-space, pre-rotation
   const dx = -alphaOff.ox * finalW;
   const dy = -alphaOff.oy * finalH;
+  const dx2 = dx + (offsetPx?.x ?? 0);
+  const dy2 = dy + (offsetPx?.y ?? 0);
 
   return (
     <img
@@ -95,12 +99,15 @@ const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale =
         width: rect.w,
         height: rect.h,
         objectFit: "contain",
-        transform: `translate(-50%,-50%) rotate(${ROT[heading]}deg) translate(${dx}px, ${dy}px) scale(${scale})`,
+        // IMPORTANT: apply alpha/offset BEFORE rotation so it’s stable across headings
+        transform: `translate(-50%,-50%) translate(${dx2}px, ${dy2}px) rotate(${ROT[heading]}deg) scale(${scale})`,
         transformOrigin: "center center",
         pointerEvents: "none",
         opacity,
         imageRendering: "auto",
-        zIndex: 16,  
+        zIndex: 16,
+        willChange: "transform",
+        contain: "layout paint size",
       }}
     />
   );

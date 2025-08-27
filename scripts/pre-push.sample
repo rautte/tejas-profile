@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ===== Config (override via env if needed) =====
+BUCKET="${BUCKET:-assetscdnstack-heavyassetsbucket72601c17-nip5jdtseu6y}"
+CF_DIST="${CF_DIST:-E2VLTYLWTD0YS4}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_PROFILE="${AWS_PROFILE:-tejas-sso}"
+# ===============================================
+
+# Skip on CI or when explicitly requested
+if [[ "${SKIP_ASSET_SYNC:-0}" == "1" || "${CI:-}" == "true" ]]; then
+  echo "[pre-push] Skipping asset sync."
+  exit 0
+fi
+
+echo "[pre-push] Sync sprites (side) to s3://${BUCKET}/ships/sprites/"
+aws s3 sync src/assets/ships/sprites "s3://${BUCKET}/ships/sprites/" \
+  --exclude "*/top/*" \
+  --cache-control "public,max-age=86400" \
+  --delete
+
+if [[ -d src/assets/ships/glb ]]; then
+  echo "[pre-push] Sync GLB to s3://${BUCKET}/ships/glb/"
+  aws s3 sync src/assets/ships/glb "s3://${BUCKET}/ships/glb/" \
+    --cache-control "public,max-age=86400" \
+    --delete
+fi
+
+echo "[pre-push] Invalidate CloudFront"
+aws cloudfront create-invalidation \
+  --distribution-id "${CF_DIST}" \
+  --paths "/ships/sprites/*" "/ships/glb/*" >/dev/null
+
+echo "[pre-push] Done."

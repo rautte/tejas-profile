@@ -17,11 +17,11 @@ import {
 } from "lib/mp";
 
 import SideSpin from "./dev/SideSpin";
-// CDN-backed side frames (builds URLs, not bundling 100s of PNGs)
-import { getSideFrames } from "../../../../assets/ships/sprites/side.cdn";
+// CDN-backed side frames + warmer
+import { getSideFrames, warmSideFrames } from "../../../assets/ships/sprites/side.cdn";
 
 import { BoardGrid, NavalCompass, SignalDeck, TeamEmblem, WatermarkEmblem } from "./ui";
-import { TOP_SPRITES } from "../../../../assets/ships/sprites/top.cdn";
+import { TOP_SPRITES } from "../../../assets/ships/sprites/top.cdn";
 import { EMBLEMS, hashSeed } from "./utils";
 import type { IntelLine } from "./ui";
 import { Room } from "lib/mp/room";
@@ -133,6 +133,31 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const [turn, setTurn]               = React.useState<"player" | "ai">("player");
   const [msg, setMsg]                 = React.useState("Deploy your fleet (press R to rotate)");
   const [rematchAskFromPeer, setRematchAskFromPeer] = React.useState<null | Role>(null);
+
+  // -------- Side-spin perf tuning --------
+  // ID of the next ship we’re placing (or null if none left)
+  const nextShipId = React.useMemo(() => {
+    const placed = Object.keys(playerFleet).length;
+    return toPlace.length > 0 ? placed + 1 : null;
+  }, [playerFleet, toPlace.length]);
+
+  // Warm the next (and the one after) side frames so they’re cached/decode-ready
+  React.useEffect(() => {
+    if (!nextShipId) return;
+    warmSideFrames(nextShipId);
+    // pre-warm the one after too (nice-to-have)
+    const after = nextShipId + 1;
+    if (after <= FLEET_SIZES.length) warmSideFrames(after);
+  }, [nextShipId]);
+
+  // Lower FPS and optionally skip every other frame to keep UI snappy
+  const SIDE_SPIN_FPS = 30;  // was 50
+  const SIDE_SPIN_STEP = 2;  // 1 = use every frame; 2 = every other
+  const sideSpinFrames = React.useMemo(() => {
+    if (!nextShipId) return [];
+    const urls = getSideFrames(nextShipId);
+    return SIDE_SPIN_STEP > 1 ? urls.filter((_, i) => i % SIDE_SPIN_STEP === 0) : urls;
+  }, [nextShipId]);
   
   // reverse countdown while waiting for peer to rejoin
   const [graceLeftMs, setGraceLeftMs] = React.useState<number | null>(null);
@@ -1068,46 +1093,18 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         </div>
       )}
 
-      {/* 360° side preview — only during ship placement */}
-      {phase === "place" && (() => {
-        // no hooks here; just compute
-        const nextId = Object.keys(playerFleet).length + 1;
-        const frames = getSideFrames(nextId);
-        if (!frames.length) return null;
-
-        return (
-          <div
-            key="mp-side-spin" // stable identity; prevents remount churn
-            className="pointer-events-none absolute inset-0 flex items-center justify-center"
-            aria-hidden
-            style={{
-              zIndex: 0,
-              transform: "translateZ(0)",
-              backfaceVisibility: "hidden",
-              willChange: "transform, opacity",
-              contain: "paint",
-            }}
-          >
-            {/* size of the animation box; tweak to taste */}
-            <div
-              className="relative"
-              style={{
-                width: 760,        // px
-                height: 460,       // px
-                left: "-6%",       // nudge a bit left from center
-                top: "-12%",
-                opacity: 0.9,
-                transform: "translateZ(0)",
-                backfaceVisibility: "hidden",
-                willChange: "transform",
-              }}
-            >
-              {/* NOTE: no dynamic key here — keeps the canvas instance stable */}
-              <SideSpin frames={frames} fps={50} />
-            </div>
+      {/* 360° side preview — only while there are ships left to place */}
+      {phase === "place" && toPlace.length > 0 && sideSpinFrames.length > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          aria-hidden
+          style={{ zIndex: 0, transform: "translateZ(0)", backfaceVisibility: "hidden", contain: "layout paint size" }}
+        >
+          <div className="relative" style={{ width: 700, height: 420, left: "-6%", top: "-12%", opacity: 0.9 }}>
+            <SideSpin frames={sideSpinFrames} fps={SIDE_SPIN_FPS} />
           </div>
-        );
-      })()}
+        </div>
+      )}
     </div>
   );
 
