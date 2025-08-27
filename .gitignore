@@ -25,6 +25,12 @@ yarn-error.log*
 # heavy assets live in S3
 src/assets/ships/raw/
 src/assets/ships/sprites/*/side/
+
+# allow CDN helper modules under sprites/
+!src/assets/ships/sprites/*.ts
+!src/assets/ships/sprites/*.tsx
+
 # optional: big texture formats you don’t want in git
 src/assets/ships/**/textures/*.tga
 src/assets/ships/**/textures/*.tif
+
