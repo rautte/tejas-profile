@@ -21,3 +21,6 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# heavy assets moved to S3
+src/assets/ships/raw/
