@@ -1,0 +1,20 @@
+name: CDN Invalidate
+on:
+  push:
+    branches: [ main ]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  invalidate:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      CF_DISTRIBUTION_ID: E2VLTYLWTD0YS4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
+          aws-region: ${{ env.AWS_REGION }}
+      - run: aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION_ID" --paths "/ships/sprites/*" "/ships/glb/*"
