@@ -17,10 +17,11 @@ import {
 } from "lib/mp";
 
 import SideSpin from "./dev/SideSpin";
-import { SIDE_FRAMES_BY_ID } from "../../../assets/ships/sprites/side"; // adjust path if needed
+// CDN-backed side frames (builds URLs, not bundling 100s of PNGs)
+import { getSideFrames } from "../../../../assets/ships/sprites/side.cdn";
 
 import { BoardGrid, NavalCompass, SignalDeck, TeamEmblem, WatermarkEmblem } from "./ui";
-import { TOP_SPRITES } from "../../../assets/ships/sprites/top";
+import { TOP_SPRITES } from "../../../../assets/ships/sprites/top.cdn";
 import { EMBLEMS, hashSeed } from "./utils";
 import type { IntelLine } from "./ui";
 import { Room } from "lib/mp/room";
@@ -1071,7 +1072,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       {phase === "place" && (() => {
         // no hooks here; just compute
         const nextId = Object.keys(playerFleet).length + 1;
-        const frames = SIDE_FRAMES_BY_ID[nextId] || [];
+        const frames = getSideFrames(nextId);
         if (!frames.length) return null;
 
         return (

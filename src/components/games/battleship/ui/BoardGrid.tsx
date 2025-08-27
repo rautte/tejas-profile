@@ -3,7 +3,7 @@ import React from "react";
 import { SIZE } from "lib/battleship";
 import type { Grid, Shots } from "lib/battleship";
 import ShipTopView from "../dev/ShipTopView";
-import { TOP_SPRITES } from "../../../../assets/ships/sprites/top";
+import { TOP_SPRITES } from "../../../../assets/ships/sprites/top.cdn";
 import { computeSunkOverlays } from "../utils/overlays";
 
 /** Marks */
