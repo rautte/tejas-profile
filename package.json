@@ -38,8 +38,12 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build",
     "assets:sync": "aws s3 sync src/assets/ships/sprites s3://assetscdnstack-heavyassetsbucket72601c17-nip5jdtseu6y/ships/sprites/ --exclude '*/top/*' --cache-control 'public,max-age=86400' --delete",
-    "cdn:invalidate": "aws cloudfront create-invalidation --distribution-id E2VLTYLWTD0YS4 --paths '/ships/sprites/*'",
-    "assets:publish": "npm run assets:sync && npm run cdn:invalidate"
+    "assets:publish": "npm run assets:sync && npm run cdn:invalidate",
+    "prepare": "husky install",
+    "sync:assets": "bash scripts/sync-assets.sh",
+    "cdn:invalidate": "bash scripts/cdn-invalidate.sh",
+    "assets:push": "npm run sync:assets && npm run cdn:invalidate",
+    "assets:watch": "chokidar 'src/assets/ships/sprites/**/*' -c 'npm run sync:assets' --initial --await-write-finish 1000"
   },
   "eslintConfig": {
     "extends": [
@@ -61,7 +65,9 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.15",
+    "chokidar-cli": "^3.0.0",
     "gh-pages": "^6.1.1",
+    "husky": "^9.1.7",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5"
   }

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[ -f .env.local ] && set -a && . ./.env.local && set +a
+npm run -s sync:assets

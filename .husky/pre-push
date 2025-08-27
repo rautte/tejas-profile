@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# load local env (silent if missing)
+[ -f .env.local ] && set -a && . ./.env.local && set +a
+
+echo "[pre-push] syncing heavy assets to S3…"
+npm run -s sync:assets
+
+echo "[pre-push] invalidating CloudFront…"
+npm run -s cdn:invalidate
+
+echo "[pre-push] done ✓"
