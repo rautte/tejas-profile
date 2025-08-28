@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.css": "/tejas-profile/static/css/main.7728ebfb.css",
-    "main.js": "/tejas-profile/static/js/main.030696b3.js",
-    "static/js/634.3ade7744.chunk.js": "/tejas-profile/static/js/634.3ade7744.chunk.js",
+    "main.css": "/tejas-profile/static/css/main.d40c7f8c.css",
+    "main.js": "/tejas-profile/static/js/main.fa45606b.js",
+    "static/js/634.ee2c06c7.chunk.js": "/tejas-profile/static/js/634.ee2c06c7.chunk.js",
     "static/js/453.6326759e.chunk.js": "/tejas-profile/static/js/453.6326759e.chunk.js",
-    "static/js/387.c7851031.chunk.js": "/tejas-profile/static/js/387.c7851031.chunk.js",
+    "static/js/387.e640ac84.chunk.js": "/tejas-profile/static/js/387.e640ac84.chunk.js",
     "static/media/time-travel-boy.svg": "/tejas-profile/static/media/time-travel-boy.7f176132e67d9a61caf12c7abb5b89e9.svg",
     "static/media/Programming-boy.svg": "/tejas-profile/static/media/Programming-boy.bc2bbad8b8b7de85d351dc7ae223995e.svg",
     "static/media/LI_Profile.jpg": "/tejas-profile/static/media/LI_Profile.17a5f8acf56ffe3d9aa3.jpg",
@@ -14,14 +14,14 @@
     "static/media/trident-waves.svg": "/tejas-profile/static/media/trident-waves.83a5e51b62f6e210cbaa829acae92fde.svg",
     "static/media/compass-shield.svg": "/tejas-profile/static/media/compass-shield.ec7985ad8c29a1c566f316e08b440759.svg",
     "static/media/helm-star.svg": "/tejas-profile/static/media/helm-star.f0840d68041cdbf3ec93325726ee64a6.svg",
-    "main.7728ebfb.css.map": "/tejas-profile/static/css/main.7728ebfb.css.map",
-    "main.030696b3.js.map": "/tejas-profile/static/js/main.030696b3.js.map",
-    "634.3ade7744.chunk.js.map": "/tejas-profile/static/js/634.3ade7744.chunk.js.map",
+    "main.d40c7f8c.css.map": "/tejas-profile/static/css/main.d40c7f8c.css.map",
+    "main.fa45606b.js.map": "/tejas-profile/static/js/main.fa45606b.js.map",
+    "634.ee2c06c7.chunk.js.map": "/tejas-profile/static/js/634.ee2c06c7.chunk.js.map",
     "453.6326759e.chunk.js.map": "/tejas-profile/static/js/453.6326759e.chunk.js.map",
-    "387.c7851031.chunk.js.map": "/tejas-profile/static/js/387.c7851031.chunk.js.map"
+    "387.e640ac84.chunk.js.map": "/tejas-profile/static/js/387.e640ac84.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.7728ebfb.css",
-    "static/js/main.030696b3.js"
+    "static/css/main.d40c7f8c.css",
+    "static/js/main.fa45606b.js"
   ]
 }
