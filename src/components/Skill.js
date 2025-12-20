@@ -20,7 +20,7 @@ const skillsData = [
   {
     category: "Cloud & DevOps",
     icon: <FaCloud className="text-blue-500 dark:text-blue-400 text-lg" />,
-    skills: ["AWS", "Azure", "Databricks", "Snowflakes", "Git", "GitHub"]
+    skills: ["AWS", "Azure", "Databricks", "Snowflake", "GIT", "GitHub"]
   },
   {
     category: "Frameworks & Web",

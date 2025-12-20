@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# load local env (silent if missing)
 [ -f .env.local ] && set -a && . ./.env.local && set +a
 
 echo "[pre-push] syncing heavy assets to S3…"
-npm run -s sync:assets
+if ! npm run -s sync:assets; then
+  echo "[pre-push] WARN: asset sync failed — continuing push (you can run 'npm run assets:push' later)."
+  exit 0
+fi
 
 echo "[pre-push] invalidating CloudFront…"
-npm run -s cdn:invalidate
+npm run -s cdn:invalidate || echo "[pre-push] WARN: CDN invalidation failed — run 'npm run cdn:invalidate' later."
 
 echo "[pre-push] done ✓"

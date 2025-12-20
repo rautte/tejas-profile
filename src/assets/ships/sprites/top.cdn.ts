@@ -29,12 +29,19 @@ export const TOP_SPRITES: Record<number, string> = Object.fromEntries(
   ])
 );
 
-export const TOP_OFFSETS: Record<number, { x: number; y: number }> = {
-  // Fine-tune per ship here. Start with the big one:
-  1: { x: 0, y: -4 },   // nudge up a few pixels
-  // 2: { x: 0, y: 0 },
-  // 3: { x: 0, y: 0 },
-  // ...
+// src/assets/ships/sprites/top.cdn.ts
+export const TOP_NUDGE: Record<number, {N:{x:number;y:number},E:{x:number;y:number},S:{x:number;y:number},W:{x:number;y:number}}> = {
+  // Start values for the big hull (id=1). Tweak ±1–3 px to taste.
+  1: {
+    N: { x:  -4.5, y:  -10 },
+    E: { x: 10, y:  -4.5 },
+    S: { x:  4.5, y: 10 },
+    W: { x:  -10, y:  4.5 },
+  },
+  2: { N:{x:0,y:0}, E:{x:0,y:0}, S:{x:0,y:0}, W:{x:0,y:0} },
+  3: { N:{x:0,y:0}, E:{x:0,y:0}, S:{x:0,y:0}, W:{x:0,y:0} },
+  4: { N:{x:0,y:0}, E:{x:0,y:0}, S:{x:0,y:0}, W:{x:0,y:0} },
+  5: { N:{x:0,y:0}, E:{x:0,y:0}, S:{x:0,y:0}, W:{x:0,y:0} },
 };
 
 export const TOP_CDN_BASE = CDN_BASE;

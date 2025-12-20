@@ -142,10 +142,10 @@ function App() {
   // --- group nav for recruiters vs more ---
   const recruiterQuickLook = [
     "About Me",
-    "Education",
     "Experience",
     "Project",
     "Skill",
+    "Education",
     "Resume",
     "Connect",
   ];

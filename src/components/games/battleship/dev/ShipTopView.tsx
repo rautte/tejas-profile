@@ -11,8 +11,8 @@ type Props = {
   opacity?: number;
   /** compensates for transparent padding in the PNG (1.0 = no extra scale) */
   scale?: number;
-  /** small per-ship pixel nudge after alpha-centering (optional) */
-  offsetPx?: { x: number; y: number };
+  /** small screen-space pixel nudge applied AFTER rotation (so x,y mean screen x,y) */
+  nudge?: { x: number; y: number };
 };
 
 /* cache: opaque-bbox center offsets (normalized) */
@@ -20,7 +20,7 @@ const contentCenterCache = new Map<string, { ox: number; oy: number }>();
 
 const ROT: Record<Heading, number> = { N: 0, E: 90, S: 180, W: 270 };
 
-const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale = 1, offsetPx }) => {
+const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale = 1, nudge }) => {
   const [alphaOff, setAlphaOff] = React.useState<{ ox: number; oy: number }>({ ox: 0, oy: 0 });
   const [imgSize, setImgSize] = React.useState<{ w: number; h: number }>({ w: 1, h: 1 });
 
@@ -80,11 +80,9 @@ const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale =
     }
   }
 
-  // OFFSETS: image-space, pre-rotation
+  // OFFSETS: image-space, pre-rotation (already scaled)
   const dx = -alphaOff.ox * finalW;
   const dy = -alphaOff.oy * finalH;
-  const dx2 = dx + (offsetPx?.x ?? 0);
-  const dy2 = dy + (offsetPx?.y ?? 0);
 
   return (
     <img
@@ -99,194 +97,15 @@ const ShipTopView: React.FC<Props> = ({ src, rect, heading, opacity = 1, scale =
         width: rect.w,
         height: rect.h,
         objectFit: "contain",
-        // IMPORTANT: apply alpha/offset BEFORE rotation so it’s stable across headings
-        transform: `translate(-50%,-50%) translate(${dx2}px, ${dy2}px) rotate(${ROT[heading]}deg) scale(${scale})`,
+        // IMPORTANT: nudge is applied after rotate so it's in screen coords
+        transform: `translate(-50%,-50%) ${nudge ? `translate(${nudge.x}px, ${nudge.y}px) ` : ""}rotate(${ROT[heading]}deg) translate(${dx}px, ${dy}px) scale(${scale})`,
         transformOrigin: "center center",
         pointerEvents: "none",
         opacity,
         imageRendering: "auto",
-        zIndex: 16,
-        willChange: "transform",
-        contain: "layout paint size",
       }}
     />
   );
 };
 
 export default ShipTopView;
-
-
-
-
-// import React from "react";
-// import * as THREE from "three";
-// import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
-// import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
-
-// // Helper: build URLs to your files inside src (works with webpack 5)
-// function shipAssetPaths(ship: string) {
-//   const base = new URL(`../../../assets/ships/raw/${ship}/`, import.meta.url);
-//   const objUrl = new URL(`${ship}.obj`, base).toString();
-//   const mtlUrl = new URL(`${ship}.mtl`, base).toString();
-//   const texBaseUrl = base.toString(); // textures/ is inside that folder
-//   return { objUrl, mtlUrl, texBaseUrl };
-// }
-
-// type Props = {
-//   ship: "visby" | "k130" | "saar6" | "lcs-independence" | "lcs-freedom";
-//   w?: number;
-//   h?: number;
-//   headingDeg?: 0 | 90 | 180 | 270; // optional top-heading (kept simple)
-// };
-
-// export default function ShipTopView({ ship, w = 360, h = 220, headingDeg = 0 }: Props) {
-//   const ref = React.useRef<HTMLDivElement>(null);
-
-//   React.useEffect(() => {
-//     const mount = ref.current!;
-//     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-//     renderer.setClearColor(0x000000, 0);
-//     renderer.outputColorSpace = THREE.SRGBColorSpace;
-//     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-//     renderer.toneMappingExposure = 1.0;
-//     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-//     renderer.setSize(w, h);
-//     mount.appendChild(renderer.domElement);
-
-//     const scene = new THREE.Scene();
-//     scene.background = null;
-
-//     // orthographic top-down camera
-//     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
-//     cam.up.set(0, 0, -1);
-//     cam.position.set(0, 100, 0);
-//     cam.lookAt(0, 0, 0);
-
-//     // lights
-//     const key = new THREE.DirectionalLight(0xffffff, 1.1);
-//     key.position.set(2, 3, 2);
-//     scene.add(key);
-//     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-
-//     const { objUrl, mtlUrl, texBaseUrl } = shipAssetPaths(ship);
-
-//     // Load materials then OBJ
-//     const mtlLoader = new MTLLoader();
-//     // Ensure relative texture paths resolve inside the ship folder
-//     mtlLoader.setTexturePath(texBaseUrl);
-//     mtlLoader.setResourcePath(texBaseUrl);
-//     mtlLoader.setMaterialOptions({ side: THREE.DoubleSide });
-
-//     mtlLoader.load(
-//       mtlUrl,
-//       (mtl) => {
-//         mtl.preload();
-
-//         const objLoader = new OBJLoader();
-//         objLoader.setMaterials(mtl);
-//         objLoader.load(
-//           objUrl,
-//           (obj) => {
-//             // lay the deck under the top camera
-//             obj.rotation.x = -Math.PI / 2;
-//             // optional heading (N/E/S/W in degrees)
-//             obj.rotateY(THREE.MathUtils.degToRad(headingDeg));
-
-//             // normalize textures & quality
-//             const maxAniso = renderer.capabilities.getMaxAnisotropy
-//               ? renderer.capabilities.getMaxAnisotropy()
-//               : 1;
-
-//             obj.traverse((c: any) => {
-//               if (c.isMesh && c.material) {
-//                 const m = c.material;
-//                 const maps = ["map", "emissiveMap", "aoMap"];
-//                 maps.forEach((k) => {
-//                   if (m[k]) {
-//                     m[k].colorSpace = THREE.SRGBColorSpace; // color maps in sRGB
-//                     m[k].anisotropy = maxAniso;
-//                     m[k].needsUpdate = true;
-//                   }
-//                 });
-//                 ["metalnessMap", "roughnessMap", "normalMap"].forEach((k) => {
-//                   if (m[k]) {
-//                     m[k].anisotropy = maxAniso;
-//                     m[k].needsUpdate = true;
-//                   }
-//                 });
-//               }
-//             });
-
-//             // center at origin
-//             const box = new THREE.Box3().setFromObject(obj);
-//             const size = new THREE.Vector3();
-//             const center = new THREE.Vector3();
-//             box.getSize(size);
-//             box.getCenter(center);
-//             obj.position.sub(center);
-//             scene.add(obj);
-
-//             // --- Fit to view with aspect-correct ortho frustum (prevents clipping/stretch) ---
-//             const margin = 1.15; // 15% padding around the model
-//             const modelW = size.x * margin;
-//             const modelH = size.z * margin; // after -X rot, forward is Z
-
-//             const viewAspect = w / h;
-//             const modelAspect = modelW / modelH;
-
-//             let halfW: number;
-//             let halfH: number;
-
-//             if (viewAspect > modelAspect) {
-//               // canvas is wider => height is the limiter; expand width to match aspect
-//               halfH = modelH / 2;
-//               halfW = halfH * viewAspect;
-//             } else {
-//               // canvas is taller => width is the limiter; expand height to match aspect
-//               halfW = modelW / 2;
-//               halfH = halfW / viewAspect;
-//             }
-
-//             cam.left = -halfW;
-//             cam.right = halfW;
-//             cam.top = halfH;
-//             cam.bottom = -halfH;
-//             cam.updateProjectionMatrix();
-
-//             renderer.render(scene, cam);
-//           },
-//           undefined,
-//           (err) => {
-//             console.error("OBJ load error", err);
-//           }
-//         );
-//       },
-//       undefined,
-//       (err) => {
-//         console.error("MTL load error", err);
-//       }
-//     );
-
-//     return () => {
-//       try {
-//         // best-effort cleanup
-//         scene.traverse((o: any) => {
-//           if (o.isMesh) {
-//             o.geometry?.dispose?.();
-//             const mats = Array.isArray(o.material) ? o.material : [o.material];
-//             mats?.forEach((m) => {
-//               ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "aoMap"].forEach((k) => {
-//                 if (m && m[k] && m[k].dispose) m[k].dispose();
-//               });
-//               m?.dispose?.();
-//             });
-//           }
-//         });
-//       } catch {}
-//       renderer.dispose();
-//       mount.removeChild(renderer.domElement);
-//     };
-//   }, [ship, w, h, headingDeg]);
-
-//   return <div ref={ref} style={{ width: w, height: h }} />;
-// }

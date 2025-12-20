@@ -43,7 +43,7 @@ export default function Resume() {
 
         {/* Hire Me */}
         <a
-          href="mailto:tejas@example.com"
+          href="mailto:raut.tejas@outlook.com"
           className="flex items-center justify-center gap-2 text-sm px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg shadow hover:opacity-90 transition font-medium"
         >
           <FaBriefcase className="text-sm" />
