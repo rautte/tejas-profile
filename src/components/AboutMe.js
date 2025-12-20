@@ -4,54 +4,6 @@ import { FaUser } from 'react-icons/fa';
 import profilePic from "../assets/images/LI_Profile.jpg"; // Replace with your image path
 
 export default function AboutMe() {
-  const [expanded, setExpanded] = React.useState(null);
-
-  const toggle = (idx) => {
-    setExpanded(prev => prev === idx ? null : idx);
-  };
-
-  const qaList = [
-    {
-      question: "What programming languages are you most comfortable with?",
-      answer: "I'm most confident in JavaScript (React), Python, and SQL. I also enjoy using Go and Bash for scripting."
-    },
-    {
-      question: "What kind of projects excite you the most?",
-      answer: "I love working on full-stack applications that mix frontend polish with backend complexity—especially data-driven ones."
-    },
-    {
-      question: "Are you more of a frontend or backend developer?",
-      answer: "Both! I’m a full-stack developer, but I enjoy backend architecture and frontend design equally."
-    },
-    {
-      question: "What's your proudest technical achievement?",
-      answer: "Building a real-time data pipeline with alerting, automation, and dashboards end-to-end on AWS."
-    },
-    {
-      question: "How do you stay updated with tech trends?",
-      answer: "I follow blogs, newsletters like TLDR/Tech, attend meetups, and occasionally browse Hacker News."
-    },
-    {
-      question: "What’s your approach to debugging tough issues?",
-      answer: "Break the problem down, isolate components, reproduce the bug, and use logs/test cases to trace root causes."
-    },
-    {
-      question: "Favorite UI libraries or frameworks?",
-      answer: "Tailwind CSS is my favorite for styling, along with Framer Motion and shadcn/ui for animations and components."
-    },
-    {
-      question: "What motivates you to code every day?",
-      answer: "The joy of building and solving real-world problems while learning new concepts keeps me going."
-    },
-    {
-      question: "Are you open to collaborations or freelance work?",
-      answer: "Yes! If it’s an interesting project that aligns with my skills and values, I’d love to contribute."
-    },
-    {
-      question: "What's one non-tech thing you're passionate about?",
-      answer: "I love experimenting with matcha drinks, photography, and discovering visually stunning indie games."
-    }
-  ];
 
   return (
     <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
