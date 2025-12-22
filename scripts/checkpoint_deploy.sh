@@ -80,6 +80,11 @@ git push origin main
 git push origin --tags
 ok "Pushed."
 
+# Prevent deploy if build folder doesn’t match HEAD
+if [[ -n "$(git status --porcelain build)" ]]; then
+  die "Build directory differs from committed state. Aborting deploy."
+fi
+
 # ---- 5) Deploy
 info "Deploying (npm run deploy)..."
 npm run deploy
