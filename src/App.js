@@ -8,6 +8,7 @@ import MinesweeperWeb from "./components/games/minesweeper/MinesweeperWeb";
 import BattleshipWeb from "./components/games/battleship/BattleshipWeb";
 import GameLayout from "./components/games/GameLayout";
 // import { parseFunZoneRoute } from "lib/mp";
+import Footer from "./components/Footer";
 import Hero from "./components/Hero";
 import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";
@@ -18,7 +19,7 @@ import Education from "./components/Education";
 import Project from "./components/Project";
 import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
-import Connect from "./components/Connect";
+// import Connect from "./components/Connect";
 import CodeLab from "./components/CodeLab";
 import HeroHandle from "./components/HeroHandle";
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
@@ -27,7 +28,7 @@ import { FiSidebar } from "react-icons/fi";
 import {
   FaUser, FaMapMarkedAlt, FaFileAlt, FaBriefcase,
   FaCogs, FaGraduationCap, FaProjectDiagram, FaTrophy,
-  FaEnvelope, FaMoon, FaSun, FaCode
+  FaMoon, FaSun, FaCode
 } from 'react-icons/fa';
 
 const ICONS = {
@@ -41,12 +42,13 @@ const ICONS = {
   "Achievement": <FaTrophy className="text-sm" />,
   "Fun Zone": <GiConsoleController className="text-sm" />,
   "Code Lab": <FaCode className="text-sm" />,
-  "Connect": <FaEnvelope className="text-sm" />,
+  // "Connect": <FaEnvelope className="text-sm" />,
 };
 
 const LABELS = [
   "About Me","Timeline","Resume","Experience","Skill",
-  "Education","Project","Achievement","Fun Zone","Connect","Code Lab"
+  "Education","Project","Achievement","Fun Zone","Code Lab"
+  // "Education","Project","Achievement","Fun Zone","Connect","Code Lab"
 ];
 
 const toSlug = (label) =>
@@ -135,7 +137,7 @@ function App() {
     "Project": <Project darkMode={darkMode} />,
     "Achievement": <Achievement darkMode={darkMode} />,
     "Fun Zone": <FunZone darkMode={darkMode} />,
-    "Connect": <Connect darkMode={darkMode} />,
+    // "Connect": <Connect darkMode={darkMode} />,
     "Code Lab": <CodeLab darkMode={darkMode} />,
   }), [darkMode]);
 
@@ -143,18 +145,18 @@ function App() {
   const recruiterQuickLook = [
     "About Me",
     "Experience",
-    "Project",
     "Skill",
     "Education",
     "Resume",
-    "Connect",
+    // "Connect",
   ];
 
   const moreAboutMe = [
-    "Achievement",
+    "Project",
     "Code Lab", 
-    "Timeline",
     "Fun Zone",
+    "Achievement",
+    "Timeline",
   ];
 
   const goTo = useCallback((label) => {
@@ -173,7 +175,8 @@ function App() {
   }, []);
 
   // items to pin in non-scrollable header
-  const PINNED = ["About Me", "Connect"];
+  // const PINNED = ["About Me", "Connect"];
+  const PINNED = ["About Me"];
   const recruiterQuickLookBody = recruiterQuickLook.filter(i => !PINNED.includes(i));
   const moreAboutMeBody = moreAboutMe.filter(i => !PINNED.includes(i));
 
@@ -250,7 +253,8 @@ function App() {
   }, []);
 
   // treat About Me & Connect as pinned
-  const PINNED_SET = useMemo(() => new Set(["About Me", "Connect"]), []);
+  // const PINNED_SET = useMemo(() => new Set(["About Me", "Connect"]), []);
+  const PINNED_SET = useMemo(() => new Set(["About Me"]), []);
 
   // used to skip one forced-expand after a *user collapse* on a pinned section
   const skipNextPinnedExpand = useRef(false);
@@ -555,13 +559,13 @@ function App() {
                     onClick={() => goTo("About Me")}
                   />
                 </li>
-                <li>
+                {/* <li>
                   <NavButton
                     label="Connect"
                     active={selectedSection === "Connect"}
                     onClick={() => goTo("Connect")}
                   />
-                </li>
+                </li> */}
               </ul>
 
               {/* divider visible only when expanded */}
@@ -581,7 +585,7 @@ function App() {
               {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
 
               <Group
-                title="Explore"
+                title="Hiring Manager" // Was 'Explore'
                 items={moreAboutMeBody}
                 titleClassName="text-[11px] md:text-[11px]"
               />
@@ -589,13 +593,24 @@ function App() {
           </div>
         </nav>
 
-        {/* Main content */}
-        <main
-          className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6 bg-gray-50 backdrop-blur-xl dark:bg-[#181826] transition-colors order-2"
-          role="main"
-        >
-          {sections[selectedSection]}
-        </main>
+        {/* Content + Footer column */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+
+          {/* Scrollable content */}
+          <main
+            className="flex-1 overflow-y-auto p-4 sm:p-6
+                      bg-gray-50 backdrop-blur-xl
+                      dark:bg-[#181826] transition-colors"
+            role="main"
+          >
+            <div className="flex-1 overflow-y-auto p-6 pb-24">
+              {sections[selectedSection]}
+            </div>
+          </main>
+
+          {/* Footer always visible */}
+          <Footer />
+        </div>
       </div>
     </div>
   );

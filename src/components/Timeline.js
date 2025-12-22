@@ -121,7 +121,7 @@ export default function Timeline() {
   }, []);
 
   return (
-    <section className="py-10 px-4 bg-gray-50 dark:bg-[#181826] transition-colors relative">
+    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors relative">
 
       {/* Section Title */}
       <div className="text-left px-6 mb-10">

@@ -3,7 +3,7 @@ import { FaBriefcase, FaFileAlt } from 'react-icons/fa';
 
 export default function Resume() {
   return (
-    <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
+    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Title & Underline aligned left like Projects */}
       <div className="text-left px-6 mb-10">
         <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">

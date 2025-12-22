@@ -23,8 +23,8 @@ const allProjects = [
     techStack: ["React", "TailwindCSS", "JavaScript", "GitHub Pages"],
     domain: "Frontend",
     industry: "Tech",
-    demo: "https://rautte.github.io/my-profile",
-    github: "https://github.com/rautte/my-profile",
+    demo: "https://rautte.github.io/tejas-profile",
+    github: "https://github.com/rautte/tejas-profile",
     status: "Deployed"
   },
   {
@@ -117,7 +117,7 @@ export default function Project({ darkMode }) {
   };
 
   return (
-    <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
+    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Header with Title and Filter Button */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         {/* Title and divider */}
@@ -135,7 +135,7 @@ export default function Project({ darkMode }) {
         <div className="relative w-fit text-left" ref={dropdownRef}>
           <button
             onClick={() => setShowDropdown(!showDropdown)}
-            className="bg-gray-100 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-3 py-1 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
+            className="bg-gray-200/40 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-3 py-1 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
           >
             <HiOutlineFilter className="text-lg" />
             Filter ▾
@@ -145,7 +145,7 @@ export default function Project({ darkMode }) {
           {showDropdown && (
             <div
               className="absolute right-0 mt-2 w-80 max-h-[500px] overflow-y-auto p-4 z-20
-                bg-white/30 dark:bg-white/10 text-gray-800 dark:text-gray-200
+                bg-gray-300/40 dark:bg-gray-600/40 text-gray-800 dark:text-gray-200
                 backdrop-blur-xl backdrop-saturate-150
                 rounded-2xl border border-white/20 dark:border-white/20
                 shadow-xl ring-1 ring-white/20 transition-all text-left scroll-smooth"

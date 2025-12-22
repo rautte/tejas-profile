@@ -160,7 +160,7 @@ export default function Education() {
     }, [openImage]);
 
   return (
-    <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
+    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Header scaffold aligned with Project.js */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         {/* Title block */}

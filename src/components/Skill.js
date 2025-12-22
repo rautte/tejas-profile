@@ -36,7 +36,7 @@ const skillsData = [
 
 export default function Skills() {
   return (
-    <section className="py-8 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
+    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
       {/* Header */}
       <div className="px-6 mb-10">
         <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
