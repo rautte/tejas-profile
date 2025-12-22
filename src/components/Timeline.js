@@ -229,14 +229,14 @@ export default function Timeline() {
                 className="
                   absolute -translate-x-1/2 top-0
                   text-xs sm:text-sm font-medium font-epilogue
-                  text-gray-600 dark:text-gray-300
-                  hover:text-indigo-600 dark:hover:text-indigo-300
+                  text-gray-700 dark:text-gray-300
+                  hover:text-indigo-500 dark:hover:text-indigo-300
                   transition
                 "
                 style={{ left: `${pct}%` }}
                 aria-label={`Go to ${y}`}
               >
-                <span className={isActive ? "font-bold text-indigo-600 dark:text-indigo-300" : "font-bold"}>
+                <span className={isActive ? "font-bold text-indigo-500 dark:text-indigo-300" : "font-bold"}>
                   {y}
                 </span>
               </button>
@@ -246,7 +246,7 @@ export default function Timeline() {
 
         {/* Track (click + drag) */}
         <div
-          className="relative mt-6 select-none"
+          className="relative mt-2 select-none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

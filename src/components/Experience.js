@@ -2,7 +2,7 @@
 
 import React from "react";
 import { FaBriefcase } from "react-icons/fa";
-import { FiChevronDown, FiChevronUp } from "react-icons/fi";
+// import { FiChevronDown, FiChevronUp } from "react-icons/fi";
 
 const experiencePrimary = [
   {
@@ -72,48 +72,48 @@ const experiencePrimary = [
   },
 ];
 
-const experienceEarly = [
-  {
-    company: "Pravega Racing (Formula Student)",
-    role: "Data Analyst – Vehicle Dynamics Design Optimization",
-    employmentType: "Team / Project",
-    duration: "Sep 2018 – Aug 2019",
-    location: "Vellore, India · On-site",
-    highlights: [
-      "Led a cross-functional team of 4 across chassis, wheel assembly, and aero packages; owned analysis workflow and delivery timelines under competition constraints.",
-      "Built Python and MATLAB simulations for kinematics and vehicle dynamics to guide design tradeoffs and validate geometry changes before fabrication.",
-      "Analyzed 100k+ data points across tires and suspension; computed Lateral Load Transfer Distribution and Center of Pressure to improve handling and stability.",
-    ],
-    tags: [
-      "Systems Modeling",
-      "Optimization",
-      "Python",
-      "MATLAB",
-      "Simulation",
-      "Data Analysis",
-      "Cross-Functional Leadership",
-    ],
-  },
-  {
-    company: "Filtrum Autocomp Private Limited",
-    role: "Supply Chain Analyst Intern",
-    employmentType: "Internship",
-    duration: "Aug 2019 – Nov 2019",
-    location: "Pune, India · On-site",
-    highlights: [
-      "Applied a replenishment model to manage demand variability and improve warehouse capacity utilization by 15% through data-backed inventory tuning.",
-      "Performed value stream mapping to reduce lead time by 5% and improve parts availability by aligning procurement cadence with demand patterns.",
-    ],
-    tags: [
-      "Operations",
-      "Optimization",
-      "Analytics",
-      "Supply Chain",
-      "Process Improvement",
-      "Excel",
-    ],
-  },
-];
+// const experienceEarly = [
+//   {
+//     company: "Pravega Racing (Formula Student)",
+//     role: "Data Analyst – Vehicle Dynamics Design Optimization",
+//     employmentType: "Team / Project",
+//     duration: "Sep 2018 – Aug 2019",
+//     location: "Vellore, India · On-site",
+//     highlights: [
+//       "Led a cross-functional team of 4 across chassis, wheel assembly, and aero packages; owned analysis workflow and delivery timelines under competition constraints.",
+//       "Built Python and MATLAB simulations for kinematics and vehicle dynamics to guide design tradeoffs and validate geometry changes before fabrication.",
+//       "Analyzed 100k+ data points across tires and suspension; computed Lateral Load Transfer Distribution and Center of Pressure to improve handling and stability.",
+//     ],
+//     tags: [
+//       "Systems Modeling",
+//       "Optimization",
+//       "Python",
+//       "MATLAB",
+//       "Simulation",
+//       "Data Analysis",
+//       "Cross-Functional Leadership",
+//     ],
+//   },
+//   {
+//     company: "Filtrum Autocomp Private Limited",
+//     role: "Supply Chain Analyst Intern",
+//     employmentType: "Internship",
+//     duration: "Aug 2019 – Nov 2019",
+//     location: "Pune, India · On-site",
+//     highlights: [
+//       "Applied a replenishment model to manage demand variability and improve warehouse capacity utilization by 15% through data-backed inventory tuning.",
+//       "Performed value stream mapping to reduce lead time by 5% and improve parts availability by aligning procurement cadence with demand patterns.",
+//     ],
+//     tags: [
+//       "Operations",
+//       "Optimization",
+//       "Analytics",
+//       "Supply Chain",
+//       "Process Improvement",
+//       "Excel",
+//     ],
+//   },
+// ];
 
 function Tag({ children }) {
   return (
@@ -180,7 +180,7 @@ function ExperienceCard({ exp }) {
 }
 
 export default function Experience() {
-  const [showEarly, setShowEarly] = React.useState(false);
+  // const [showEarly, setShowEarly] = React.useState(false);
 
   return (
     <section className="w-full py-0 px-4 bg-transparent">
@@ -206,7 +206,7 @@ export default function Experience() {
       </div>
 
       {/* Collapsible Early Experience */}
-      <div className="px-6 max-w-6xl mx-auto mt-10">
+      {/* <div className="px-6 max-w-6xl mx-auto mt-10">
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md">
           <button
             type="button"
@@ -238,7 +238,7 @@ export default function Experience() {
             </div>
           )}
         </div>
-      </div>
+      </div> */}
     </section>
   );
 }

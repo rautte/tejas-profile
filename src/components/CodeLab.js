@@ -2,9 +2,7 @@
 
 /**
  * TODO FIX:
- * The filter option box follows the filter button through the expanded hero top.
- * Make the snippet cards pin to the top when viewed while collapsing the expanded ones if any
- * Condense filter options with high signal and add API Design option to CONCEPTS category
+ * Make the snippet cards always pin to the top (leaving a few px from the hero section bottom) when viewed while collapsing the already expanded ones if any
  */
 
 import React from "react";
@@ -50,6 +48,80 @@ const toArray = (v) => {
   if (!v) return [];
   return Array.isArray(v) ? v.filter(Boolean) : [v];
 };
+
+/**
+ * Normalize concept names so the filter stays clean.
+ * Also guarantees "API Design" is a canonical label.
+ */
+function normalizeConcept(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+
+  const lower = s.toLowerCase();
+
+  // Canonical API bucket
+  if (
+    lower === "api" ||
+    lower === "apis" ||
+    lower === "api design" ||
+    lower === "api-design" ||
+    lower.includes("rest") ||
+    lower.includes("graphql")
+  ) {
+    return "API Design";
+  }
+
+  // Common minor normalizations
+  if (lower === "orchestration" || lower === "workflow orchestration") return "Orchestration";
+  if (lower === "reliability" || lower === "resilience") return "Reliability";
+
+  return s;
+}
+
+/**
+ * Condense domains into recruiter-friendly buckets.
+ * Keeps the dropdown short and readable.
+ */
+function normalizeDomain(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "Other";
+
+  const lower = s.toLowerCase();
+
+  if (lower.includes("data") || lower.includes("warehouse") || lower.includes("lake") || lower.includes("etl"))
+    return "Data Platforms";
+
+  if (lower.includes("infra") || lower.includes("platform") || lower.includes("devops") || lower.includes("cloud"))
+    return "Infra / Platform";
+
+  if (lower.includes("backend") || lower.includes("api") || lower.includes("service"))
+    return "Backend Systems";
+
+  if (lower.includes("ml") || lower.includes("ai") || lower.includes("model"))
+    return "ML / AI Systems";
+
+  if (lower.includes("observ") || lower.includes("monitor") || lower.includes("logging"))
+    return "Observability";
+
+  return s; // fallback: keep original if it doesn't match
+}
+
+/**
+ * Utility: top N by frequency (desc), then alphabetical.
+ * Used to reduce choice fatigue in dropdowns.
+ */
+function topByCount(countMap, maxItems) {
+  return Array.from(countMap.entries())
+    .filter(([k]) => Boolean(k))
+    .sort((a, b) => {
+      const d = b[1] - a[1];
+      if (d !== 0) return d;
+      return a[0].localeCompare(b[0]);
+    })
+    .slice(0, maxItems)
+    .map(([k]) => k);
+}
+
 
 /**
  * Shared dropdown geometry.
@@ -173,6 +245,7 @@ export default function CodeLab({ darkMode }) {
   }, [setShowDropdown]);
 
   // Track scroll/resize while open (rAF throttled).
+  // Also closes the dropdown if the scroll happens outside the dropdown panel.
   React.useEffect(() => {
     if (!showDropdown) return;
 
@@ -184,14 +257,33 @@ export default function CodeLab({ darkMode }) {
       });
     };
 
+    // If the user scrolls somewhere else on the page (not inside the dropdown),
+    // close it to avoid “floating UI” while browsing snippets.
+    const closeOnOutsideScroll = (e) => {
+      const panel = dropdownPanelRef.current;
+      if (!panel) return;
+
+      const target = e.target;
+
+      // If the scroll event originated from inside the dropdown itself, keep it open.
+      // (Allows scrolling the filter list without collapsing it.)
+      if (target && panel.contains(target)) return;
+
+      setShowDropdown(false);
+    };
+
     applyDropdownPos(); // first paint
 
     window.addEventListener("resize", schedule, { passive: true });
     window.addEventListener("scroll", schedule, { capture: true, passive: true });
 
+    // Capture scroll events from nested scroll containers too.
+    document.addEventListener("scroll", closeOnOutsideScroll, { capture: true, passive: true });
+
     return () => {
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, { capture: true });
+      document.removeEventListener("scroll", closeOnOutsideScroll, { capture: true });
 
       if (dropdownRafRef.current) {
         cancelAnimationFrame(dropdownRafRef.current);
@@ -199,6 +291,7 @@ export default function CodeLab({ darkMode }) {
       }
     };
   }, [showDropdown, applyDropdownPos]);
+
 
   const openDropdown = React.useCallback(() => {
     const btn = filterBtnRef.current;
@@ -221,20 +314,50 @@ export default function CodeLab({ darkMode }) {
       ...s,
       __idx: idx, // stable identity even after filtering
       technology: toArray(s.technology),
-      concepts: toArray(s.concepts),
-      domain: Array.isArray(s.domain) ? (s.domain[0] || "Other") : (s.domain || "Other"),
+      concepts: toArray(s.concepts).map(normalizeConcept).filter(Boolean),
+      domain: normalizeDomain(Array.isArray(s.domain) ? (s.domain[0] || "Other") : (s.domain || "Other")),
       language: (s.lang || "other").toLowerCase(),
     }));
   }, [snippets]);
 
   const filterOptions = React.useMemo(() => {
+    // Build frequency maps (so we can keep only the highest-signal options)
+    const tech = new Map();
+    const concept = new Map();
+    const domain = new Map();
+    const lang = new Map();
+
+    const bump = (m, k) => m.set(k, (m.get(k) || 0) + 1);
+
+    allWithMeta.forEach((s) => {
+      s.technology.forEach((t) => bump(tech, t));
+      s.concepts.forEach((c) => bump(concept, c));
+      bump(domain, s.domain);
+      bump(lang, s.language);
+    });
+
+    // Your intent:
+    // - Keep all languages
+    // - Keep all technologies
+    // - Condense concepts + domains to reduce fatigue
+    const Technology = uniqSorted(Array.from(tech.keys()));
+    const Language = uniqSorted(Array.from(lang.keys()));
+
+    // Keep only top concepts/domains (high-signal)
+    let Concept = topByCount(concept, 12);
+    const Domain = topByCount(domain, 8);
+
+    // Always ensure API Design exists in Concepts even if data doesn't include it
+    if (!Concept.includes("API Design")) Concept = ["API Design", ...Concept];
+
     return {
-      Technology: uniqSorted(allWithMeta.flatMap((s) => s.technology)),
-      Concept: uniqSorted(allWithMeta.flatMap((s) => s.concepts)),
-      Domain: uniqSorted(allWithMeta.map((s) => s.domain)),
-      Language: uniqSorted(allWithMeta.map((s) => s.language)),
+      Technology,
+      Concept: uniqSorted(Concept),
+      Domain: uniqSorted(Domain),
+      Language,
     };
   }, [allWithMeta]);
+
 
   const getCount = React.useCallback(
     (category, value) => {
@@ -633,7 +756,7 @@ export default function CodeLab({ darkMode }) {
                     border border-gray-200 dark:border-gray-700
                     text-purple-800 dark:text-purple-200
                     shadow-sm hover:shadow-md
-                    transition
+                    transition-colors duration-300 will-change-[background-color,color,border-color]
                   "
                 >
                   <span>View</span>
@@ -685,7 +808,7 @@ export default function CodeLab({ darkMode }) {
 
   return (
     <section
-      className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors duration-300"
+      className="py-0 px-4 transition-colors duration-300"
       style={{ overflowAnchor: "none" }}
     >
       <div className="px-6 max-w-6xl mx-auto">

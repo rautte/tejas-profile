@@ -238,7 +238,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
         lang: "python",
         from: "Production Reconciliation Platform",
         why: "Clean API boundary: strict request/response contracts, real idempotency, and async orchestration without blocking the API layer.",
-        concepts: ["Data Contracts", "Defensive Programming"],
+        concepts: ["Data Contracts", "Defensive Programming", "API Design"],
         technology: ["Python"],
         domain: ["FinTech", "Backend Systems"],
         code: `from datetime import date
