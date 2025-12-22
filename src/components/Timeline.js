@@ -404,8 +404,8 @@ export default function Timeline() {
                       key={`${entry.company}-${tag}`}
                       className="
                         text-xs px-3 py-1 rounded-full
-                        bg-purple-500/10 text-purple-800
-                        dark:bg-purple-400/10 dark:text-purple-200
+                        bg-purple-100 dark:bg-purple-800 
+                        text-purple-800 dark:text-white
                         border border-purple-400/25
                         backdrop-blur
                       "
