@@ -14,7 +14,7 @@ import AboutMe from "./components/AboutMe";
 import Timeline from "./components/Timeline";
 import Resume from "./components/Resume";
 import Experience from "./components/Experience";
-import Skill from "./components/Skill";
+import Skills from "./components/Skills";
 import Education from "./components/Education";
 import Project from "./components/Project";
 import Achievement from "./components/Achievement";
@@ -36,9 +36,9 @@ const ICONS = {
   "Timeline": <FaMapMarkedAlt className="text-sm" />,
   "Resume": <FaFileAlt className="text-sm" />,
   "Experience": <FaBriefcase className="text-sm" />,
-  "Skill": <FaCogs className="text-sm" />,
+  "Skills": <FaCogs className="text-sm" />,
   "Education": <FaGraduationCap className="text-sm" />,
-  "Project": <FaProjectDiagram className="text-sm" />,
+  "Projects": <FaProjectDiagram className="text-sm" />,
   "Achievement": <FaTrophy className="text-sm" />,
   "Fun Zone": <GiConsoleController className="text-sm" />,
   "Code Lab": <FaCode className="text-sm" />,
@@ -46,8 +46,8 @@ const ICONS = {
 };
 
 const LABELS = [
-  "About Me","Timeline","Resume","Experience","Skill",
-  "Education","Project","Achievement","Fun Zone","Code Lab"
+  "About Me","Timeline","Resume","Experience","Skills",
+  "Education","Projects","Achievement","Fun Zone","Code Lab"
   // "Education","Project","Achievement","Fun Zone","Connect","Code Lab"
 ];
 
@@ -132,9 +132,9 @@ function App() {
     "Timeline": <Timeline darkMode={darkMode} />,
     "Resume": <Resume darkMode={darkMode} />,
     "Experience": <Experience darkMode={darkMode} />,
-    "Skill": <Skill darkMode={darkMode} />,
+    "Skills": <Skills darkMode={darkMode} />,
     "Education": <Education darkMode={darkMode} />,
-    "Project": <Project darkMode={darkMode} />,
+    "Projects": <Project darkMode={darkMode} />,
     "Achievement": <Achievement darkMode={darkMode} />,
     "Fun Zone": <FunZone darkMode={darkMode} />,
     // "Connect": <Connect darkMode={darkMode} />,
@@ -145,16 +145,19 @@ function App() {
   const recruiterQuickLook = [
     "About Me",
     "Experience",
-    "Skill",
+    "Skills",
     "Education",
     "Resume",
     // "Connect",
   ];
 
-  const moreAboutMe = [
-    "Project",
+  const hiringManagerQuickLookBody = [
+    "Projects",
     "Code Lab", 
     "Fun Zone",
+  ];
+
+  const moreAboutMe = [
     "Achievement",
     "Timeline",
   ];
@@ -178,7 +181,7 @@ function App() {
   // const PINNED = ["About Me", "Connect"];
   const PINNED = ["About Me"];
   const recruiterQuickLookBody = recruiterQuickLook.filter(i => !PINNED.includes(i));
-  const moreAboutMeBody = moreAboutMe.filter(i => !PINNED.includes(i));
+  // const moreAboutMeBody = moreAboutMe.filter(i => !PINNED.includes(i));
 
   // figure initial section from hash once
   const initialSection = (() => {
@@ -586,7 +589,15 @@ function App() {
 
               <Group
                 title="Hiring Manager" // Was 'Explore'
-                items={moreAboutMeBody}
+                items={hiringManagerQuickLookBody}
+                titleClassName="text-[11px] md:text-[11px]"
+              />
+
+              {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
+
+              <Group
+                title="Explore"
+                items={moreAboutMe}
                 titleClassName="text-[11px] md:text-[11px]"
               />
             </div>

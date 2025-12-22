@@ -1,3 +1,4 @@
+// components/Projects.js
 import React, { useState, useEffect, useRef } from "react";
 import { HiOutlineFilter } from "react-icons/hi";
 import { FaProjectDiagram, FaPlay, FaGithub } from 'react-icons/fa';
@@ -62,7 +63,7 @@ const filterOptions = {
   "Links": ["Live Demo", "GitHub"]
 };
 
-export default function Project({ darkMode }) {
+export default function Projects({ darkMode }) {
   const [filters, setFilters] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
