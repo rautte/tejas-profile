@@ -1,14 +1,12 @@
 {
   "files": {
-    "main.css": "/tejas-profile/static/css/main.0fac7e80.css",
-    "main.js": "/tejas-profile/static/js/main.97d19405.js",
+    "main.css": "/tejas-profile/static/css/main.0095a285.css",
+    "main.js": "/tejas-profile/static/js/main.c880f03f.js",
     "static/js/634.682dfa46.chunk.js": "/tejas-profile/static/js/634.682dfa46.chunk.js",
-    "static/js/453.91811833.chunk.js": "/tejas-profile/static/js/453.91811833.chunk.js",
+    "static/js/453.6326759e.chunk.js": "/tejas-profile/static/js/453.6326759e.chunk.js",
     "static/js/387.ef450b14.chunk.js": "/tejas-profile/static/js/387.ef450b14.chunk.js",
     "static/media/student_special_achiever_2018-2019.jpg": "/tejas-profile/static/media/student_special_achiever_2018-2019.c4c42216716f5b381e19.jpg",
     "static/media/vit.jpg": "/tejas-profile/static/media/vit.cfa7a5a6f51dcc113617.jpg",
-    "static/media/time-travel-boy.svg": "/tejas-profile/static/media/time-travel-boy.7f176132e67d9a61caf12c7abb5b89e9.svg",
-    "static/media/Programming-boy.svg": "/tejas-profile/static/media/Programming-boy.bc2bbad8b8b7de85d351dc7ae223995e.svg",
     "static/media/utaustin.jpg": "/tejas-profile/static/media/utaustin.45c3e4f9537d1046e274.jpg",
     "static/media/LI_Profile.jpg": "/tejas-profile/static/media/LI_Profile.17a5f8acf56ffe3d9aa3.jpg",
     "static/media/neu.jpg": "/tejas-profile/static/media/neu.f56cf4600793a45e1412.jpg",
@@ -18,14 +16,14 @@
     "static/media/trident-waves.svg": "/tejas-profile/static/media/trident-waves.83a5e51b62f6e210cbaa829acae92fde.svg",
     "static/media/compass-shield.svg": "/tejas-profile/static/media/compass-shield.ec7985ad8c29a1c566f316e08b440759.svg",
     "static/media/helm-star.svg": "/tejas-profile/static/media/helm-star.f0840d68041cdbf3ec93325726ee64a6.svg",
-    "main.0fac7e80.css.map": "/tejas-profile/static/css/main.0fac7e80.css.map",
-    "main.97d19405.js.map": "/tejas-profile/static/js/main.97d19405.js.map",
+    "main.0095a285.css.map": "/tejas-profile/static/css/main.0095a285.css.map",
+    "main.c880f03f.js.map": "/tejas-profile/static/js/main.c880f03f.js.map",
     "634.682dfa46.chunk.js.map": "/tejas-profile/static/js/634.682dfa46.chunk.js.map",
-    "453.91811833.chunk.js.map": "/tejas-profile/static/js/453.91811833.chunk.js.map",
+    "453.6326759e.chunk.js.map": "/tejas-profile/static/js/453.6326759e.chunk.js.map",
     "387.ef450b14.chunk.js.map": "/tejas-profile/static/js/387.ef450b14.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.0fac7e80.css",
-    "static/js/main.97d19405.js"
+    "static/css/main.0095a285.css",
+    "static/js/main.c880f03f.js"
   ]
 }
