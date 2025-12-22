@@ -1961,16 +1961,29 @@ export default function CodeLab({ darkMode }) {
       >
         {/* Header */}
         <div className="relative px-4 py-3 border-b border-gray-200 dark:border-gray-700 overflow-hidden">
-          {wasExpanded && (
-            <div
-              className="
-                pointer-events-none absolute top-0 left-0 h-full w-[35rem]
-                bg-gradient-to-r
-                from-purple-300/60 via-purple-200/40 to-transparent
-                dark:from-purple-600/30 dark:via-purple-600/20
-              "
-            />
-          )}
+          {/* Default subtle gray fade */}
+          <div
+            className="
+              pointer-events-none absolute top-0 left-0 h-full w-[35rem]
+              bg-gradient-to-r
+              from-gray-200/70 via-gray-200/40 to-transparent
+              dark:from-gray-700/40 dark:via-gray-700/20
+              transition-opacity duration-300
+            "
+          />
+
+          {/* Session-highlighted purple fade (overrides gray) */}
+          <div
+            className={[
+              "pointer-events-none absolute top-0 left-0 h-full w-[35rem]",
+              "bg-gradient-to-r",
+              "from-purple-300/60 via-purple-200/40 to-transparent",
+              "dark:from-purple-600/30 dark:via-purple-600/20",
+              "transition-opacity duration-300",
+              wasExpanded ? "opacity-100" : "opacity-0",
+            ].join(" ")}
+          />
+          
          {/* Header content (kept above the purple fade) */}
           <div className="relative z-10">
             <div className="flex items-start justify-between gap-3">
