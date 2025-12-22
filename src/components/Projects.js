@@ -63,7 +63,7 @@ const filterOptions = {
   "Links": ["Live Demo", "GitHub"]
 };
 
-export default function Projects({ darkMode }) {
+export default function Project({ darkMode }) {
   const [filters, setFilters] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);

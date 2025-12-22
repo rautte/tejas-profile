@@ -16,7 +16,7 @@ import Resume from "./components/Resume";
 import Experience from "./components/Experience";
 import Skills from "./components/Skills";
 import Education from "./components/Education";
-import Project from "./components/Project";
+import Project from "./components/Projects";
 import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
 // import Connect from "./components/Connect";
