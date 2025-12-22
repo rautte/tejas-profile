@@ -1,4 +1,12 @@
 // src/components/CodeLab.js
+
+/**
+ * TODO FIX:
+ * The filter option box follows the filter button through the expanded hero top.
+ * Make the snippet cards pin to the top when viewed while collapsing the expanded ones if any
+ * Condense filter options with high signal and add API Design option to CONCEPTS category
+ */
+
 import React from "react";
 import { createPortal } from "react-dom";
 import { FaCode } from "react-icons/fa";
@@ -677,7 +685,7 @@ export default function CodeLab({ darkMode }) {
 
   return (
     <section
-      className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors"
+      className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors duration-300"
       style={{ overflowAnchor: "none" }}
     >
       <div className="px-6 max-w-6xl mx-auto">

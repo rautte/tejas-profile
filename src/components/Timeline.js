@@ -1,271 +1,423 @@
-import React, { useRef, useState, useEffect } from "react";
-import innovationBoy from "../assets/svg/timeline/time-travel-boy.svg";
-import programmingBoy from "../assets/svg/timeline/Programming-boy.svg";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaMapMarkedAlt } from "react-icons/fa";
-import { MdArrowBackIosNew, MdArrowForwardIos } from "react-icons/md";
-import { AnimatePresence } from "framer-motion";
-import { motion } from "framer-motion";
 
-const timelineData = [
-  {
-    duration: "10 months",
-    role: "Software Data Engineer",
-    company: "CloudBig Technology",
-    description: "Built real-time notification error handling system on AWS for customers/vendors."
-  },
-  {
-    duration: "9 months",
-    role: "Data Engineer",
-    company: "Mystry Inc.",
-    description: "Data migration, orchestration, ETL, and OLAP."
-  },
-  {
-    duration: "2023",
-    role: "Product Data Analyst",
-    company: "Startup XYZ",
-    description: "Built dashboards and data pipelines for product analytics."
-  },
-  {
-    duration: "2022",
-    role: "MS in CS",
-    company: "Northeastern University",
-    description: "Specialized in Big Data, Cloud Systems, and Software Engineering."
-  },
-  {
-    duration: "2022",
-    role: "Business Intelligence Engineer",
-    company: "Highbar Technology",
-    description: "Specialized in Big Data, Cloud Systems, and Software Engineering."
-  },
-  {
-    duration: "2022",
-    role: "BTech in Mechanical Engineering",
-    company: "Vellore Institute of Technology",
-    description: "Specialized in Big Data, Cloud Systems, and Software Engineering."
-  }
-];
+import { timelineData } from "../data/timeline";
+
+
+/**
+ * ---------- helpers ----------
+ */
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function nowYear() {
+  return new Date().getFullYear();
+}
+
+/**
+ * Parse year range strings like:
+ * "2024 – Present", "2023 – 2024", "2017 – 2020", "2025 - Present"
+ *
+ * Returns:
+ * { startYear: number|null, endYear: number|null, endIsPresent: boolean }
+ */
+function parseDurationYears(duration) {
+  const d = String(duration || "").trim();
+
+  const years = d.match(/(19|20)\d{2}/g) || [];
+  const startYear = years.length >= 1 ? Number(years[0]) : null;
+  const endYear = years.length >= 2 ? Number(years[1]) : null;
+
+  const endIsPresent = /present/i.test(d);
+
+  return { startYear, endYear, endIsPresent };
+}
+
+/**
+ * We want the rail to be based on "completed year":
+ * - If it has an explicit endYear: use that
+ * - If it's Present: use current year (so it sits at “now”)
+ */
+function completedYearKey(duration) {
+  const { endYear, endIsPresent } = parseDurationYears(duration);
+  if (endYear) return endYear;
+  if (endIsPresent) return nowYear();
+  // fallback: if only one year exists, use it
+  const { startYear } = parseDurationYears(duration);
+  return startYear ?? 0;
+}
+
+/**
+ * For ordering inside a year (concurrency):
+ * Prefer:
+ * 1) bigger start year first (newer)
+ * 2) Present > not present
+ */
+function compareWithinYear(a, b) {
+  const A = parseDurationYears(a.duration);
+  const B = parseDurationYears(b.duration);
+
+  const aPresent = A.endIsPresent ? 1 : 0;
+  const bPresent = B.endIsPresent ? 1 : 0;
+  if (aPresent !== bPresent) return bPresent - aPresent;
+
+  const aStart = A.startYear ?? 0;
+  const bStart = B.startYear ?? 0;
+  return bStart - aStart;
+}
+
+/**
+ * Optional: add chips from text (safe tagging only)
+ */
+function deriveChips(text) {
+  const t = (text || "").toLowerCase();
+  const chips = [];
+  const add = (x, ok) => ok && !chips.includes(x) && chips.push(x);
+
+  add("AWS", t.includes("aws"));
+  add("Event-driven", t.includes("event-driven") || t.includes("event"));
+  add("Real-time", t.includes("real-time") || t.includes("realtime"));
+  add("Reliability", t.includes("reliability") || t.includes("error") || t.includes("recovery"));
+  add("Orchestration", t.includes("orchestration"));
+  add("ETL", t.includes("etl"));
+  add("OLAP", t.includes("olap"));
+  add("CDK", t.includes("cdk"));
+  add("FastAPI", t.includes("fastapi"));
+  add("Go", t.includes("go-based") || t.includes("golang") || t.includes("go "));
+  add("Systems", t.includes("distributed") || t.includes("systems") || t.includes("boundaries"));
+
+  return chips.slice(0, 6);
+}
+
 
 export default function Timeline() {
-  const containerRef = useRef(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [scrollProgress] = useState(0); // const [scrollProgress, setScrollProgress] = useState(0);
-  // const cardWidth = 360 + 24; // Card + gap
+  const railRef = useRef(null);
+  const draggingRef = useRef(false);
 
-  const introDistance = 0 - activeIndex;
-  const introAbsDistance = Math.abs(introDistance);
-  const introOpacity = introAbsDistance < 1 ? 1 - introAbsDistance : 0;
+  /**
+   * 1) Group entries by completedYearKey (end year)
+   * 2) Create sorted unique years for the rail
+   */
+  const grouped = useMemo(() => {
+    const map = new Map(); // year -> entries[]
+    for (const entry of timelineData) {
+      const y = completedYearKey(entry.duration);
+      if (!map.has(y)) map.set(y, []);
+      map.get(y).push({ ...entry, chips: deriveChips(entry.description) });
+    }
 
-  const outroDistance = activeIndex - (timelineData.length - 1);
-  const outroAbsDistance = Math.abs(outroDistance);
-  const outroOpacity = outroAbsDistance < 1 ? 1 - outroAbsDistance : 0;
+    // sort entries in each year bucket (so “Present” / newer appears first)
+    for (const [y, list] of map.entries()) {
+      list.sort(compareWithinYear);
+      map.set(y, list);
+    }
 
-  // const introDistance = 0 - activeIndex; // Distance of intro from active card
-  // const introAbsDistance = Math.abs(introDistance);
-
-  // // You can make it start fading before index 1, e.g., start fading at absDistance > 0.3
-  // const introOpacity = introAbsDistance < 0.7 ? 1 - introAbsDistance : 0;
-
-  // Snap to center card
-  const scrollToIndex = (idx) => {
-    const el = containerRef.current;
-    if (!el) return;
-    const items = Array.from(el.querySelectorAll(".timeline-card, [data-snap-intro], [data-snap-outro]"));
-    const node = items[Math.max(0, Math.min(idx, items.length - 1))];
-    node?.scrollIntoView({ inline: "center", behavior: "smooth", block: "nearest" });
-  };
-
-  const scrollLeft = () => {
-    if (activeIndex > 0) scrollToIndex(activeIndex - 1);
-  };
-
-  const scrollRight = () => {
-    if (activeIndex < timelineData.length - 1) scrollToIndex(activeIndex + 1);
-  };
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        const { left: cL, width: cW } = el.getBoundingClientRect();
-        const cCenter = cL + cW / 2;
-
-        // children array: [intro, ...cards, outro]
-        const kids = Array.from(el.querySelectorAll(".timeline-card, [data-snap-intro], [data-snap-outro]"));
-
-        let best = 0;
-        let bestDist = Infinity;
-        kids.forEach((node, idx) => {
-          const r = node.getBoundingClientRect();
-          const center = r.left + r.width / 2;
-          const d = Math.abs(center - cCenter);
-          if (d < bestDist) {
-            bestDist = d;
-            best = idx;
-          }
-        });
-
-        // Only set state if changed to avoid thrash
-        setActiveIndex((prev) => (prev === best ? prev : best));
-      });
-    };
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(raf);
-      el.removeEventListener("scroll", onScroll);
-    };
+    const years = Array.from(map.keys()).sort((a, b) => a - b); // chronologically left->right
+    return { map, years };
   }, []);
 
-  return (
-    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors relative">
+  const years = grouped.years;
+  const totalYears = years.length;
 
-      {/* Section Title */}
+  /**
+   * Active selection is year-based now (not entry-based)
+   */
+  const [activeYearIndex, setActiveYearIndex] = useState(() => {
+    // default: last year (most recent)
+    return Math.max(0, totalYears - 1);
+  });
+
+  /**
+   * Concurrency handling:
+   * If a year has multiple entries, show them all as cards.
+   * (No “conflict”: they simply co-exist.)
+   */
+  const activeYear = years[clamp(activeYearIndex, 0, totalYears - 1)];
+  const activeEntries = grouped.map.get(activeYear) || [];
+
+  // Rail mapping
+  const indexToPct = (idx) => (totalYears <= 1 ? 0 : (idx / (totalYears - 1)) * 100);
+
+  const pctToNearestIndex = (pct) => {
+    if (totalYears <= 1) return 0;
+    const raw = (pct / 100) * (totalYears - 1);
+    return clamp(Math.round(raw), 0, totalYears - 1);
+  };
+
+  const getRailMetrics = () => {
+    const el = railRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: r.left, width: r.width };
+  };
+
+  const pointerToPct = (clientX) => {
+    const m = getRailMetrics();
+    if (!m) return 0;
+    const x = clamp(clientX, m.left, m.left + m.width);
+    return ((x - m.left) / m.width) * 100;
+  };
+
+  const setFromPointer = (clientX) => {
+    const pct = pointerToPct(clientX);
+    const idx = pctToNearestIndex(pct);
+    setActiveYearIndex(idx);
+  };
+
+  const onPointerDown = (e) => {
+    draggingRef.current = true;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (_) {}
+    setFromPointer(e.clientX);
+  };
+
+  const onPointerMove = (e) => {
+    if (!draggingRef.current) return;
+    setFromPointer(e.clientX);
+  };
+
+  const onPointerUp = (e) => {
+    draggingRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+
+  const progressPct = indexToPct(activeYearIndex);
+
+  // keyboard nav (optional + stable)
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "ArrowLeft") setActiveYearIndex((p) => clamp(p - 1, 0, totalYears - 1));
+      if (e.key === "ArrowRight") setActiveYearIndex((p) => clamp(p + 1, 0, totalYears - 1));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [totalYears]);
+
+  return (
+    <section className="w-full py-0 px-4 bg-transparent transition-colors duration-300">
+      {/* Section Title (your theme) */}
       <div className="text-left px-6 mb-10">
         <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
           <FaMapMarkedAlt className="text-3xl" />
           Timeline
         </h2>
-        {/* <div className="w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-500 dark:via-purple-600 dark:to-purple-400 shadow-[0_0_2px_1px_rgba(147,51,234,0.6)]" /> */}
       </div>
 
-      {/* Main Timeline */}
-      <div className="relative w-full mt-24 flex items-center justify-center">
-        {/* ← Button */}
-        <button
-          onClick={scrollLeft}
-          className="absolute left-2 z-10 p-2 bg-white dark:bg-gray-700 rounded-full shadow hover:bg-purple-100 dark:hover:bg-purple-800"
-        >
-          <MdArrowBackIosNew className="text-purple-700 dark:text-purple-300" />
-        </button>
+      {/* Ingevity-style center header */}
+      <div className="max-w-4xl mx-auto text-center px-6">
+        <p className="mt-6 text-sm text-gray-500 dark:text-gray-400 italic">
+          ( Select a year or drag the timeline to see more )
+        </p>
+      </div>
 
-        {/* Cards Row */}
-        <div
-          ref={containerRef}
-          className="flex gap-6 overflow-x-auto scroll-smooth snap-x snap-mandatory py-6 no-scrollbar
-+            pl-[calc(50%-180px)] pr-[calc(50%-180px)]"
-        >
-          {/* Intro (Start Message) */}
-          <AnimatePresence mode="wait">
-            {activeIndex <= 1 && (
-              <motion.div
-                key="intro"
-                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-24 select-none snap-start"
-                initial={{ opacity: 0, x: -40 }}
-                animate={{
-                  opacity: introOpacity,
-                  x: introAbsDistance < 1 ? 0 : -40,
-                }}
-                exit={{ opacity: 0, x: -40 }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-                style={{ pointerEvents: "none" }}
+      {/* ✅ Timeline rail moved HERE (directly under the helper line) */}
+      <div className="max-w-5xl mx-auto mt-10 px-6">
+        {/* Year labels above markers */}
+        <div className="relative h-10">
+          {years.map((y, idx) => {
+            const pct = indexToPct(idx);
+            const isActive = idx === activeYearIndex;
+
+            return (
+              <button
+                key={`year-${y}`}
+                onClick={() => setActiveYearIndex(idx)}
+                className="
+                  absolute -translate-x-1/2 top-0
+                  text-xs sm:text-sm font-medium font-epilogue
+                  text-gray-600 dark:text-gray-300
+                  hover:text-indigo-600 dark:hover:text-indigo-300
+                  transition
+                "
+                style={{ left: `${pct}%` }}
+                aria-label={`Go to ${y}`}
               >
-                <div className="flex flex-col items-center gap-8 -translate-x-0">
-                  <img
-                    src={innovationBoy}
-                    alt="Time travel begins"
-                    className="w-45 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
-                  />
-                  <p className="text-xl font-semibold font-epilogue text-gray-600 dark:text-gray-400 drop-shadow-sm whitespace-nowrap">
-                    <blockquote className="text-xl italic">"Time Travel Begins"</blockquote>
-                  </p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Cards for timeline (Details) */}
-          <AnimatePresence initial={false} mode="popLayout">
-            {timelineData.map((entry, i) => {
-              const distance = i - activeIndex;
-              const absDistance = Math.abs(distance);
-              const isActive = i === activeIndex;
-              const scale = isActive ? 1.1 : Math.max(0.75, 1 - absDistance * 0.15);
-
-              return (
-                <motion.div
-                  key={i}
-                  className="
-                    timeline-card snap-center snap-always shrink-0 w-[360px] h-64 px-6 py-6 rounded-3xl
-                    border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg relative
-                    transition-transform duration-500 ease-out
-                  "
-                  initial={{ opacity: 0, y: 40, scale: 0.8 }}
-                  animate={{
-                    zIndex: isActive ? 50 : timelineData.length - absDistance,
-                    opacity: isActive ? 1 : absDistance === 1 ? 0.6 : 0.35,
-                    y: absDistance * 10,
-                    scale: absDistance > 1 ? 0.8 : scale,
-                    // no translateX here
-                  }}
-                  exit={{ opacity: 0, y: -40, scale: 0.7 }}
-                  transition={{ duration: 0.5, ease: "easeOut" }}
-                  style={{
-                    filter: isActive ? "none" : "blur(1px) grayscale(40%)",
-                    pointerEvents: isActive ? "auto" : "none",
-                  }}
-                >
-                  <h3 className="text-xl mt-2 mb-4 font-bold text-purple-700 dark:text-purple-300 font-epilogue">
-                    {entry.role}
-                  </h3>
-                  <p className="text-sm text-gray-700 dark:text-gray-300">{entry.company}</p>
-                  <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">{entry.description}</p>
-                  <span className="absolute bottom-4 right-6 text-xs text-gray-400">{entry.duration}</span>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-
-          {/* Outro (End Message) */}
-          <AnimatePresence mode="wait">
-            {activeIndex >= timelineData.length - 2 && (
-              <motion.div
-                key="outro"
-                className="shrink-0 w-[360px] h-64 flex items-center justify-start pl-6 select-none snap-end"
-                initial={{ opacity: 0, x: 40 }}
-                animate={{
-                  opacity: outroOpacity,
-                  x: outroAbsDistance < 1 ? 0 : 40,
-                }}
-                exit={{ opacity: 0, x: 60 }}
-                transition={{ duration: 0.5, ease: "easeOut" }}
-                style={{ pointerEvents: "none" }}
-              >
-                <div className="flex flex-col items-center gap-8 translate-x-10">
-                  <img
-                    src={programmingBoy}
-                    alt="To be continued"
-                    className="w-40 h-auto drop-shadow-[0_5px_15px_rgba(139,92,246,0.45)]"
-                  />
-                  <p className="text-xl font-semibold font-epilogue text-gray-600 dark:text-gray-400 drop-shadow-sm whitespace-nowrap">
-                    <blockquote className="text-xl italic">"Time Travel Ends"</blockquote>
-                  </p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
+                <span className={isActive ? "font-bold text-indigo-600 dark:text-indigo-300" : "font-bold"}>
+                  {y}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* → Button */}
-        <button
-          onClick={scrollRight}
-          className="absolute right-2 z-10 p-2 bg-white dark:bg-gray-700 rounded-full shadow hover:bg-purple-100 dark:hover:bg-purple-800"
+        {/* Track (click + drag) */}
+        <div
+          className="relative mt-6 select-none"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          style={{ touchAction: "none" }}
         >
-          <MdArrowForwardIos className="text-purple-700 dark:text-purple-300" />
-        </button>
+          {/* Base line */}
+          <div
+            ref={railRef}
+            className="relative h-1 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"
+          >
+            {/* Progress fill */}
+            <div
+              className="
+                absolute inset-y-0 left-0
+                bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500
+                dark:from-purple-400 dark:via-pink-400 dark:to-indigo-400
+                transition-all duration-200 ease-out
+              "
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+
+          {/* End caps */}
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-6 bg-gray-400 dark:bg-gray-500 rounded" />
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[2px] h-6 bg-gray-400 dark:bg-gray-500 rounded" />
+
+          {/* Markers */}
+          {years.map((y, idx) => {
+            const pct = indexToPct(idx);
+            const isActive = idx === activeYearIndex;
+
+            return (
+              <button
+                key={`marker-${y}`}
+                onClick={() => setActiveYearIndex(idx)}
+                className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
+                style={{ left: `${pct}%` }}
+                aria-label={`Select year ${y}`}
+              >
+                <div
+                  className={[
+                    "w-4 h-4 rounded-[4px] border transition-all duration-200",
+                    isActive
+                      ? "bg-purple-600 border-purple-300 shadow-[0_0_18px_rgba(168,85,247,0.85)] scale-110"
+                      : "bg-white dark:bg-[#1e1e2f] border-gray-300 dark:border-gray-600 hover:border-purple-400 hover:scale-105",
+                  ].join(" ")}
+                />
+              </button>
+            );
+          })}
+
+          {/* Draggable scrubber pill */}
+          <div
+            className="
+              absolute top-1/2 -translate-y-1/2 -translate-x-1/2
+              w-10 h-5 rounded-full
+              bg-white/75 dark:bg-white/10
+              border border-purple-400/40
+              backdrop-blur-xl
+              flex items-center justify-center
+              transition-[left] duration-200 ease-out
+              cursor-grab active:cursor-grabbing
+            "
+            style={{ left: `${progressPct}%` }}
+          >
+            <div className="w-2 h-2 rounded-full bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.95)]" />
+          </div>
+        </div>
+
+        <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
+          Tip: Drag the scrubber or use ← → keys.
+        </div>
       </div>
 
-      {/* Scroll Progress Bar - moved to bottom */}
-      <div className="w-full h-1 mt-44 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden shadow-inner">
-        <div
-          className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500 dark:from-purple-400 dark:via-pink-400 dark:to-indigo-400 
-                    transition-all duration-300 ease-in-out"
-          style={{ width: `${scrollProgress}%` }}
-        />
+      {/* ✅ Focused cards BELOW the rail (stable layout, no floating) */}
+      <div className="max-w-5xl mx-auto mt-10 px-6">
+        {/* Year heading */}
+        <div className="flex items-center justify-between mb-5">
+
+          {/* concurrency note */}
+          {activeEntries.length > 1 && (
+            <div
+              className="
+                text-xs px-3 py-1 rounded-full
+                bg-gray-500 text-gray-50 dark:bg-gray-600
+                border border-purple-400/25
+              "
+            >
+              {activeEntries.length} activities in {activeYear}
+            </div>
+          )}
+        </div>
+
+        {/* Cards list (handles concurrency cleanly) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {activeEntries.map((entry, i) => (
+            <div
+              key={`${activeYear}-${i}-${entry.company}`}
+              className="
+                rounded-3xl border border-gray-200/70 dark:border-white/10
+                bg-white/70 dark:bg-white/5
+                backdrop-blur-xl backdrop-saturate-150
+                shadow-[0_18px_45px_rgba(0,0,0,0.10)]
+                p-7 text-left
+              "
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div
+                    className="
+                      inline-flex items-center gap-2 text-xs font-semibold tracking-widest uppercase
+                      text-purple-700/80 dark:text-purple-300/80
+                    "
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                    Milestone
+                  </div>
+
+                  <h4
+                    className="
+                      mt-2 text-xl font-bold font-epilogue
+                      bg-gray-700 text-gray-700 dark:text-gray-300
+                      dark:from-purple-300 dark:via-purple-200 dark:to-indigo-300
+                      bg-clip-text text-transparent
+                    "
+                  >
+                    {entry.role}
+                  </h4>
+
+                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                    {entry.company}
+                  </p>
+                </div>
+
+                <span
+                  className="
+                    shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium
+                    bg-indigo-500 dark:bg-indigo-600 text-white
+                    border border-purple-400/25
+                  "
+                >
+                  {entry.duration}
+                </span>
+              </div>
+
+              <p className="mt-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+                {entry.description}
+              </p>
+
+              {entry.chips?.length > 0 && (
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {entry.chips.map((tag) => (
+                    <span
+                      key={`${entry.company}-${tag}`}
+                      className="
+                        text-xs px-3 py-1 rounded-full
+                        bg-purple-500/10 text-purple-800
+                        dark:bg-purple-400/10 dark:text-purple-200
+                        border border-purple-400/25
+                        backdrop-blur
+                      "
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );

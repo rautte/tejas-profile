@@ -137,7 +137,7 @@ export default function Fun() {
       </p>
 
       {/* Cards */}
-      <div className="flex flex-wrap justify-center gap-16 px-4">
+      <div className="flex flex-wrap justify-center gap-10 px-4">
         <Card
           title="Minesweeper"
           preview={

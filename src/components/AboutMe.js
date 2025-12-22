@@ -5,7 +5,7 @@ import profilePic from "../assets/images/LI_Profile.jpg";
 
 export default function AboutMe() {
   return (
-    <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
+    <section className="w-full py-0 px-4 bg-transparent">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         <div>

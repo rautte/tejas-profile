@@ -2,72 +2,85 @@
 import React from "react";
 import { FaGithub, FaLinkedin, FaGlobe, FaEnvelope } from "react-icons/fa";
 
-export default function Footer() {
-  // X offset from center (px). 0 means centered like today.
-  const [xOffset, setXOffset] = React.useState(0);
+import { FOOTER_LINKS, FOOTER_DRAG } from "../data/footer";
 
-  const dragState = React.useRef({
+const ICONS = {
+  linkedin: FaLinkedin,
+  github: FaGithub,
+  portfolio: FaGlobe,
+  email: FaEnvelope,
+};
+
+const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+
+function getBounds(pillWidth, marginPx) {
+  // With left-1/2 + -translate-x-1/2, the pill is visually centered.
+  // xOffset shifts it relative to that center. Keep it inside the viewport.
+  const halfViewport = window.innerWidth / 2;
+
+  const minOffset = -halfViewport + marginPx + pillWidth / 2;
+  const maxOffset = halfViewport - marginPx - pillWidth / 2;
+
+  return { minOffset, maxOffset };
+}
+
+export default function Footer() {
+  // X offset from center (px). 0 means centered.
+  const [xOffset, setXOffset] = React.useState(FOOTER_DRAG.defaultOffsetPx);
+
+  const dragRef = React.useRef({
     dragging: false,
     startClientX: 0,
     startOffset: 0,
     pillWidth: 0,
   });
 
-  const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+  const stopDrag = React.useCallback(() => {
+    dragRef.current.dragging = false;
+  }, []);
 
-  const getBounds = (pillWidth) => {
-    // Allow dragging anywhere within viewport, leaving small margins
-    const margin = 14; // px from both sides
-    const halfViewport = window.innerWidth / 2;
+  const onPointerDown = React.useCallback(
+    (e) => {
+      // Don’t start a drag when clicking an actual link/icon.
+      if (e.target.closest("a")) return;
 
-    // With left-1/2 + -translate-x-1/2, the pill is centered.
-    // xOffset moves it relative to that center.
-    // Ensure pill stays within [margin, viewport - margin].
-    const minOffset = -halfViewport + margin + pillWidth / 2;
-    const maxOffset = halfViewport - margin - pillWidth / 2;
+      const pill = e.currentTarget;
+      const rect = pill.getBoundingClientRect();
 
-    return { minOffset, maxOffset };
-  };
+      dragRef.current.dragging = true;
+      dragRef.current.startClientX = e.clientX;
+      dragRef.current.startOffset = xOffset;
+      dragRef.current.pillWidth = rect.width;
 
-  const onPointerDown = (e) => {
-    // Only start drag if the click is on the pill background,
-    // not on links/icons inside it.
-    const target = e.target;
-    if (target.closest("a")) return;
+      // Keep pointer events stable even if cursor leaves the pill.
+      pill.setPointerCapture?.(e.pointerId);
+    },
+    [xOffset]
+  );
 
-    const pill = e.currentTarget;
-    const rect = pill.getBoundingClientRect();
+  const onPointerMove = React.useCallback((e) => {
+    if (!dragRef.current.dragging) return;
 
-    dragState.current.dragging = true;
-    dragState.current.startClientX = e.clientX;
-    dragState.current.startOffset = xOffset;
-    dragState.current.pillWidth = rect.width;
+    const dx = e.clientX - dragRef.current.startClientX;
+    const nextOffset = dragRef.current.startOffset + dx;
 
-    // capture pointer so dragging keeps working even if pointer leaves the pill
-    pill.setPointerCapture?.(e.pointerId);
-  };
+    const { minOffset, maxOffset } = getBounds(
+      dragRef.current.pillWidth,
+      FOOTER_DRAG.marginPx
+    );
 
-  const onPointerMove = (e) => {
-    if (!dragState.current.dragging) return;
+    setXOffset(clamp(nextOffset, minOffset, maxOffset));
+  }, []);
 
-    const dx = e.clientX - dragState.current.startClientX;
-    const next = dragState.current.startOffset + dx;
-
-    const { minOffset, maxOffset } = getBounds(dragState.current.pillWidth);
-    setXOffset(clamp(next, minOffset, maxOffset));
-  };
-
-  const stopDrag = () => {
-    dragState.current.dragging = false;
-  };
-
-  // Re-clamp on resize so it never goes out of bounds
+  // Re-clamp on resize so it never ends up off-screen.
   React.useEffect(() => {
     const onResize = () => {
-      const pillWidth = dragState.current.pillWidth || 320; // fallback guess
-      const { minOffset, maxOffset } = getBounds(pillWidth);
+      const pillWidth = dragRef.current.pillWidth || FOOTER_DRAG.fallbackPillWidthPx;
+      const { minOffset, maxOffset } = getBounds(pillWidth, FOOTER_DRAG.marginPx);
+
       setXOffset((prev) => clamp(prev, minOffset, maxOffset));
     };
+
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -75,7 +88,9 @@ export default function Footer() {
   return (
     <footer
       className="fixed bottom-2 left-1/2 -translate-x-1/2 z-50"
+      // combine the base centering with the drag offset
       style={{ transform: `translateX(calc(-50% + ${xOffset}px))` }}
+      aria-label="Footer quick links"
     >
       <div
         onPointerDown={onPointerDown}
@@ -93,46 +108,23 @@ export default function Footer() {
           select-none
           cursor-grab active:cursor-grabbing
         "
-        aria-label="Draggable footer pill"
         role="group"
       >
-        <a
-          href="https://www.linkedin.com/in/tejas-raut/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-400 hover:text-[#0A66C2] transition"
-          aria-label="LinkedIn"
-        >
-          <FaLinkedin size={20} />
-        </a>
-
-        <a
-          href="https://github.com/rautte/rautte.github.io"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white transition"
-          aria-label="GitHub"
-        >
-          <FaGithub size={20} />
-        </a>
-
-        <a
-          href="https://rautte.github.io/tejas-profile"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-green-500 hover:text-green-600 transition"
-          aria-label="Portfolio"
-        >
-          <FaGlobe size={20} />
-        </a>
-
-        <a
-          href="mailto:raut.tejas@outlook.com"
-          className="text-red-400 hover:text-red-500 transition"
-          aria-label="Email"
-        >
-          <FaEnvelope size={20} />
-        </a>
+        {FOOTER_LINKS.map((l) => {
+          const Icon = ICONS[l.key];
+          return (
+            <a
+              key={l.key}
+              href={l.href}
+              target={l.href.startsWith("mailto:") ? undefined : "_blank"}
+              rel={l.href.startsWith("mailto:") ? undefined : "noopener noreferrer"}
+              className={`${l.colorClass} transition`}
+              aria-label={l.label}
+            >
+              <Icon size={20} />
+            </a>
+          );
+        })}
       </div>
     </footer>
   );
