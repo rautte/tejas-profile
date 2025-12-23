@@ -2,6 +2,7 @@
 
 /**
  * TODO FIX:
+ * The code text within the snippet when expanded transitions to ide-like via prism from normal text but twice instead of once
  * Make the snippet cards always pin to the top (leaving a few px from the hero section bottom) when viewed while collapsing the already expanded ones if any
  */
 
@@ -29,10 +30,40 @@ const DROPDOWN = {
 };
 
 const SWITCH = {
-  PIN_TOP_OFFSET: 12,   // px from viewport top where active card sits
+  PIN_TOP_OFFSET: 12,   // fallback px from viewport top
   DURATION_MS: 420,     // smooth pin during accordion switch
   CHASE_ALPHA: 0.28,    // higher = tighter chase; lower = floatier
 };
+
+/**
+ * Computes a stable "pin-top" offset that naturally respects your header/hero area.
+ * We pick the bottom of the first heading in CodeLab (or fallback to constant).
+ * This avoids hardcoding the hero height and stays correct if it expands/collapses.
+ */
+const HERO_SELECTOR = "#hero, [data-hero]"; // supports either id or data-hero
+const HERO_GAP_PX = 8; // “few px from hero bottom”
+
+function getDynamicPinTopPx() {
+  // If the hero is visible in the viewport, pin under its bottom.
+  const hero = document.querySelector(HERO_SELECTOR);
+  if (hero) {
+    const r = hero.getBoundingClientRect();
+
+    // hero is visible if it intersects viewport
+    const heroVisible = r.bottom > 0 && r.top < window.innerHeight;
+
+    if (heroVisible) {
+      const desired = Math.floor(r.bottom + HERO_GAP_PX);
+
+      // clamp so it doesn’t become absurdly large on big screens
+      return clamp(desired, 8, 220);
+    }
+  }
+
+  // Otherwise, just pin near the top of viewport
+  return SWITCH.PIN_TOP_OFFSET;
+}
+
 
 const SESSION_KEY = "codelab_expanded_titles_v1";
 
@@ -174,7 +205,8 @@ export default function CodeLab({ darkMode }) {
   const dropdownRafRef = React.useRef(0);
 
   const filterBtnRef = React.useRef(null);
-
+  const sectionRef = React.useRef(null);
+  
   // Only used for first paint when opening. After that we “glue” with direct DOM writes.
   const [dropdownPos, setDropdownPos] = React.useState({
     placement: "bottom",
@@ -447,8 +479,10 @@ export default function CodeLab({ darkMode }) {
 
   const toggle = (idx) => {
     const cardEl = cardRefs.current[idx];
+    // Dynamic pin offset: sits just under the Hero bottom *only when Hero is visible*.
+    const pinTopPx = getDynamicPinTopPx();
 
-    // Hide current
+    // Hide current (restore to where user was before opening)
     if (openIdx === idx) {
       const y = expandScrollYRef.current[idx];
       if (typeof y === "number") pendingRestoreYRef.current = y;
@@ -456,38 +490,46 @@ export default function CodeLab({ darkMode }) {
       return;
     }
 
-    // Save anchor so Hide restores nicely.
+    // Always store where the user clicked from, but use the dynamic pinTop.
     const anchorY = cardEl
-      ? cardEl.getBoundingClientRect().top + window.scrollY - SWITCH.PIN_TOP_OFFSET
+      ? cardEl.getBoundingClientRect().top + window.scrollY - pinTopPx
       : window.scrollY;
 
     expandScrollYRef.current[idx] = anchorY;
     markExpanded(snippets[idx]?.title);
 
-    // Switch from one open -> another
+    // If something else is open, collapse it first, then pin the new one.
+    // This prevents the “expand both then jump” ping-pong.
     if (openIdx !== null && openIdx !== idx) {
       const prev = openIdx;
 
+      // Open the new one (it will render expanded), mark the old one as closing
       setOpenIdx(idx);
       setClosingIdx(prev);
 
-      const targetScrollY = getCardTopY(cardEl, SWITCH.PIN_TOP_OFFSET);
-
+      // Start the "chase pin" loop: keeps the new card stable at pinTopPx
+      // while the old one collapses and layout shifts.
       pinDuringSwitchRef.current = {
         idx,
-        desiredTop: SWITCH.PIN_TOP_OFFSET,
+        desiredTop: pinTopPx,
         durationMs: SWITCH.DURATION_MS,
         startTs: performance.now(),
-        startScrollY: window.scrollY,
-        targetScrollY,
         lastScrollY: window.scrollY,
       };
 
       return;
     }
 
-    // Open fresh
+    // Open fresh (no prior card). Pin immediately after React paints the expand.
     setOpenIdx(idx);
+
+    // Pin on next frame so DOM has updated layout (no drift).
+    requestAnimationFrame(() => {
+      const el = cardRefs.current[idx];
+      if (!el) return;
+      const y = getCardTopY(el, pinTopPx);
+      window.scrollTo({ top: y, behavior: "smooth" });
+    });
   };
 
   // Pin loop during downward switching: keeps the new card stable while the old one shrinks.
@@ -508,15 +550,28 @@ export default function CodeLab({ darkMode }) {
       const now = performance.now();
       const t = Math.min(1, (now - info.startTs) / info.durationMs);
 
-      // Recompute every frame so layout shifts (old collapse) don’t drift the target.
       const docTop = el.getBoundingClientRect().top + window.scrollY;
-      const desiredScrollY = docTop - info.desiredTop;
 
-      // Smooth chase (this is the “silky” part).
-      const next = info.lastScrollY + (desiredScrollY - info.lastScrollY) * SWITCH.CHASE_ALPHA;
+      // Recompute pin target every frame so it naturally respects hero expand/collapse visibility.
+      const livePinTop = getDynamicPinTopPx();
+      const desiredScrollY = docTop - livePinTop;
+
+      // Smooth chase, but prevent back-and-forth:
+      // If the target moves upward (because a card above collapsed), we only move upward.
+      // If the target moves downward, we follow downward. No oscillation.
+      const rawNext =
+        info.lastScrollY + (desiredScrollY - info.lastScrollY) * SWITCH.CHASE_ALPHA;
+
+      // Clamp in the direction of travel to avoid ping-pong when switching to a lower card.
+      const next =
+        desiredScrollY < info.lastScrollY
+          ? Math.max(desiredScrollY, rawNext) // moving up: never go past the target
+          : Math.min(desiredScrollY, rawNext); // moving down: never go past the target
+
       info.lastScrollY = next;
 
       window.scrollTo({ top: next, behavior: "auto" });
+
 
       if (t < 1) {
         raf = requestAnimationFrame(tick);
@@ -808,6 +863,7 @@ export default function CodeLab({ darkMode }) {
 
   return (
     <section
+      ref={sectionRef}
       className="py-0 px-4 transition-colors duration-300"
       style={{ overflowAnchor: "none" }}
     >

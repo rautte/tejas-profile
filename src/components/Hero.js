@@ -26,7 +26,11 @@ export default function Hero({ darkMode }) {
   }, []);
 
   return (
-    <section className="relative overflow-hidden py-8 pb-[28px] text-white text-center transition-all">
+    <section
+      id="hero"
+      data-hero="true"
+      className="relative overflow-hidden py-8 pb-[28px] text-white text-center transition-all"
+    >
       {/* Gradient Background + Glass + Glow */}
       {/* <div className="absolute inset-0 z-0">
        */}

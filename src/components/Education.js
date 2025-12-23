@@ -187,7 +187,7 @@ export default function Education() {
           >
             {/* Header row */}
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl overflow-hidden bg-white dark:bg-gray-200 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0">
+              <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-100 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0">
                 {edu.logo ? (
                   <img
                     src={edu.logo}
