@@ -25,13 +25,16 @@ LATEST_LOG="${LOG_DIR}/${SCRIPT_NAME}_latest.log"
 exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
 trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
 
+echo ""
 echo "ℹ️  Log file: $LOG_FILE"
+echo ""
 echo "---- Context ----"
 echo "user=$(whoami) host=$(hostname)"
 echo "pwd=$(pwd)"
 echo "git=$(git --version | head -n 1 2>/dev/null || echo n/a)"
 echo "node=$(node -v 2>/dev/null || echo n/a) npm=$(npm -v 2>/dev/null || echo n/a)"
 echo "------------------"
+echo ""
 
 # ===== Config (override via env if needed) =====
 BUCKET="${BUCKET:-assetscdnstack-heavyassetsbucket72601c17-nip5jdtseu6y}"
@@ -43,6 +46,7 @@ AWS_PROFILE="${AWS_PROFILE:-tejas-sso}"
 # Skip on CI or when explicitly requested
 if [[ "${SKIP_ASSET_SYNC:-0}" == "1" || "${CI:-}" == "true" ]]; then
   echo "[pre-push] Skipping asset sync."
+  echo ""
   exit 0
 fi
 
@@ -51,17 +55,21 @@ aws s3 sync src/assets/ships/sprites "s3://${BUCKET}/ships/sprites/" \
   --exclude "*/top/*" \
   --cache-control "public,max-age=86400" \
   --delete
+echo ""
 
 if [[ -d src/assets/ships/glb ]]; then
   echo "[pre-push] Sync GLB to s3://${BUCKET}/ships/glb/"
   aws s3 sync src/assets/ships/glb "s3://${BUCKET}/ships/glb/" \
     --cache-control "public,max-age=86400" \
     --delete
+  echo ""
 fi
 
 echo "[pre-push] Invalidate CloudFront"
 aws cloudfront create-invalidation \
   --distribution-id "${CF_DIST}" \
   --paths "/ships/sprites/*" "/ships/glb/*" >/dev/null
+echo ""
 
 echo "[pre-push] Done."
+echo ""

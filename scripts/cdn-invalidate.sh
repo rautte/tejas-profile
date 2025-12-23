@@ -25,13 +25,16 @@ LATEST_LOG="${LOG_DIR}/${SCRIPT_NAME}_latest.log"
 exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
 trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
 
+echo ""
 echo "ℹ️  Log file: $LOG_FILE"
+echo ""
 echo "---- Context ----"
 echo "user=$(whoami) host=$(hostname)"
 echo "pwd=$(pwd)"
 echo "git=$(git --version | head -n 1 2>/dev/null || echo n/a)"
 echo "node=$(node -v 2>/dev/null || echo n/a) npm=$(npm -v 2>/dev/null || echo n/a)"
 echo "------------------"
+echo ""
 
 # -----------------------------
 # Original script (unchanged behavior)
@@ -62,6 +65,7 @@ ensure_aws_session() {
   return 1
 }
 
+echo ""
 echo "[cdn:invalidate] Creating invalidation on $DISTRIBUTION_ID for: $PATTERNS"
 
 ensure_aws_session
@@ -73,4 +77,6 @@ aws cloudfront create-invalidation \
   --region "$REGION" \
   >/dev/null
 
+echo ""
 echo "[cdn:invalidate] Invalidation requested ✓"
+echo ""

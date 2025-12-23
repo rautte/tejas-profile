@@ -25,13 +25,16 @@ LATEST_LOG="${LOG_DIR}/${SCRIPT_NAME}_latest.log"
 exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
 trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
 
+echo ""
 echo "ℹ️  Log file: $LOG_FILE"
+echo ""
 echo "---- Context ----"
 echo "user=$(whoami) host=$(hostname)"
 echo "pwd=$(pwd)"
 echo "git=$(git --version | head -n 1 2>/dev/null || echo n/a)"
 echo "node=$(node -v 2>/dev/null || echo n/a) npm=$(npm -v 2>/dev/null || echo n/a)"
 echo "------------------"
+echo ""
 
 # -----------------------------
 # Original script (unchanged behavior)
@@ -54,19 +57,23 @@ ensure_aws_session() {
   fi
   if [[ -n "$PROFILE" ]]; then
     echo "[sync:assets] AWS session invalid or expired. Attempting SSO login for profile '$PROFILE'…"
+    echo ""
     aws sso login --profile "$PROFILE"
     # Try again
     aws sts get-caller-identity >/dev/null 2>&1 || {
       echo "[sync:assets] ERROR: Unable to authenticate to AWS after SSO login." >&2
+      echo ""
       return 1
     }
     return 0
   fi
   echo "[sync:assets] ERROR: Not authenticated to AWS and AWS_PROFILE is empty." >&2
+  echo ""
   return 1
 }
 
 echo "[sync:assets] Syncing '$ASSETS_DIR' → s3://$BUCKET/$PREFIX (region=$REGION profile=${PROFILE:-'<default>'})"
+echo ""
 
 ensure_aws_session
 
@@ -76,4 +83,6 @@ aws s3 sync "$ASSETS_DIR" "s3://$BUCKET/$PREFIX" \
   ${PROFILE:+--profile "$PROFILE"} \
   --only-show-errors
 
+echo ""
 echo "[sync:assets] Done ✓"
+echo ""

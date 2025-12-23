@@ -46,7 +46,6 @@ info "Repo: $(pwd)"
 info "Branch: $(git branch --show-current 2>/dev/null || echo unknown)"
 info "HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo ""
-echo ""
 
 info "---- Context ----"
 info "user=$(whoami) host=$(hostname)"
