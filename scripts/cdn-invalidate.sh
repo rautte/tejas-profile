@@ -1,6 +1,38 @@
 #!/usr/bin/env bash
+#cdn-invalidate.sh
 set -euo pipefail
 
+# -----------------------------
+# Logging (stdout + stderr)
+# -----------------------------
+SCRIPT_NAME="cdn_invalidate"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+LOG_DIR="${REPO_ROOT}/logs/${SCRIPT_NAME}"
+mkdir -p "$LOG_DIR"
+
+# keep last 30 logs (macOS friendly)
+ls -1t "${LOG_DIR}/${SCRIPT_NAME}_"*.log 2>/dev/null \
+  | tail -n +31 \
+  | while read -r f; do rm -f "$f"; done || true
+
+RUN_TS="$(date +%Y-%m-%d_%H-%M-%S)"
+LOG_FILE="${LOG_DIR}/${SCRIPT_NAME}_${RUN_TS}.log"
+LATEST_LOG="${LOG_DIR}/${SCRIPT_NAME}_latest.log"
+
+exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
+trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
+
+echo "ℹ️  Log file: $LOG_FILE"
+echo "---- Context ----"
+echo "user=$(whoami) host=$(hostname)"
+echo "pwd=$(pwd)"
+echo "git=$(git --version | head -n 1 2>/dev/null || echo n/a)"
+echo "node=$(node -v 2>/dev/null || echo n/a) npm=$(npm -v 2>/dev/null || echo n/a)"
+echo "------------------"
+
+# -----------------------------
+# Original script (unchanged behavior)
+# -----------------------------
 [ -f .env.local ] && set -a && . ./.env.local && set +a
 
 DISTRIBUTION_ID="${CDN_DISTRIBUTION_ID:?CDN_DISTRIBUTION_ID not set in .env.local}"

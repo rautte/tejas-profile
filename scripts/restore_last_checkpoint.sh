@@ -10,11 +10,39 @@ set -euo pipefail
 #  - Creates a rescue branch before resetting
 # ----------------------------
 
+# ---- Repo root + helpers (define BEFORE first use)
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 say() { printf "%s\n" "$*"; }
 die() { printf "❌ %s\n" "$*" >&2; exit 1; }
+
+# ---- Logging (stdout + stderr)
+SCRIPT_NAME="restore_last_checkpoint"
+LOG_DIR="${REPO_ROOT}/logs/${SCRIPT_NAME}"
+mkdir -p "$LOG_DIR"
+
+# keep last 30 logs (macOS friendly)
+ls -1t "${LOG_DIR}/${SCRIPT_NAME}_"*.log 2>/dev/null | tail -n +31 | while read -r f; do rm -f "$f"; done
+
+RUN_TS="$(date +%Y-%m-%d_%H-%M-%S)"
+LOG_FILE="${LOG_DIR}/${SCRIPT_NAME}_${RUN_TS}.log"
+LATEST_LOG="${LOG_DIR}/${SCRIPT_NAME}_latest.log"
+
+exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
+trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
+
+say "ℹ️  Log file: $LOG_FILE"
+say "ℹ️  Repo: $REPO_ROOT"
+say "ℹ️  Branch: $(git branch --show-current 2>/dev/null || echo unknown)"
+say "ℹ️  HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+say "---- Context ----"
+say "user=$(whoami) host=$(hostname)"
+say "pwd=$(pwd)"
+say "git=$(git --version | head -n 1)"
+say "node=$(node -v 2>/dev/null || echo n/a) npm=$(npm -v 2>/dev/null || echo n/a)"
+say "------------------"
 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"; }
 
