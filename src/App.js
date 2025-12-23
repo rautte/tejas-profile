@@ -161,7 +161,7 @@ function App() {
   // Keep app in sync when user uses browser back/forward
   useEffect(() => {
     const onHash = () => {
-      const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+      const raw = window.location.hash.replace(/^#\/?/, '').split("?")[0].toLowerCase();
       const label = SLUG_TO_LABEL[raw];
       if (label) setSelectedSection(label);
     };
@@ -177,19 +177,19 @@ function App() {
 
   // figure initial section from hash once
   const initialSection = (() => {
-    const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+    const raw = window.location.hash.replace(/^#\/?/, '').split("?")[0].toLowerCase();
     return SLUG_TO_LABEL[raw] || "About Me";
   })();
 
   const [selectedSection, setSelectedSection] = useState(initialSection);
 
   const [hashPath, setHashPath] = useState(() =>
-    window.location.hash.replace(/^#\/?/, '').toLowerCase()
+    window.location.hash.replace(/^#\/?/, '').split("?")[0].toLowerCase()
   );
 
   useEffect(() => {
     const onHashOnly = () => {
-      const raw = window.location.hash.replace(/^#\/?/, '').toLowerCase();
+      const raw = window.location.hash.replace(/^#\/?/, '').split("?")[0].toLowerCase();
       setHashPath(raw);
     };
     window.addEventListener('hashchange', onHashOnly);
@@ -198,11 +198,18 @@ function App() {
 
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
-  if (hashPath.startsWith('fun-zone/')) return; // don't clobber game routes
+    if (hashPath.startsWith("fun-zone/")) return; // don't clobber game routes
+
     const slug = toSlug(selectedSection);
-    if (window.location.hash !== `#/${slug}`) {
-      window.location.hash = `/${slug}`;
-    }
+    const current = window.location.hash || "";
+
+    // ✅ If we're already on this slug WITH query params (e.g. #/code-lab?from=battleship),
+    // do NOT overwrite it (otherwise we lose the deep-link filter).
+    const prefix = `#/${slug}`;
+    if (current === prefix) return;
+    if (current.startsWith(prefix + "?")) return;
+
+    window.location.hash = `/${slug}`;
   }, [selectedSection, hashPath]);
 
   // --- collapsible sidebar state ---

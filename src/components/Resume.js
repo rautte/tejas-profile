@@ -5,9 +5,33 @@ import { FaFileAlt, FaLink, FaEnvelope, FaPhoneAlt, FaMapMarkerAlt } from "react
 import { RESUME_DATA } from "../data/resume";
 import { normalizeUrl, mailto } from "../lib/resume/template";
 
-function Pill({ children }) {
+// hover:bg-purple-200 dark:hover:bg-purple-600 transition-colors
+
+const CODE_SNIPPETS_CLASS =
+  "text-xs text-purple-500 hover:text-purple-600 underline italic underline-offset-2";
+
+const CODE_SNIPPETS_FROM_BY_MATCH = [
+  { match: "battleship", from: "battleship" },
+  { match: "formula", from: "formula" },
+  { match: "developer", from: "syzmaniac,sys_managed" },
+];
+
+function getCodeLabFrom(projectName) {
+  const name = String(projectName || "").toLowerCase();
+  const hit = CODE_SNIPPETS_FROM_BY_MATCH.find((x) => name.includes(x.match));
+  return hit?.from || null;
+}
+
+function Pill({ children, interactive = false }) {
   return (
-    <span className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 dark:bg-white/10 dark:text-indigo-200 px-3 py-1 text-xs font-medium border border-indigo-100/80 dark:border-white/10">
+    <span
+      className={[
+        "inline-flex items-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white px-3 py-1 text-xs font-medium border border-indigo-100/80 dark:border-white/10",
+        interactive
+          ? "group-hover:bg-purple-200 dark:group-hover:bg-purple-600 transition-colors duration-200"
+          : "",
+      ].join(" ")}
+    >
       {children}
     </span>
   );
@@ -16,8 +40,8 @@ function Pill({ children }) {
 function SectionCard({ title, action, children }) {
   return (
     <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-white/5 backdrop-blur-md shadow-sm">
-      <div className="px-6 py-4 border-b border-gray-200/70 dark:border-white/10 flex items-center justify-between">
-        <h3 className="text-left font-epilogue text-base font-semibold text-gray-900 dark:text-gray-100">
+      <div className="px-6 py-3 border-b rounded-t-2xl bg-gray-200/70 dark:bg-gray-700/70 border-gray-200/70 dark:border-white/10 flex items-center justify-between">
+        <h3 className="text-left font-epilogue text-lg font-semibold text-gray-900 dark:text-gray-100">
           {title}
         </h3>
         {action && <div>{action}</div>}
@@ -46,7 +70,6 @@ export default function Resume() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isPdfPreviewOpen]);
-  
 
   return (
     <section className="py-0 px-4 bg-gray-50 dark:bg-[#181826] transition-colors">
@@ -82,62 +105,88 @@ export default function Resume() {
               </div>
 
               <div className="mt-6 flex justify-center flex-wrap gap-2 text-sm">
-                <Pill>
-                  <FaMapMarkerAlt className="mr-2 opacity-80" /> {hdr.location}
-                </Pill>
+                <span className="group">
+                  <Pill interactive>
+                    <FaMapMarkerAlt className="mr-2 opacity-80" /> {hdr.location}
+                  </Pill>
+                </span>
+
                 <a href={mailto(hdr.email)} className="hover:opacity-90 transition">
-                  <Pill>
-                    <FaEnvelope className="mr-2 opacity-80" /> {hdr.email}
-                  </Pill>
+                  <span className="group">
+                    <Pill interactive>
+                      <FaEnvelope className="mr-2 opacity-80" /> {hdr.email}
+                    </Pill>
+                  </span>
                 </a>
-                <Pill>
-                  <FaPhoneAlt className="mr-2 opacity-80" /> {hdr.phone}
-                </Pill>
-                <a href={websiteUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
-                  <Pill>
-                    <FaLink className="mr-2 opacity-80" /> {hdr.website}
+
+                <span className="group">
+                  <Pill interactive>
+                    <FaPhoneAlt className="mr-2 opacity-80" /> {hdr.phone}
                   </Pill>
+                </span>
+
+                <a
+                  href={websiteUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:opacity-90 transition"
+                >
+                  <span className="group">
+                    <Pill interactive>
+                      <FaLink className="mr-2 opacity-80" /> {hdr.website}
+                    </Pill>
+                  </span>
                 </a>
-                <a href={linkedinUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
-                  <Pill>
-                    <FaLink className="mr-2 opacity-80" /> {hdr.linkedin}
-                  </Pill>
+
+                <a
+                  href={linkedinUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:opacity-90 transition"
+                >
+                  <span className="group">
+                    <Pill interactive>
+                      <FaLink className="mr-2 opacity-80" /> {hdr.linkedin}
+                    </Pill>
+                  </span>
                 </a>
               </div>
             </div>
           </div>
         </SectionCard>
 
-        {/* PDF Preview */}
-        {/* <div className="rounded-2xl border border-purple-200/70 dark:border-white/10 bg-white/80 dark:bg-white/5 backdrop-blur-md shadow-sm overflow-hidden">
-          <iframe src={pdfSrc} className="w-full h-[720px]" title="Tejas Raut Resume PDF" />
-        </div> */}
-
         {/* Experience */}
         <SectionCard title="Professional Experience">
-          <div className="space-y-5">
-            {RESUME_DATA.experience.map((x) => (
-              <div
-                key={`${x.company}-${x.dates}`}
-                className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/5 px-5 py-4"
-              >
+          <div className="space-y-0">
+            {RESUME_DATA.experience.map((x, idx) => (
+              <div key={`${x.company}-${x.dates}`} className="pb-6">
                 <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
                   <div className="text-left">
                     <div className="font-semibold text-gray-900 dark:text-gray-100">
                       {x.company} • {x.title}
                     </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-300">{x.location}</div>
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                      {x.location}
+                    </div>
                   </div>
                   <div className="text-left md:text-right text-xs text-gray-500 dark:text-gray-400">
                     {x.dates}
                   </div>
                 </div>
 
-                <ul className="mt-3 list-disc pl-5 text-left text-sm text-gray-700 dark:text-gray-200 space-y-2">
-                  {x.bullets.map((b, i) => (
-                    <li key={i}>{b}</li>
-                  ))}
-                </ul>
+                <div className="mt-3 flex justify-center">
+                  <ul className="list-disc list-outside text-left text-sm text-gray-700 dark:text-gray-200 space-y-2 w-full max-w-[97%] pl-6">
+                    {x.bullets.map((b, i) => (
+                      <li key={i} className="pl-2">
+                        {b}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {idx !== RESUME_DATA.experience.length - 1 && (
+                  <div className="mt-6 h-px w-full bg-gray-200/80 dark:bg-white/10" />
+                )}
               </div>
             ))}
           </div>
@@ -147,11 +196,10 @@ export default function Resume() {
         <SectionCard title="Education">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {RESUME_DATA.education.map((e) => (
-              <div
-                key={`${e.school}-${e.date}`}
-                className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/5 px-5 py-4"
-              >
-                <div className="text-left font-semibold text-gray-900 dark:text-gray-100">{e.school}</div>
+              <div key={`${e.school}-${e.date}`} className="px-1 py-1">
+                <div className="text-left font-semibold text-gray-900 dark:text-gray-100">
+                  {e.school}
+                </div>
                 <div className="text-left text-sm text-gray-600 dark:text-gray-300 mt-1">
                   {e.degree} • {e.program}
                 </div>
@@ -164,31 +212,51 @@ export default function Resume() {
         </SectionCard>
 
         {/* Projects */}
-        <SectionCard title="Academic Projects">
-          <div className="space-y-5">
-            {RESUME_DATA.projects.map((p) => (
-              <div
-                key={`${p.name}-${p.dates}`}
-                className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/5 px-5 py-4"
-              >
+        <SectionCard title="Relevant Projects">
+          <div className="space-y-0">
+            {RESUME_DATA.projects.map((p, idx) => (
+              <div key={`${p.name}-${p.dates}`} className="pb-6">
                 <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
-                  <div className="text-left font-semibold text-gray-900 dark:text-gray-100">{p.name}</div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-left font-semibold text-gray-900 dark:text-gray-100">
+                      {p.name}
+                    </span>
+
+                    {getCodeLabFrom(p.name) && (
+                      <a
+                        href={`#/code-lab?from=${getCodeLabFrom(p.name)}`}
+                        className={CODE_SNIPPETS_CLASS}
+                      >
+                        Code Snippets
+                      </a>
+                    )}
+
+                  </div>
+
                   <div className="text-left md:text-right text-xs text-gray-500 dark:text-gray-400">
                     {p.dates}
                   </div>
                 </div>
 
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   {p.stack.map((s) => (
                     <Pill key={s}>{s}</Pill>
                   ))}
                 </div>
 
-                <ul className="mt-3 list-disc pl-5 text-left text-sm text-gray-700 dark:text-gray-200 space-y-2">
-                  {p.bullets.map((b, i) => (
-                    <li key={i}>{b}</li>
-                  ))}
-                </ul>
+                <div className="mt-3 flex justify-center">
+                  <ul className="list-disc list-outside text-left text-sm text-gray-700 dark:text-gray-200 space-y-2 w-full max-w-[97%] pl-6">
+                    {p.bullets.map((b, i) => (
+                      <li key={i} className="pl-2">
+                        {b}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {idx !== RESUME_DATA.projects.length - 1 && (
+                  <div className="mt-6 h-px w-full bg-gray-200/80 dark:bg-white/10" />
+                )}
               </div>
             ))}
           </div>
@@ -196,20 +264,22 @@ export default function Resume() {
 
         {/* Skills */}
         <SectionCard title="Technical Skills">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.entries(RESUME_DATA.skills).map(([group, items]) => (
-              <div
-                key={group}
-                className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/5 px-5 py-4"
-              >
-                <div className="text-left font-semibold text-gray-900 dark:text-gray-100">{group}</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {items.map((s) => (
-                    <Pill key={s}>{s}</Pill>
-                  ))}
+          <div className="flex justify-center">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[97%]">
+              {Object.entries(RESUME_DATA.skills).map(([group, items]) => (
+                <div key={group} className="px-4 py-2">
+                  <div className="text-left font-semibold text-gray-900 dark:text-gray-100">
+                    {group}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {items.map((s) => (
+                      <Pill key={s}>{s}</Pill>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </SectionCard>
       </div>
@@ -237,7 +307,6 @@ export default function Resume() {
               </div>
 
               <div className="flex items-center gap-2">
-
                 <button
                   onClick={() => setIsPdfPreviewOpen(false)}
                   className="inline-flex items-center text-xs px-3 py-2 rounded-lg
@@ -266,7 +335,6 @@ export default function Resume() {
           </div>
         </div>
       )}
-
     </section>
   );
 }

@@ -123,12 +123,12 @@ export const RESUME_DATA = {
       ],
     },
     {
-      name: "Stock Price Prediction",
-      dates: "Sep 2023 - Dec 2023",
-      stack: ["Python", "Keras", "LSTM", "Pandas", "NumPy", "Scikit-learn"],
+      name: "SyzManiac – Developer Environment Automation Framework",
+      dates: "May 2023 - Dec 2024",
+      stack: ["Go", "Shell", "GitHub"],
       bullets: [
-        "Trained LSTM models in Keras on 8K+ Reliance data to forecast stock prices, tuning hyperparameters for reduced loss",
-        "Preprocessed and normalized time-series data with Pandas/NumPy, and benchmarked LSTM results against Random Forest, SVR, and KNN models, achieving 65% directional prediction accuracy",
+        "Designed and built a Go-based automation framework to deterministically provision and restore an entire macOS development environment, including dependency installs, versioned dotfile migration, and lifecycle orchestration via a custom syz CLI",
+        "Implemented idempotent workflows, fast system state scanning, structured logging, and healthchecks to enable one-command bootstrap and recovery, treating a developer workstation as a reproducible, self-healing system",
       ],
     },
     {

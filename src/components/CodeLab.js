@@ -109,6 +109,54 @@ function normalizeConcept(raw) {
   return s;
 }
 
+// Clipboard helpers
+const normalizeNewlines = (s) => String(s ?? "").replace(/\r\n/g, "\n");
+
+// Removes shared left padding introduced by template literal indentation,
+// but keeps relative indentation inside the code.
+// function dedentBlock(input) {
+//   const text = normalizeNewlines(input);
+
+//   // Trim only outer empty lines (keeps intentional internal blank lines).
+//   const lines = text.split("\n");
+//   while (lines.length && lines[0].trim() === "") lines.shift();
+//   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+
+//   // Find smallest indent across non-empty lines.
+//   let minIndent = Infinity;
+//   for (const line of lines) {
+//     if (!line.trim()) continue;
+//     const m = line.match(/^(\s*)/);
+//     const indent = m ? m[1].length : 0;
+//     minIndent = Math.min(minIndent, indent);
+//   }
+//   if (!isFinite(minIndent) || minIndent === 0) return lines.join("\n");
+
+//   return lines.map((l) => (l.trim() ? l.slice(minIndent) : "")).join("\n");
+// }
+
+async function copyToClipboard(text) {
+  const payload = normalizeNewlines(text);
+
+  // Modern clipboard API
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(payload);
+    return;
+  }
+
+  // Fallback (older Safari / restricted contexts)
+  const ta = document.createElement("textarea");
+  ta.value = payload;
+  ta.setAttribute("readonly", "true");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  ta.style.top = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
 /**
  * Condense domains into recruiter-friendly buckets.
  * Keeps the dropdown short and readable.
@@ -206,6 +254,42 @@ export default function CodeLab({ darkMode }) {
 
   const filterBtnRef = React.useRef(null);
   const sectionRef = React.useRef(null);
+
+  const [setHash] = React.useState(() => window.location.hash);
+
+  React.useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [setHash]);
+
+  // ✅ Deep-link support: #/code-lab?from=battleship OR #/code-lab?from=syzmaniac,sys_managed
+  const [deepLinkFromList, setDeepLinkFromList] = React.useState([]);
+
+  React.useEffect(() => {
+    const readDeepLink = () => {
+      // hash looks like "#/code-lab?from=battleship" or "#/code-lab?from=syzmaniac,sys_managed"
+      const qs = window.location.hash.split("?")[1] || "";
+      const params = new URLSearchParams(qs);
+
+      const raw = (params.get("from") || "").trim();
+
+      // supports:
+      //  - from=battleship
+      //  - from=syzmaniac,sys_managed
+      //  - from=syzmaniac%2Csys_managed  (URL-encoded comma also fine)
+      const list = raw
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+
+      setDeepLinkFromList(list);
+    };
+
+    readDeepLink(); // first load
+    window.addEventListener("hashchange", readDeepLink);
+    return () => window.removeEventListener("hashchange", readDeepLink);
+  }, []);
   
   // Only used for first paint when opening. After that we “glue” with direct DOM writes.
   const [dropdownPos, setDropdownPos] = React.useState({
@@ -405,7 +489,18 @@ export default function CodeLab({ darkMode }) {
   );
 
   const filteredSnippets = React.useMemo(() => {
-    if (filters.length === 0) return allWithMeta;
+    let res = allWithMeta;
+
+    // ✅ Deep link filter: #/code-lab?from=battleship OR multiple: #/code-lab?from=syzmaniac,sys_managed
+    if (deepLinkFromList.length > 0) {
+      res = res.filter((s) => {
+        const hay = String(s.from || "").toLowerCase();
+        return deepLinkFromList.some((needle) => hay.includes(needle));
+      });
+    }
+
+    // If no UI filters selected, return (possibly deep-linked) result.
+    if (filters.length === 0) return res;
 
     // strings like "Technology::AWS"
     const selected = filters.reduce((acc, f) => {
@@ -416,7 +511,7 @@ export default function CodeLab({ darkMode }) {
     }, {});
 
     // AND across categories, OR within a category
-    return allWithMeta.filter((s) => {
+    return res.filter((s) => {
       for (const [cat, set] of Object.entries(selected)) {
         const wants = [...set];
 
@@ -432,7 +527,7 @@ export default function CodeLab({ darkMode }) {
       }
       return true;
     });
-  }, [allWithMeta, filters]);
+  }, [allWithMeta, deepLinkFromList, filters]);
 
   /* -----------------------------
    * Collapsible state (accordion)
@@ -632,6 +727,7 @@ export default function CodeLab({ darkMode }) {
 
   function CodeBlock({ code, lang, enhanceOnIdle = false }) {
     const [phase, setPhase] = React.useState(enhanceOnIdle ? "plain" : "prism");
+    const [copied, setCopied] = React.useState(false);
 
     // wheel chaining: scroll inside block until edge, then let page take over
     const wheelScrollChain = (e) => {
@@ -680,8 +776,40 @@ export default function CodeLab({ darkMode }) {
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
     };
 
+    const onCopy = async () => {
+      try {
+        // Copy should be stable regardless of Prism/line-number DOM.
+        // Dedent helps if your template literal is indented in the data file.
+        const clean = normalizeNewlines(code);
+        await copyToClipboard(clean);
+
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 900);
+      } catch {
+        // ignore
+      }
+    };
+
     return (
       <div className="relative rounded-2xl overflow-hidden bg-gray-200/50 dark:bg-[#0f1320] max-h-[70vh]">
+        {/* Copy button */}
+        <div className="absolute right-3 top-3 z-20">
+          <button
+            type="button"
+            onClick={onCopy}
+            className={[
+              "px-3 py-1 rounded-full text-xs font-semibold border shadow-sm transition",
+              "bg-white/80 dark:bg-white/10",
+              "border-gray-200 dark:border-gray-700",
+              copied
+                ? "text-green-700 dark:text-green-300"
+                : "text-gray-800 dark:text-gray-100 hover:bg-white dark:hover:bg-white/15",
+            ].join(" ")}
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+
         {/* Measuring layer: keeps height stable while we crossfade */}
         <pre style={wrapperStyle} className="opacity-0 pointer-events-none select-none">
           <code>{code}</code>

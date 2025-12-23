@@ -24,10 +24,10 @@ export const timelineData = [
   },
   {
     duration: "2024 - 2025",
-    role: "Analytics Engineering - Bootcamp",
+    role: "Analytics Engineering Bootcamp",
     company: "Zack Wilson",
     description:
-      "Created a Go-based developer automation tool that can rebuild an entire Mac development environment from scratch using a single command. Handles installs, dotfile migration, snapshots, healthchecks, and idempotent workflows with production-style logging and recovery.",
+        "Completed a production-oriented analytics engineering program focused on building reliable, analytics-ready data systems. Designed dimensional models using star schemas, implemented dbt transformations with incremental and snapshot strategies, and orchestrated analytics workflows using Airflow. Enforced data quality through tests and version-controlled pipelines, with emphasis on SQL performance, warehouse optimization, metric definitions, and BI-ready analytics layers used in real team environments."
   },
   {
     duration: "2023 - 2024",
