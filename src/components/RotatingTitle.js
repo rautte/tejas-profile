@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { FaCode, FaCloud, FaDatabase, FaChartLine, FaBrain } from 'react-icons/fa';
 
 const rotatingItems = [
-  { icon: <FaCode className="inline-block mr-2 text-purple-800 dark:text-purple-400" />, text: 'Full-Stack • JavaScript, Python, Node.js, React' },
+  { icon: <FaCode className="inline-block mr-2 text-purple-800 dark:text-purple-400" />, text: 'Full-Stack • Python, TypeScript, SQL, React, JavaScript, Node.js' },
   { icon: <FaCloud className="inline-block mr-2 text-blue-300 dark:text-blue-400" />, text: 'Cloud • AWS, Azure' },
-  { icon: <FaDatabase className="inline-block mr-2 text-green-300 dark:text-green-400" />, text: 'Data • SQL, Python, Airflow, dbt, Spark, Hadoop' },
+  { icon: <FaDatabase className="inline-block mr-2 text-green-300 dark:text-green-400" />, text: 'Big Data • SQL, Python, Airflow, dbt, Spark, Hadoop' },
   { icon: <FaChartLine className="inline-block mr-2 text-yellow-300 dark:text-yellow-600" />, text: 'Business Intelligence • Tableau, Power BI, MATLAB, Minitab' },
   { icon: <FaBrain className="inline-block mr-2 text-pink-300 dark:text-pink-400" />, text: 'Artificial Intelligence • Python, TensorFlow, PyTorch, OpenCV, Scikit-learn' },
 ];

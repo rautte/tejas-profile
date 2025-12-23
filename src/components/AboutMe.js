@@ -32,7 +32,7 @@ export default function AboutMe() {
           {/* Quote */}
           <blockquote className="text-xl italic text-gray-700 dark:text-gray-300 text-center md:text-left max-w-xl">
             “I like working on systems that make sense when you read them, run them,
-            and debug them at 2 a.m. XD”
+            and debug them at 2 a.m.”
           </blockquote>
         </div>
 
