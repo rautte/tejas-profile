@@ -17,9 +17,7 @@ import Experience from "./components/Experience";
 import Skills from "./components/Skills";
 import Education from "./components/Education";
 import Project from "./components/Projects";
-import Achievement from "./components/Achievement";
 import FunZone from "./components/FunZone";
-// import Connect from "./components/Connect";
 import CodeLab from "./components/CodeLab";
 import HeroHandle from "./components/HeroHandle";
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
@@ -27,7 +25,7 @@ import { GiConsoleController } from 'react-icons/gi';
 import { FiSidebar } from "react-icons/fi";
 import {
   FaUser, FaMapMarkedAlt, FaFileAlt, FaBriefcase,
-  FaCogs, FaGraduationCap, FaProjectDiagram, FaTrophy,
+  FaCogs, FaGraduationCap, FaProjectDiagram,
   FaMoon, FaSun, FaCode
 } from 'react-icons/fa';
 
@@ -39,7 +37,6 @@ const ICONS = {
   "Skills": <FaCogs className="text-sm" />,
   "Education": <FaGraduationCap className="text-sm" />,
   "Projects": <FaProjectDiagram className="text-sm" />,
-  "Achievement": <FaTrophy className="text-sm" />,
   "Fun Zone": <GiConsoleController className="text-sm" />,
   "Code Lab": <FaCode className="text-sm" />,
   // "Connect": <FaEnvelope className="text-sm" />,
@@ -47,8 +44,7 @@ const ICONS = {
 
 const LABELS = [
   "About Me","Timeline","Resume","Experience","Skills",
-  "Education","Projects","Achievement","Fun Zone","Code Lab"
-  // "Education","Project","Achievement","Fun Zone","Connect","Code Lab"
+  "Education","Projects","Fun Zone","Code Lab"
 ];
 
 const toSlug = (label) =>
@@ -135,9 +131,7 @@ function App() {
     "Skills": <Skills darkMode={darkMode} />,
     "Education": <Education darkMode={darkMode} />,
     "Projects": <Project darkMode={darkMode} />,
-    "Achievement": <Achievement darkMode={darkMode} />,
     "Fun Zone": <FunZone darkMode={darkMode} />,
-    // "Connect": <Connect darkMode={darkMode} />,
     "Code Lab": <CodeLab darkMode={darkMode} />,
   }), [darkMode]);
 
@@ -148,7 +142,6 @@ function App() {
     "Skills",
     "Education",
     "Resume",
-    // "Connect",
   ];
 
   const hiringManagerQuickLookBody = [
@@ -158,7 +151,6 @@ function App() {
   ];
 
   const moreAboutMe = [
-    "Achievement",
     "Timeline",
   ];
 
@@ -243,7 +235,6 @@ function App() {
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1024px)"); // lg breakpoint
     const apply = () => setSidebarCollapsed(true);
-    // const relax = () => setSidebarCollapsed(prev => (mq.matches ? true : prev));
 
     // initialize
     if (mq.matches) setSidebarCollapsed(true);
@@ -252,11 +243,9 @@ function App() {
     const listener = (e) => (e.matches ? apply() : setSidebarCollapsed(false));
     mq.addEventListener?.("change", listener);
     return () => mq.removeEventListener?.("change", listener);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // treat About Me & Connect as pinned
-  // const PINNED_SET = useMemo(() => new Set(["About Me", "Connect"]), []);
+  // treat About Me as pinned
   const PINNED_SET = useMemo(() => new Set(["About Me"]), []);
 
   // used to skip one forced-expand after a *user collapse* on a pinned section
@@ -339,7 +328,7 @@ function App() {
       <span
         className={`
           pointer-events-none absolute inset-0 rounded-xl z-0
-          transition-transform transition-colors transition-shadow duration-200
+          transition-shadow duration-200
           ${active
             ? 'bg-purple-100 dark:bg-purple-800 text-purple-900 dark:text-purple-100 shadow-inner ring-1 ring-inset ring-purple-300 dark:ring-purple-600 scale-[0.92]'
             : 'group-hover:bg-purple-50 group-hover:dark:bg-[#2b2b3c] group-hover:text-gray-700 group-hover:dark:text-gray-300 group-hover:scale-[0.92]'
