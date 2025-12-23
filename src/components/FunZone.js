@@ -1,5 +1,14 @@
 // src/components/FunZone.js
 
+/**
+ * TODO FIX:
+ * Update a Note inside Battleship game play "open sea" option mentioning out-of-order
+ * Reestablish the Firebase DB connection for room availability
+ * Check the Downloadable code for all three games if they are up-to-date
+ * Move any data to ../data/funZone/index.js
+ * Clean the code prod-like with modular, reliable, and scalable structure
+ */
+
 import React from "react";
 // import TicTacToeWeb from "@/components/TicTacToeWeb";
 import { FaPlay, FaGithub, FaDownload } from 'react-icons/fa';

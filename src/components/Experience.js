@@ -1,5 +1,11 @@
 // components/Experience.js
 
+/**
+ * TODO FIX:
+ * Move any data to ../data/funZone/index.js
+ * Clean the code prod-like with modular, reliable, and scalable structure
+ */
+
 import React from "react";
 import { FaBriefcase } from "react-icons/fa";
 // import { FiChevronDown, FiChevronUp } from "react-icons/fi";

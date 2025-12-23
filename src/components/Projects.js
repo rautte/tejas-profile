@@ -2,7 +2,9 @@
 
 /**
  * TODO FIX:
- * The filter option box follows the filter button through the expanded hero top.
+ * The filter option box follows the filter button through the expanded hero top, make it collapse when scroll detected outside.
+ * Fix the data of the project cards - links, repo, GitHub, README, downloadable .zip file, and description.
+ * Clean the code prod-like with modular, reliable, and scalable structure
  */
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";

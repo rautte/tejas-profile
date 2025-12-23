@@ -2,7 +2,9 @@
 
 /**
  * TODO FIX:
- * The code text within the snippet when expanded transitions to ide-like via prism from normal text but twice instead of once
+ * For the query params deep link filter, resolve the conflic of selecting aditional filter options when on the same link
+ * For UI only, consider different design for either "view" (code snippet) or "see more" (page loader)
+ * Arrange the data list in priority order of high-signal
  * Make the snippet cards always pin to the top (leaving a few px from the hero section bottom) when viewed while collapsing the already expanded ones if any
  */
 
@@ -261,7 +263,7 @@ export default function CodeLab({ darkMode }) {
     const onHashChange = () => setHash(window.location.hash);
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [setHash]);
+  });
 
   // ✅ Deep-link support: #/code-lab?from=battleship OR #/code-lab?from=syzmaniac,sys_managed
   const [deepLinkFromList, setDeepLinkFromList] = React.useState([]);
@@ -436,6 +438,8 @@ export default function CodeLab({ darkMode }) {
     }));
   }, [snippets]);
 
+  const [showAllSnippets, setShowAllSnippets] = React.useState(false);
+
   const filterOptions = React.useMemo(() => {
     // Build frequency maps (so we can keep only the highest-signal options)
     const tech = new Map();
@@ -528,6 +532,15 @@ export default function CodeLab({ darkMode }) {
       return true;
     });
   }, [allWithMeta, deepLinkFromList, filters]);
+
+  const visibleSnippets = React.useMemo(() => {
+    return showAllSnippets ? filteredSnippets : filteredSnippets.slice(0, 5);
+  }, [filteredSnippets, showAllSnippets]);
+
+  React.useEffect(() => {
+    setShowAllSnippets(false);
+  }, [filters, deepLinkFromList]);
+
 
   /* -----------------------------
    * Collapsible state (accordion)
@@ -1003,7 +1016,7 @@ export default function CodeLab({ darkMode }) {
               Code Lab
             </h2>
 
-            <p className="mt-5 text-gray-600 dark:text-gray-400 max-w-3xl">
+            <p className="mt-10 text-gray-600 dark:text-gray-400 max-w-3xl">
               A curated set of small, sanitized, and production-minded snippets that reflect how I build:
               secure access, deterministic ingestion, reusable transforms, orchestration, and consistent writes.
             </p>
@@ -1083,13 +1096,28 @@ export default function CodeLab({ darkMode }) {
         </div>
 
         <div className="grid grid-cols-1 gap-6">
-          {filteredSnippets.map((snip) => (
+          {visibleSnippets.map((snip) => (
             <SnippetCard
               key={`${snip.__idx}-${snip.title}`}
               snippet={snip}
               idx={snip.__idx}
             />
           ))}
+
+          {!showAllSnippets && filteredSnippets.length > 5 && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAllSnippets(true)}
+                className="group text-sm font-semibold text-purple-700 dark:text-purple-300 hover:underline underline-offset-4 transition"
+              >
+                <span className="flex items-center gap-2">
+                  See More
+                  <FiChevronsDown className="text-lg opacity-80 group-hover:opacity-100 transition" />
+                </span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </section>

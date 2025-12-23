@@ -1,6 +1,17 @@
 // src/App.js
 // https://rautte.github.io/tejas-profile
 
+/**
+ * TODO FIX:
+ * Make the page backround run a bit extra length outside the page area to not reveal raw backround when scrolled out of boundaries (top of the first page and bottom of the last page)
+ * When scrolling beyond the end of a section and there exists another section in that direction then snap to that section (only when scrolled beyond a page)
+ * Fix the darkMode toggle glitch that happens sometimes
+ * When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
+ * When I click on the darkMode toggle button and then randomly press any arrow, the toggle button stays highlighted
+ * Move any data to ../data/funZone/index.js
+ * Clean the code prod-like with modular, reliable, and scalable structure
+ */
+
 import './App.css';
 import './index.css';
 import TicTacToeWeb from "./components/games/tictactoe/TicTacToeWeb";

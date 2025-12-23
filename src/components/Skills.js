@@ -1,4 +1,11 @@
 // import React from "react";
+
+/**
+ * TODO FIX:
+ * Move any data to ../data/funZone/index.js
+ * Clean the code prod-like with modular, reliable, and scalable structure
+ */
+
 import { FaCode, FaDatabase, FaCloud, FaTools, FaChartBar, FaCogs } from "react-icons/fa";
 
 const skillsData = [
