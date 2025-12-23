@@ -40,10 +40,13 @@ exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
 # final status line even on failure
 trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
 
+echo ""
 info "Log file: $LOG_FILE"
 info "Repo: $(pwd)"
 info "Branch: $(git branch --show-current 2>/dev/null || echo unknown)"
 info "HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+echo ""
+echo ""
 
 info "---- Context ----"
 info "user=$(whoami) host=$(hostname)"
@@ -74,6 +77,7 @@ fi
 git remote get-url origin >/dev/null 2>&1 || die "Remote 'origin' not found."
 
 # ---- 1) Validate production build
+echo ""
 info "Running production build..."
 npm run build
 ok "Build succeeded."
@@ -93,38 +97,46 @@ fi
 ts="$(date +"%Y-%m-%d %H:%M:%S")"
 file_count="$(git status --porcelain | wc -l | tr -d ' ')"
 
+echo ""
 info "Staging changes..."
 git add .
 
+echo ""
 info "Committing..."
 git commit -m "checkpoint | ${ts} | ${current_branch} | files:${file_count} | ${uuid}"
 ok "Committed."
 
 # ---- 3) Push main FIRST (clean + linear history)
+echo ""
 info "Pushing main..."
 git push origin main
 ok "Pushed main."
 
 # ---- 4) Keep a moving backup branch in sync with this checkpoint commit (then push)
 backup_branch="backup/last-deployed"
+echo ""
 info "Updating backup branch: ${backup_branch} -> HEAD"
 git branch -f "${backup_branch}" HEAD
 ok "Updated ${backup_branch}."
 
+echo ""
 info "Pushing backup branch: ${backup_branch} (skip pre-push hook)"
 git push --no-verify -f origin "${backup_branch}"
 ok "Pushed ${backup_branch}."
 
 # ---- 5) Tag checkpoint + move last-deployed tag (then push tags)
 tag="checkpoint-$(date +%Y-%m-%d_%H-%M-%S)"
+echo ""
 info "Tagging: ${tag}"
 git tag "${tag}"
 ok "Tagged ${tag}."
 
+echo ""
 info "Updating tag: last-deployed -> ${tag}"
 git tag -a -f last-deployed -m "last deployed checkpoint: ${tag} (${ts})"
 ok "Updated last-deployed."
 
+echo ""
 info "Pushing tags (skip pre-push hook)..."
 git push --no-verify origin "refs/tags/${tag}"
 git push --no-verify --force origin "refs/tags/last-deployed"
@@ -136,6 +148,7 @@ if [[ -n "$(git status --porcelain build)" ]]; then
 fi
 
 # ---- 6) Deploy
+echo ""
 info "Deploying (npm run deploy)..."
 npm run deploy
 ok "Deployed."
