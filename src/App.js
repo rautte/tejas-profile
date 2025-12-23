@@ -3,12 +3,11 @@
 
 /**
  * TODO FIX:
- * Make the page backround run a bit extra length outside the page area to not reveal raw backround when scrolled out of boundaries (top of the first page and bottom of the last page)
  * When scrolling beyond the end of a section and there exists another section in that direction then snap to that section (only when scrolled beyond a page)
  * Fix the darkMode toggle glitch that happens sometimes
  * When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
  * When I click on the darkMode toggle button and then randomly press any arrow, the toggle button stays highlighted
- * Move any data to ../data/funZone/index.js
+ * Move all data to ../data/App/index.js
  * Clean the code prod-like with modular, reliable, and scalable structure
  */
 
@@ -223,6 +222,28 @@ function App() {
     window.location.hash = `/${slug}`;
   }, [selectedSection, hashPath]);
 
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+
+    // Save scroll for the section we're leaving.
+    const prev = prevSectionRef.current;
+    if (prev && prev !== selectedSection) {
+      sectionScrollRef.current.set(prev, el.scrollTop);
+    }
+
+    // Restore scroll for the section we're entering (or top for first visit).
+    const nextTop = sectionScrollRef.current.get(selectedSection) ?? 0;
+
+    requestAnimationFrame(() => {
+      const target = mainScrollRef.current;
+      if (!target) return;
+      target.scrollTop = nextTop;
+    });
+
+    prevSectionRef.current = selectedSection;
+  }, [selectedSection]);
+
   // --- collapsible sidebar state ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem("sidebarCollapsed");
@@ -268,6 +289,11 @@ function App() {
 
   // used to skip one forced-expand after a *user collapse* on a pinned section
   const skipNextPinnedExpand = useRef(false);
+
+  // --- Step 2: per-section scroll memory (session-only) ---
+  const mainScrollRef = useRef(null);
+  const sectionScrollRef = useRef(new Map()); // label -> scrollTop
+  const prevSectionRef = useRef(null);
 
   // one shared collapse state for ALL non-pinned sections
   // default for non-pinned on first load (per tab) = collapsed (true)
@@ -421,8 +447,13 @@ function App() {
 
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
-
+    <div className="relative h-screen flex flex-col overflow-hidden bg-white dark:bg-[#181826] text-black dark:text-gray-200 transition-all">
+      
+      {/* Background underlay to avoid showing raw/mismatched background during overscroll bounce */}
+      <div
+        aria-hidden
+        className="fixed inset-0 -z-10 bg-gray-50 dark:bg-[#181826] transition-colors"
+      />
       {/* Collapsible Hero (in normal flow so the rest moves in sync) */}
       <div
         className="
@@ -616,6 +647,12 @@ function App() {
 
           {/* Scrollable content */}
           <main
+            ref={mainScrollRef}
+            onScroll={() => {
+              const el = mainScrollRef.current;
+              if (!el) return;
+              sectionScrollRef.current.set(selectedSection, el.scrollTop);
+            }}
             className="flex-1 overflow-y-auto p-4 sm:p-6
                       bg-gray-50 backdrop-blur-xl
                       dark:bg-[#181826] transition-colors"
