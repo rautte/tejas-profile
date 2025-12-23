@@ -11,9 +11,12 @@ LOG_DIR="${REPO_ROOT}/logs/${SCRIPT_NAME}"
 mkdir -p "$LOG_DIR"
 
 # keep last 30 logs (macOS friendly)
-ls -1t "${LOG_DIR}/${SCRIPT_NAME}_"*.log 2>/dev/null \
-  | tail -n +31 \
-  | while read -r f; do rm -f "$f"; done || true
+# NOTE: avoid "ls" failing when there are 0 matching files (set -e would exit)
+if compgen -G "${LOG_DIR}/${SCRIPT_NAME}_"*.log > /dev/null; then
+  ls -1t "${LOG_DIR}/${SCRIPT_NAME}_"*.log | tail -n +31 | while read -r f; do
+    rm -f "$f"
+  done
+fi
 
 RUN_TS="$(date +%Y-%m-%d_%H-%M-%S)"
 LOG_FILE="${LOG_DIR}/${SCRIPT_NAME}_${RUN_TS}.log"
