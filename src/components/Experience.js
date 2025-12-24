@@ -189,7 +189,7 @@ export default function Experience() {
   // const [showEarly, setShowEarly] = React.useState(false);
 
   return (
-    <section className="w-full py-0 px-4 bg-transparent">
+    <section className="w-full py-0 px-4 transition-colors">
       {/* Header scaffold aligned with Projects/Education */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         <div className="w-full">

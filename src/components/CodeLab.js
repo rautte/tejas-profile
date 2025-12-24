@@ -1005,7 +1005,7 @@ export default function CodeLab({ darkMode }) {
   return (
     <section
       ref={sectionRef}
-      className="py-0 px-4 transition-colors duration-300"
+      className="py-0 px-4 transition-colors"
       style={{ overflowAnchor: "none" }}
     >
       <div className="px-6 max-w-6xl mx-auto">

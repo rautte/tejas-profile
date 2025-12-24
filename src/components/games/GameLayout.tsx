@@ -19,7 +19,7 @@ export default function GameLayout({
   backHref = "#/fun-zone",
 }: Props) {
   return (
-    <main className="min-h-screen flex flex-col items-center bg-gray-50 dark:bg-[#181826] transition-colors p-6">
+    <main className="min-h-screen flex flex-col items-center bg-transparent transition-colors p-6">
       {/* Fixed Back link — top-left (exactly like your previous code) */}
         <a
         href={backHref}

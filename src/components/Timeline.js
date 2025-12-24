@@ -198,7 +198,7 @@ export default function Timeline() {
   }, [totalYears]);
 
   return (
-    <section className="w-full py-0 px-4 bg-transparent transition-colors duration-300">
+    <section className="w-full py-0 px-4 transition-colors">
       {/* Section Title (your theme) */}
       <div className="text-left px-6 mb-10">
         <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">

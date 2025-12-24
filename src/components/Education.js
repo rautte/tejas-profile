@@ -1,5 +1,11 @@
 // components/Education.js
 
+/**
+ * TODO FIX:
+ * Move any data to ../data/funZone/index.js
+ * Clean the code prod-like with modular, reliable, and scalable structure
+ */
+
 import React from "react";
 import { FaGraduationCap } from "react-icons/fa";
 import { MdVerified } from "react-icons/md";
@@ -160,7 +166,7 @@ export default function Education() {
     }, [openImage]);
 
   return (
-    <section className="w-full py-0 px-4 bg-transparent">
+    <section className="w-full py-0 px-4 transition-colors">
       {/* Header scaffold aligned with Project.js */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
         {/* Title block */}
