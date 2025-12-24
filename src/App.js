@@ -2,6 +2,9 @@
 // https://rautte.github.io/tejas-profile
 
 /**
+ * TODO CONSIDER:
+ * When selectedSection changes, restore last-known scroll for that section OR set the scroll container’s scrollTop = 0 (absolute)
+ * 
  * TODO FIX:
  * Fix the darkMode toggle glitch that happens sometimes
  * When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
