@@ -3,7 +3,6 @@
 
 /**
  * TODO FIX:
- * When scrolling beyond the end of a section and there exists another section in that direction then snap to that section (only when scrolled beyond a page)
  * Fix the darkMode toggle glitch that happens sometimes
  * When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
  * When I click on the darkMode toggle button and then randomly press any arrow, the toggle button stays highlighted
@@ -53,8 +52,15 @@ const ICONS = {
 };
 
 const LABELS = [
-  "About Me","Timeline","Resume","Experience","Skills",
-  "Education","Projects","Fun Zone","Code Lab"
+  "About Me",
+  "Experience",
+  "Skills",
+  "Education",
+  "Resume",
+  "Projects",
+  "Code Lab",
+  "Fun Zone",
+  "Timeline",
 ];
 
 const toSlug = (label) =>
@@ -135,14 +141,14 @@ function App() {
   // --- sections (unchanged components) ---
   const sections = useMemo(() => ({
     "About Me": <AboutMe darkMode={darkMode} />,
-    "Timeline": <Timeline darkMode={darkMode} />,
-    "Resume": <Resume darkMode={darkMode} />,
     "Experience": <Experience darkMode={darkMode} />,
     "Skills": <Skills darkMode={darkMode} />,
     "Education": <Education darkMode={darkMode} />,
+    "Resume": <Resume darkMode={darkMode} />,
     "Projects": <Project darkMode={darkMode} />,
-    "Fun Zone": <FunZone darkMode={darkMode} />,
     "Code Lab": <CodeLab darkMode={darkMode} />,
+    "Fun Zone": <FunZone darkMode={darkMode} />,
+    "Timeline": <Timeline darkMode={darkMode} />,
   }), [darkMode]);
 
   // --- group nav for recruiters vs more ---
@@ -164,9 +170,41 @@ function App() {
     "Timeline",
   ];
 
-  const goTo = useCallback((label) => {
-    setSelectedSection(label);
-  }, []);
+  // --- Step 2: per-section scroll memory (session-only) ---
+  const mainScrollRef = useRef(null);
+  const sectionScrollRef = useRef(new Map()); // label -> scrollTop
+  const prevSectionRef = useRef(null);
+
+  // --- Step 3: boundary scroll snap (top/bottom -> prev/next section) ---
+  const snapLockRef = useRef(false);
+  const lastSnapTsRef = useRef(0);
+  const boundaryPushRef = useRef(0);
+
+  // NEW (Step 3 refinement)
+  const lastBoundaryRef = useRef(null);  // "top" | "bottom" | null
+
+  // --- Step 3.5: silky transitions (only for boundary navigation) ---
+  const [isSectionTransitioning, setIsSectionTransitioning] = useState(false);
+  const pendingSnapNavRef = useRef(false);
+  const TRANSITION_MS = 220;
+
+  const goTo = useCallback((label, { animated = false } = {}) => {
+    if (!animated) {
+      setSelectedSection(label);
+      return;
+    }
+
+    // prevent stacking transitions
+    if (isSectionTransitioning) return;
+
+    pendingSnapNavRef.current = true;
+    setIsSectionTransitioning(true);
+
+    // switch section after fade starts
+    window.setTimeout(() => {
+      setSelectedSection(label);
+    }, TRANSITION_MS);
+  }, [isSectionTransitioning]);
 
   // Keep app in sync when user uses browser back/forward
   useEffect(() => {
@@ -244,6 +282,189 @@ function App() {
     prevSectionRef.current = selectedSection;
   }, [selectedSection]);
 
+  useEffect(() => {
+    if (!pendingSnapNavRef.current) return;
+
+    // New section is mounted; wait one paint so it can layout, then fade back in.
+    requestAnimationFrame(() => {
+      setIsSectionTransitioning(false);
+      pendingSnapNavRef.current = false;
+    });
+  }, [selectedSection]);
+
+  useEffect(() => {
+    const scroller = mainScrollRef.current;
+    if (!scroller) return;
+
+    const EPS = 2;             // boundary tolerance
+    const INTENT = 6;          // small, discoverable scroll intent
+    const COOLDOWN_MS = 550;   // prevent multi-skip from one gesture
+
+    const isEditableTarget = (t) => {
+      if (!t) return false;
+      const el = t instanceof HTMLElement ? t : null;
+      if (!el) return false;
+      const tag = (el.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      return Boolean(el.isContentEditable);
+    };
+
+    const isTypingContext = (t) => {
+      if (!t) return false;
+      const el = t instanceof HTMLElement ? t : null;
+      if (!el) return false;
+
+      const tag = (el.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (el.isContentEditable) return true;
+
+      // If a component explicitly opts out of global arrow-nav
+      if (el.closest?.("[data-disable-section-arrow-nav='true']")) return true;
+
+      return false;
+    };
+
+    const atTop = () => scroller.scrollTop <= EPS;
+    const atBottom = () =>
+      scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - EPS;
+
+    const snapTo = (dir) => {
+      // dir: -1 (prev) or +1 (next)
+      const idx = LABELS.indexOf(selectedSection);
+      if (idx < 0) return;
+
+      const nextIdx = idx + dir;
+      if (nextIdx < 0 || nextIdx >= LABELS.length) return;
+
+      goTo(LABELS[nextIdx], { animated: true });
+    };
+
+    const onWheel = (e) => {
+      if (isEditableTarget(e.target)) return;
+      if (e.shiftKey) return;
+
+      const dy = e.deltaY;
+
+      // Ignore super tiny noise
+      if (Math.abs(dy) < INTENT) return;
+
+      const now = Date.now();
+      if (snapLockRef.current) return;
+      if (now - lastSnapTsRef.current < COOLDOWN_MS) return;
+
+      const goingDown = dy > 0;
+      const goingUp = dy < 0;
+
+      const top = atTop();
+      const bottom = atBottom();
+
+      // Determine current boundary state.
+      // If content fits (top && bottom), pick boundary based on scroll direction.
+      let boundary = null;
+      if (top && bottom) {
+        boundary = goingDown ? "bottom" : "top";
+      } else {
+        boundary = top ? "top" : bottom ? "bottom" : null;
+      }
+
+      // If not at a boundary, reset and let normal scroll happen.
+      if (!boundary) {
+        boundaryPushRef.current = 0;
+        lastBoundaryRef.current = null;
+        return;
+      }
+
+      // If boundary changed (or we just arrived), arm it but don't accumulate yet.
+      // This prevents "lazy scroll to bottom" from instantly snapping.
+      if (lastBoundaryRef.current !== boundary) {
+        lastBoundaryRef.current = boundary;
+        boundaryPushRef.current = 0;
+        return; // let this wheel tick behave normally
+      }
+
+      // Direction must match the boundary intent
+      if ((boundary === "top" && !goingUp) || (boundary === "bottom" && !goingDown)) {
+        boundaryPushRef.current = 0;
+        return;
+      }
+
+      // Accumulate only AFTER boundary has been armed
+      boundaryPushRef.current += Math.abs(dy);
+
+      // Threshold: tune this. Start with 0.35 + minimum 140px.
+      const threshold = Math.max(250, scroller.clientHeight * 0.7);
+
+      if (boundaryPushRef.current < threshold) {
+        // Stop bounce while user is "pushing past"
+        e.preventDefault();
+        return;
+      }
+
+      // Snap
+      e.preventDefault();
+      boundaryPushRef.current = 0;
+
+      snapLockRef.current = true;
+      lastSnapTsRef.current = now;
+
+      if (boundary === "bottom" && goingDown) snapTo(+1);
+      else if (boundary === "top" && goingUp) snapTo(-1);
+
+      setTimeout(() => {
+        snapLockRef.current = false;
+      }, COOLDOWN_MS);
+    };
+
+    const onKeyDown = (e) => {
+      // Don’t steal keys while typing or in editable controls.
+      if (isTypingContext(e.target)) return;
+
+      const key = e.key;
+
+      const wantsPrev = key === "ArrowUp" || key === "ArrowLeft";
+      const wantsNext = key === "ArrowDown" || key === "ArrowRight";
+      if (!wantsPrev && !wantsNext) return;
+
+      // Only snap when at boundary (same mental model as wheel).
+      const top = atTop();
+      const bottom = atBottom();
+
+      // Special case: content fits (top && bottom) -> allow both directions.
+      const contentFits = top && bottom;
+
+      if (!contentFits) {
+        if (wantsPrev && !top) return;
+        if (wantsNext && !bottom) return;
+      }
+
+      const now = Date.now();
+      if (snapLockRef.current) return;
+      if (now - lastSnapTsRef.current < COOLDOWN_MS) return;
+
+      // Prevent the key from also affecting focused UI (like timeline scrubber)
+      // when we *are* performing a section change.
+      e.preventDefault();
+
+      snapLockRef.current = true;
+      lastSnapTsRef.current = now;
+
+      snapTo(wantsNext ? +1 : -1);
+
+      setTimeout(() => {
+        snapLockRef.current = false;
+      }, COOLDOWN_MS);
+    };
+
+    // Important: passive:false so preventDefault works.
+    scroller.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+
+    return () => {
+      scroller.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [selectedSection, goTo]);
+
   // --- collapsible sidebar state ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem("sidebarCollapsed");
@@ -289,11 +510,6 @@ function App() {
 
   // used to skip one forced-expand after a *user collapse* on a pinned section
   const skipNextPinnedExpand = useRef(false);
-
-  // --- Step 2: per-section scroll memory (session-only) ---
-  const mainScrollRef = useRef(null);
-  const sectionScrollRef = useRef(new Map()); // label -> scrollTop
-  const prevSectionRef = useRef(null);
 
   // one shared collapse state for ALL non-pinned sections
   // default for non-pinned on first load (per tab) = collapsed (true)
@@ -658,7 +874,11 @@ function App() {
                       dark:bg-[#181826] transition-colors"
             role="main"
           >
-            <div className="flex-1 overflow-y-auto p-6 pb-24">
+            <div
+              className={`flex-1 overflow-y-auto p-6 pb-24 transition-opacity duration-200 ease-out ${
+                isSectionTransitioning ? "opacity-0" : "opacity-100"
+              }`}
+            >
               {sections[selectedSection]}
             </div>
           </main>
