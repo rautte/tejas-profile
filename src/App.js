@@ -718,7 +718,7 @@ function App() {
             className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
             title="Toggle dark mode"
           >
-            {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
+            {darkMode ? <FaSun className="text-yellow-400" /> : <FaMoon className="text-purple-400" />}
           </button>
         </div>
 
