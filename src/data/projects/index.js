@@ -8,7 +8,7 @@ export const PROJECTS = [
     techStack: ["React", "Python", "PyTorch", "NLTK"],
     domain: "AI/ML",
     industry: "Tech",
-    github: "https://github.com/rautte/chatbot",
+    github: "",
     status: "Completed",
   },
 

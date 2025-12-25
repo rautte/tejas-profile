@@ -222,7 +222,14 @@ export default function Project() {
     <section className="w-full py-0 px-4 transition-colors">
       <SectionHeader
         icon={FaProjectDiagram}
-        title="Projects"
+        title={
+          <span className="flex items-baseline gap-2">
+            <span>Projects</span>
+            <span className="text-sm italic font-normal text-gray-600 dark:text-gray-400">
+              (Links under construction)
+            </span>
+          </span>
+        }
         // underline intentionally omitted here (kept same behavior)
         right={
           <div className="relative w-fit text-left" ref={dropdownWrapRef}>
