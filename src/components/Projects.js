@@ -316,8 +316,8 @@ export default function Project() {
 
               <span
                 className={cx(
-                  "text-xs px-2 py-1 text-white rounded-full",
-                  project.status === "Deployed"
+                  "text-xs px-2 py-1 text-white rounded-full whitespace-nowrap flex-shrink-0",
+                  ["Deployed", "Completed"].includes(project.status)
                     ? "bg-green-500 dark:bg-green-600"
                     : "bg-indigo-500 dark:bg-indigo-600"
                 )}
