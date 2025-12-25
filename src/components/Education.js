@@ -189,7 +189,15 @@ export default function Education() {
         {educationData.map((edu) => (
           <div
             key={`${edu.school}-${edu.degree}`}
-            className="bg-white dark:bg-gray-900 rounded-xl p-5 shadow-md border border-gray-200 dark:border-gray-700 text-left"
+            className="
+              rounded-2xl
+              border border-gray-200 dark:border-gray-700
+              bg-white/80 dark:bg-gray-800/60
+              backdrop-blur-md
+              shadow-lg hover:shadow-xl transition-shadow duration-300
+              p-5
+              text-left
+            "
           >
             {/* Header row */}
             <div className="flex items-start gap-4">

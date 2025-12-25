@@ -876,31 +876,48 @@ export default function CodeLab({ darkMode }) {
         ref={(el) => {
           if (el) cardRefs.current[idx] = el;
         }}
-        className="w-full rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-[#1f2230] shadow-lg overflow-hidden"
+        className="
+          w-full rounded-2xl
+          border border-gray-200 dark:border-gray-700
+          bg-white/80 dark:bg-gray-800/60
+          backdrop-blur-md
+          shadow-lg hover:shadow-xl transition-shadow duration-300
+          relative overflow-hidden isolate
+        "
       >
         {/* Header */}
         <div className="relative px-4 py-3 border-b border-gray-200 dark:border-gray-700 overflow-hidden">
+          {/* Header surface: removes “transparent fade edge” in dark mode */}
+          <div className="pointer-events-none absolute inset-0 bg-white/80 dark:bg-gray-900/80" />
           {/* Default subtle gray fade */}
           <div
-            className="
-              pointer-events-none absolute top-0 left-0 h-full w-[35rem]
-              bg-gradient-to-r backdrop-blur-[1px]
-              from-gray-200/60 via-gray-200/25 to-transparent
-              dark:from-gray-700/40 dark:via-gray-700/20
-              transition-opacity duration-300
-            "
+            className={[
+              "pointer-events-none absolute top-0 left-0 h-full w-full",
+              "bg-gradient-to-r backdrop-blur-[1px]",
+              "from-gray-200/60 via-gray-200/25 to-white/80",
+              "dark:from-gray-700/40 dark:via-gray-700/20 dark:to-gray-800/60",
+              "transition-opacity duration-300",
+              // wasExpanded ? "opacity-0" : "opacity-100",
+            ].join(" ")}
           />
 
           {/* Session-highlighted purple fade (sits over gray) */}
           <div
             className={[
-              "pointer-events-none absolute top-0 left-0 h-full w-[35rem]",
+              "pointer-events-none absolute top-0 left-0 h-full w-[38rem]",
               "bg-gradient-to-r backdrop-blur-[1px]",
-              "from-purple-300/60 via-purple-200/40 to-transparent",
-              "dark:from-purple-600/30 dark:via-purple-600/20",
+              "from-purple-300/60 via-purple-200/40 to-white/80",
+              "dark:from-purple-600/30 dark:via-purple-600/20 dark:to-gray-800/60",
               "transition-opacity duration-300",
               wasExpanded ? "opacity-100" : "opacity-0",
             ].join(" ")}
+            style={{
+              // Smooth fade-out in dark mode so it doesn't "muddy" into the translucent card surface
+              WebkitMaskImage:
+                "linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 55%, rgba(0,0,0,0) 92%)",
+              maskImage:
+                "linear-gradient(to right, rgba(0,0,0,1) 0%, rgba(0,0,0,0.85) 55%, rgba(0,0,0,0) 92%)",
+            }}
           />
 
           {/* Header content */}

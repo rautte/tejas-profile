@@ -137,7 +137,7 @@ function Tag({ children }) {
 
 function ExperienceCard({ exp }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-md border border-gray-200 dark:border-gray-700 text-left">
+    <div className="border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/60 backdrop-blur-md shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl p-6 text-left">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>

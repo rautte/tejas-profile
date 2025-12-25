@@ -31,7 +31,7 @@ const PILL_INTERACTIVE_CLASS =
   "group-hover:bg-purple-200 dark:group-hover:bg-purple-600 transition-colors duration-200";
 
 const SECTION_CARD_CLASS =
-  "rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-white/5 backdrop-blur-md shadow-sm";
+  "rounded-2xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/60 backdrop-blur-md shadow-lg hover:shadow-xl transition-shadow duration-300";
 
 const SECTION_HEADER_CLASS =
   "px-6 py-3 border-b rounded-t-2xl bg-gray-200/70 dark:bg-gray-700/70 border-gray-200/70 dark:border-white/10 flex items-center justify-between";

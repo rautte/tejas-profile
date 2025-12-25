@@ -57,7 +57,7 @@ export default function Skills() {
         {skillsData.map(({ category, icon, skills }) => (
           <div
             key={category}
-            className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-md border border-gray-200 dark:border-gray-700"
+            className="border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/60 backdrop-blur-md shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl p-6"
           >
             <div className="flex items-center gap-3 mb-4">
               {icon}

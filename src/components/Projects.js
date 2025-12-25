@@ -302,7 +302,7 @@ export default function Project() {
         {filteredProjects.map((project) => (
           <div
             key={project.title}
-            className="bg-white dark:bg-gray-900 rounded-xl p-6 text-left shadow-md transition-all border border-gray-200 dark:border-gray-700"
+            className="border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/60 backdrop-blur-md shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl p-6 text-left"
           >
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xl font-semibold font-epilogue">{project.title}</h3>
@@ -359,7 +359,7 @@ export default function Project() {
                     href={`${project.github}#readme`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700 to-gray-900 text-white dark:text-gray-100 rounded-lg border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
+                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700/80 via-gray-800/90 to-gray-900/90 text-white dark:text-gray-100 rounded-lg border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
                   >
                     <MdArticle />
                     Read Me
@@ -369,7 +369,7 @@ export default function Project() {
                     href={project.github}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700 to-gray-900 text-white dark:text-gray-100 rounded-lg border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
+                    className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700/80 via-gray-800/90 to-gray-900/90 text-white dark:text-gray-100 rounded-lg border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
                   >
                     <FaGithub />
                     GitHub

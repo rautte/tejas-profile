@@ -352,10 +352,10 @@ export default function Timeline() {
             <div
               key={`${activeYear}-${i}-${entry.company}`}
               className="
-                rounded-3xl border border-gray-200/70 dark:border-white/10
-                bg-white/70 dark:bg-white/5
-                backdrop-blur-xl backdrop-saturate-150
-                shadow-[0_18px_45px_rgba(0,0,0,0.10)]
+                rounded-3xl border border-gray-200 dark:border-gray-700
+                bg-white/80 dark:bg-gray-800/60
+                backdrop-blur-md
+                shadow-lg hover:shadow-xl transition-shadow duration-300
                 p-7 text-left
               "
             >
