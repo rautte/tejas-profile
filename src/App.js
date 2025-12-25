@@ -6,9 +6,7 @@
  * When selectedSection changes, restore last-known scroll for that section OR set the scroll container’s scrollTop = 0 (absolute)
  *
  * TODO FIX:
- * Fix the dark Mode toggle missmatch issue, also do the same changes in the games UI layout dfor dark mode (consistency)
  * When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
- * Move all data to ../data/App/index.js
  * Clean the code prod-like with modular, reliable, and scalable structure
  */
 
@@ -16,6 +14,8 @@ import "./App.css";
 import "./index.css";
 
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
+
+import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
 import TicTacToeWeb from "./components/games/tictactoe/TicTacToeWeb";
 import MinesweeperWeb from "./components/games/minesweeper/MinesweeperWeb";
@@ -63,17 +63,7 @@ const ICONS = {
   // "Connect": <FaEnvelope className="text-sm" />,
 };
 
-const LABELS = [
-  "About Me",
-  "Experience",
-  "Skills",
-  "Education",
-  "Resume",
-  "Projects",
-  "Code Lab",
-  "Fun Zone",
-  "Timeline",
-];
+const LABELS = SECTION_ORDER;
 
 const toSlug = (label) => label.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
@@ -221,9 +211,9 @@ function App() {
     [darkMode]
   );
 
-  const recruiterQuickLook = ["About Me", "Experience", "Skills", "Education", "Resume"];
-  const hiringManagerQuickLookBody = ["Projects", "Code Lab", "Fun Zone"];
-  const moreAboutMe = ["Timeline"];
+  const recruiterQuickLook = [DEFAULT_SECTION, ...SIDEBAR_GROUPS.recruiter];
+  const hiringManagerQuickLookBody = SIDEBAR_GROUPS.hiringManager;
+  const moreAboutMe = SIDEBAR_GROUPS.explore;
 
   // ------------------------------
   // Step 2: per-section scroll memory (session-only)
@@ -256,7 +246,7 @@ function App() {
 
   const initialSection = (() => {
     const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0].toLowerCase();
-    return SLUG_TO_LABEL[raw] || "About Me";
+    return SLUG_TO_LABEL[raw] || DEFAULT_SECTION;
   })();
 
   const [selectedSection, setSelectedSection] = useState(initialSection);
@@ -583,7 +573,7 @@ function App() {
   // Hero collapse logic (unchanged)
   // ------------------------------
 
-  const PINNED_SET = useMemo(() => new Set(["About Me"]), []);
+  const PINNED_SET = useMemo(() => new Set(SIDEBAR_GROUPS.pinned), []);
   const skipNextPinnedExpand = useRef(false);
 
   const [sharedCollapsed, setSharedCollapsed] = useState(true);
@@ -659,7 +649,7 @@ function App() {
     </button>
   );
 
-  const PINNED = ["About Me"];
+  const PINNED = SIDEBAR_GROUPS.pinned;
   const recruiterQuickLookBody = recruiterQuickLook.filter((i) => !PINNED.includes(i));
 
   const Group = ({ title, items, titleClassName = "" }) => (
