@@ -465,29 +465,63 @@ function App() {
       if (isTypingContext(e.target)) return;
 
       const key = e.key;
-      const wantsPrev = key === "ArrowUp" || key === "ArrowLeft";
-      const wantsNext = key === "ArrowDown" || key === "ArrowRight";
-      if (!wantsPrev && !wantsNext) return;
+      const isLeft = key === "ArrowLeft";
+      const isRight = key === "ArrowRight";
+      const isUp = key === "ArrowUp";
+      const isDown = key === "ArrowDown";
+
+      if (!isLeft && !isRight && !isUp && !isDown) return;
+
+      // Don’t let held key repeat trigger section nav.
+      if (e.repeat) return;
 
       const top = atTop();
       const bottom = atBottom();
       const contentFits = top && bottom;
 
-      if (!contentFits) {
-        if (wantsPrev && !top) return;
-        if (wantsNext && !bottom) return;
-      }
-
       const now = Date.now();
       if (snapLockRef.current) return;
       if (now - lastSnapTsRef.current < COOLDOWN_MS) return;
 
-      e.preventDefault();
+      // -------------------------
+      // Left/Right: section nav only
+      // Timeline exception: let Timeline own Left/Right (year scrubber)
+      // -------------------------
+      if (isLeft || isRight) {
+        if (selectedSection === "Timeline") return;
 
+        e.preventDefault();
+        snapLockRef.current = true;
+        lastSnapTsRef.current = now;
+
+        snapTo(isRight ? +1 : -1);
+
+        setTimeout(() => {
+          snapLockRef.current = false;
+        }, COOLDOWN_MS);
+
+        return;
+      }
+
+      // -------------------------------------------------
+      // Up/Down: scroll-first. Only when at boundary do navigate on first discrete press.
+      // -------------------------------------------------
+      // If we're already at the boundary, a single discrete press navigates sections.
+      // Holding should never navigate (handled by e.repeat guard above).
+      if (!contentFits) {
+        // Not at boundary -> let the section scroll normally
+        if (isUp && !top) return;
+        if (isDown && !bottom) return;
+      } else {
+        // Content fits (top && bottom). Treat Up as "top", Down as "bottom".
+        // No special-case needed beyond allowing navigation below.
+      }
+
+      e.preventDefault();
       snapLockRef.current = true;
       lastSnapTsRef.current = now;
 
-      snapTo(wantsNext ? +1 : -1);
+      snapTo(isDown ? +1 : -1);
 
       setTimeout(() => {
         snapLockRef.current = false;
