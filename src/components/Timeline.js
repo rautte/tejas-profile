@@ -186,6 +186,8 @@ export default function Timeline() {
   };
 
   const progressPct = indexToPct(activeYearIndex);
+  const atLeftEdge = activeYearIndex <= 0;
+  const atRightEdge = activeYearIndex >= totalYears - 1;
 
   // keyboard nav (optional + stable)
   useEffect(() => {
@@ -246,6 +248,9 @@ export default function Timeline() {
 
         {/* Track (click + drag) */}
         <div
+          data-timeline-scrubber="true"
+          data-timeline-at-left={atLeftEdge ? "true" : "false"}
+          data-timeline-at-right={atRightEdge ? "true" : "false"}
           className="relative mt-2 select-none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}

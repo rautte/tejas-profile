@@ -236,6 +236,7 @@ function App() {
   const wheelGestureRef = useRef({ startedAtBoundary: false, ts: 0 });
   const postSnapIgnoreUntilRef = useRef(0);
   const wheelEdgeHoldRef = useRef({ atTop: false, atBottom: false, ts: 0 });
+  const timelineEdgeArmRef = useRef({ dir: null, ts: 0 });
 
   // ------------------------------
   // Step 3.5: silky transitions (only for boundary navigation)
@@ -505,7 +506,36 @@ function App() {
       // Timeline exception: let Timeline own Left/Right (year scrubber)
       // -------------------------
       if (isLeft || isRight) {
-        if (selectedSection === "Timeline") return;
+        if (selectedSection === "Timeline") {
+          const scrubber = document.querySelector("[data-timeline-scrubber='true']");
+          const atLeft = scrubber?.getAttribute("data-timeline-at-left") === "true";
+          const atRight = scrubber?.getAttribute("data-timeline-at-right") === "true";
+
+          const dir = isLeft ? "left" : "right";
+
+          // If Timeline is NOT at the relevant end, let Timeline own the key.
+          if ((isLeft && !atLeft) || (isRight && !atRight)) {
+            timelineEdgeArmRef.current = { dir: null, ts: 0 }; // reset arm when not at edge
+            return;
+          }
+
+          // We ARE at the edge. First press arms, second press navigates.
+          const now = Date.now();
+          const armed = timelineEdgeArmRef.current;
+          const ARM_WINDOW_MS = 900;
+
+          const isSameDir = armed.dir === dir;
+          const isRecent = now - armed.ts < ARM_WINDOW_MS;
+
+          if (!(isSameDir && isRecent)) {
+            // First press at edge: do nothing (stay on edge content)
+            timelineEdgeArmRef.current = { dir, ts: now };
+            return;
+          }
+
+          // Second press at edge in same direction: allow App.js to navigate sections
+          timelineEdgeArmRef.current = { dir: null, ts: 0 };
+        }
 
         e.preventDefault();
         snapLockRef.current = true;
