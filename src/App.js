@@ -3,11 +3,19 @@
 
 /**
  * TODO CONSIDER:
- * When selectedSection changes, restore last-known scroll for that section OR set the scroll container’s scrollTop = 0 (absolute)
+ * When selectedSection changes, restore last-known scroll for that section (current behavior) OR set the scroll container’s scrollTop = 0 (absolute)
  *
  * TODO FIX:
- * When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
- * Clean the code prod-like with modular, reliable, and scalable structure
+ * 1. Make the scroll based behavior exactly same as Up/Down arrow key (for the scroll it should account timeline section as well unlike Up/Down arrow key)
+ *    - If you’re at top and press Scroll Up: first discrete scroll navigates to previous section (if exists). 
+ *    - If you’re at bottom and press Scroll Down: first discrete scroll navigates to next section (if exists).
+ *    - For scroll based section navigation, when navigating to section then no overflow of scroll should be there
+ *    - Continuos lazy scroll should never cause section navigation.
+ * 2. For the Timeline section, enable the left/right arrow key section navigation based on the end poundaries of the timeline bar, where timeline bar gets first preference and then App.js
+ *    - When timeline bar reached its left end then enable next left arrow button click for section navigation to previous section (here app.js gets preference)
+ *    - When timeline bar reached its right end (by default at right) then enable next right arrow button click for section navigation to next section (here app.js gets preference)
+ * 3 When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
+ * 4. Clean the code prod-like with modular, reliable, and scalable structure
  */
 
 import "./App.css";
@@ -229,8 +237,8 @@ function App() {
 
   const snapLockRef = useRef(false);
   const lastSnapTsRef = useRef(0);
-  const boundaryPushRef = useRef(0);
-  const lastBoundaryRef = useRef(null); // "top" | "bottom" | null
+  const wheelGestureRef = useRef({ startedAtBoundary: false, ts: 0 });
+  const postSnapIgnoreUntilRef = useRef(0);
 
   // ------------------------------
   // Step 3.5: silky transitions (only for boundary navigation)
@@ -387,6 +395,13 @@ function App() {
       goTo(LABELS[nextIdx], { animated: true });
     };
 
+
+    // Wheel: match Up/Down behavior (with a "discrete gesture" gate)
+    // - Scroll inside section normally
+    // - If at top + scroll up (after a pause) -> prev section
+    // - If at bottom + scroll down (after a pause) -> next section
+    // - Lazy/continuous scroll reaching boundary should never navigate
+    // Wheel: match Up/Down behavior with reliable boundary detection + no overscroll bleed + no momentum double-snap
     const onWheel = (e) => {
       if (isEditableTarget(e.target)) return;
       if (e.shiftKey) return;
@@ -395,56 +410,62 @@ function App() {
       if (Math.abs(dy) < INTENT) return;
 
       const now = Date.now();
+
+      // If we just snapped sections, ignore wheel momentum for a short window
+      if (now < postSnapIgnoreUntilRef.current) return;
+
       if (snapLockRef.current) return;
       if (now - lastSnapTsRef.current < COOLDOWN_MS) return;
 
       const goingDown = dy > 0;
       const goingUp = dy < 0;
 
-      const top = atTop();
-      const bottom = atBottom();
+      // Wheel edge detection needs tolerance because scrollTop can be fractional.
+      const WHEEL_EDGE_EPS = 10;
+      const top = scroller.scrollTop <= WHEEL_EDGE_EPS;
+      const bottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - WHEEL_EDGE_EPS;
 
-      // If content fits (top && bottom), decide boundary by direction.
-      let boundary = null;
-      if (top && bottom) boundary = goingDown ? "bottom" : "top";
-      else boundary = top ? "top" : bottom ? "bottom" : null;
+      // Must be at boundary AND pushing past it in the right direction
+      const boundary =
+        (top && goingUp) ? "top" :
+        (bottom && goingDown) ? "bottom" :
+        null;
 
-      if (!boundary) {
-        boundaryPushRef.current = 0;
-        lastBoundaryRef.current = null;
-        return;
-      }
+      if (!boundary) return;
 
-      // arm boundary (prevents “lazy scroll” from snapping instantly)
-      if (lastBoundaryRef.current !== boundary) {
-        lastBoundaryRef.current = boundary;
-        boundaryPushRef.current = 0;
-        return;
-      }
+      // Discrete gesture = pause before this wheel event
+      const GESTURE_GAP_MS = 140;
+      const isNewGesture = !wheelGestureRef.current.ts || now - wheelGestureRef.current.ts > GESTURE_GAP_MS;
+      wheelGestureRef.current.ts = now;
 
-      if ((boundary === "top" && !goingUp) || (boundary === "bottom" && !goingDown)) {
-        boundaryPushRef.current = 0;
-        return;
-      }
+      // Two-tier intent:
+      // - New gesture at boundary -> small threshold (fast response)
+      // - Same gesture at boundary -> require a stronger flick (fixes "takes many tries after lazy scroll")
+      const DISCRETE_CONFIRM_MIN = 14;  // small, feels responsive
+      const STRONG_CONFIRM_MIN  = 38;  // strong flick; blocks lazy continuous scroll from navigating
 
-      boundaryPushRef.current += Math.abs(dy);
+      const absDy = Math.abs(dy);
+      const intentOk = isNewGesture ? absDy >= DISCRETE_CONFIRM_MIN : absDy >= STRONG_CONFIRM_MIN;
+      if (!intentOk) return;
 
-      // tuned knob
-      const threshold = Math.max(250, scroller.clientHeight * 0.7);
-
-      if (boundaryPushRef.current < threshold) {
-        e.preventDefault();
-        return;
-      }
-
+      // Consume wheel so there’s no overscroll bleed into the next section
       e.preventDefault();
-      boundaryPushRef.current = 0;
+
+      // Hard clamp before switching sections (prevents “overflow carry”)
+      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      scroller.scrollTop = boundary === "top" ? 0 : maxTop;
 
       snapLockRef.current = true;
       lastSnapTsRef.current = now;
 
-      if (boundary === "bottom" && goingDown) snapTo(+1);
-      else if (boundary === "top" && goingUp) snapTo(-1);
+      // Kill momentum so we never chain-snap across short sections
+      postSnapIgnoreUntilRef.current = now + 900;
+
+      // Reset wheel timing so next snap requires a fresh intent
+      wheelGestureRef.current.ts = 0;
+
+      if (boundary === "bottom") snapTo(+1);
+      else snapTo(-1);
 
       setTimeout(() => {
         snapLockRef.current = false;
