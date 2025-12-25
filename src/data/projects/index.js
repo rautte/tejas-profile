@@ -56,7 +56,7 @@ export const PROJECTS = [
     domain: "Backend",
     industry: "Tech",
     github: "",
-    status: "Completed",
+    status: "In-Progress",
   },
 
   {
