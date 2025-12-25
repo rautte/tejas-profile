@@ -12,12 +12,12 @@ import { MdVerified } from "react-icons/md";
 import { createPortal } from "react-dom";
 
 // ✅ Logos (add these files under: src/assets/education/)
-import neuLogo from "../assets/education/neu.jpg";
-import utAustinLogo from "../assets/education/utaustin.jpg";
-import vitLogo from "../assets/education/vit.jpg";
+import neuLogo from "../assets/images/education/neu.jpg";
+import utAustinLogo from "../assets/images/education/utaustin.jpg";
+import vitLogo from "../assets/images/education/vit.jpg";
 
 // ✅ Optional award image
-import specialAchiever from "../assets/education/student_special_achiever_2018-2019.jpg";
+import specialAchiever from "../assets/images/education/student_special_achiever_2018-2019.jpg";
 
 const educationData = [
   {
