@@ -2,8 +2,8 @@
 
 /**
  * TODO FIX:
- * For the query params deep link filter, resolve the conflic of selecting aditional filter options when on the same link
- * For UI only, consider different design for either "view" (code snippet) or "see more" (page loader)
+ * For the query params deep link filter, resolve the conflict of selecting aditional filter options when on the same link
+ * For UI only, consider different design for either texts, "view" (code snippet) or "see more" (page loader)
  * Arrange the data list in priority order of high-signal
  * Make the snippet cards always pin to the top (leaving a few px from the hero section bottom) when viewed while collapsing the already expanded ones if any
  */

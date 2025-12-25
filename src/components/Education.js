@@ -8,118 +8,15 @@
 
 import React from "react";
 import { FaGraduationCap } from "react-icons/fa";
-import { MdVerified } from "react-icons/md";
 import { createPortal } from "react-dom";
 
-// ✅ Logos (add these files under: src/assets/education/)
-import neuLogo from "../assets/images/education/neu.jpg";
-import utAustinLogo from "../assets/images/education/utaustin.jpg";
-import vitLogo from "../assets/images/education/vit.jpg";
+import { EDUCATION } from "../data/education";
 
-// ✅ Optional award image
-import specialAchiever from "../assets/images/education/student_special_achiever_2018-2019.jpg";
+import SectionHeader from "./shared/SectionHeader";
+import Pill from "./shared/Pill";
 
-const educationData = [
-  {
-    school: "Northeastern University",
-    logo: neuLogo,
-    degree: "Master of Science (MS), Engineering Management",
-    duration: "Sep 2021 – May 2023",
-    location: "Boston, MA",
-    coursework: [
-      "Engineering Probability and Statistics",
-      "Deterministic Operations Research",
-      "Economic Decision Analysis",
-      "Blockchain & DeFi",
-      "Data Management for Analytics",
-      "Data Mining Engineering Apps",
-      "Project Management",
-      "Managing Global Enterprises (D’Amore-McKim)",
-      "Financial Engineering & Management (D’Amore-McKim)",
-    ],
-    highlights: [
-      "Cross-disciplinary focus combining engineering systems with business and financial decision-making.",
-      "Completed graduate-level business coursework through D’Amore-McKim School of Business.",
-    ],
-    // tags: [
-    //   "Decision Science",
-    //   "Operations Research",
-    //   "Analytics Systems",
-    //   "Data Modeling",
-    //   "Optimization",
-    //   "Techno-Business Strategy",
-    // ],
-  },
-  {
-    school: "The University of Texas at Austin",
-    logo: utAustinLogo,
-    degree: "Postgraduate Certificate (Online), Data Science & Business Analytics",
-    duration: "Sep 2020 – Jul 2021",
-    location: "Online",
-    coursework: [
-      "Python for Data Science",
-      "Statistical Methods for Decision Making",
-      "Data Mining",
-      "Predictive Modeling",
-      "Machine Learning",
-      "Time Series Forecasting",
-      "Optimization Techniques",
-      "Marketing & Retail Analytics",
-      "Finance and Risk Analytics",
-    ],
-    highlights: [
-      "Applied, industry-oriented program focused on analytics, ML, and decision science.",
-      "Built a strong foundation in translating business problems into data-driven models, with emphasis on practical forecasting, optimization, and decision-making.",
-    ],
-    // tags: [
-    //   "Applied Data Science",
-    //   "Predictive Modeling",
-    //   "Time Series Analysis",
-    //   "Decision Analytics",
-    //   "Quantitative Modeling",
-    // ],
-  },
-  {
-    school: "Vellore Institute of Technology",
-    logo: vitLogo,
-    degree: "Bachelor of Technology (BTech), Mechanical Engineering",
-    duration: "Jun 2016 – Apr 2020",
-    location: "India",
-    coursework: [
-      "Differential & Difference Equations",
-      "Applied Numerical Methods",
-      "Operations Research & Optimization",
-      "Computational Statistics & Probability",
-      "Statistical Quality Control",
-    ],
-    highlights: [
-      "Student Special Achiever (2018–2020) for two consecutive years.",
-      "Formula Student team member (Pravega Racing); participated in multiple international Formula-SAE competitions.",
-      // "Strong quantitative foundation spanning differential and difference equations, numerical methods, statistical quality control, operations research, and computational probability.",
-    ],
-    // tags: [
-    //   "Quantitative Foundations",
-    //   "Optimization Techniques",
-    //   "Numerical Analysis",
-    //   "Systems Thinking",
-    // ],
-    badge: "Student Special Achiever",
-    badgeIcon: <MdVerified className="text-green-500" />,
-    attachment: {
-      title: "Student Special Achiever (2018–2019)",
-      image: specialAchiever,
-    },
-    activities: ["Formula SAE", "Soccer", "Badminton"],
-  },
-];
-
-function Chip({ children }) {
-  return (
-    <span className="text-xs font-medium px-3 py-1 rounded-full bg-purple-100 dark:bg-purple-800 text-purple-800 dark:text-white">
-      {children}
-    </span>
-  );
-}
+import { cx } from "../utils/cx";
+import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../utils/ui";
 
 export default function Education() {
   const [openImage, setOpenImage] = React.useState(null);
@@ -129,75 +26,47 @@ export default function Education() {
   const prevOverflowRef = React.useRef("");
   const prevPaddingRightRef = React.useRef("");
 
-    React.useEffect(() => {
-      const scrollEl = scrollElRef.current;
-      if (!scrollEl) return;
+  React.useEffect(() => {
+    const scrollEl = scrollElRef.current;
+    if (!scrollEl) return;
 
-      if (openImage) {
-        // Save current scrollTop
-        scrollTopRef.current = scrollEl.scrollTop;
+    if (openImage) {
+      scrollTopRef.current = scrollEl.scrollTop;
 
-        // Save previous styles once
-        prevOverflowRef.current = scrollEl.style.overflowY || "";
-        prevPaddingRightRef.current = scrollEl.style.paddingRight || "";
+      prevOverflowRef.current = scrollEl.style.overflowY || "";
+      prevPaddingRightRef.current = scrollEl.style.paddingRight || "";
 
-        // Lock scrolling on the scroll container
-        scrollEl.style.overflowY = "hidden";
+      scrollEl.style.overflowY = "hidden";
 
-        // Prevent layout shift when scrollbar disappears
-        const scrollbarWidth = scrollEl.offsetWidth - scrollEl.clientWidth;
-        if (scrollbarWidth > 0) {
-          scrollEl.style.paddingRight = `${scrollbarWidth}px`;
-        }
-      } else {
-        // Restore styles
-        scrollEl.style.overflowY = prevOverflowRef.current;
-        scrollEl.style.paddingRight = prevPaddingRightRef.current;
-
-        // Restore scroll position precisely
-        scrollEl.scrollTop = scrollTopRef.current;
+      const scrollbarWidth = scrollEl.offsetWidth - scrollEl.clientWidth;
+      if (scrollbarWidth > 0) {
+        scrollEl.style.paddingRight = `${scrollbarWidth}px`;
       }
+    } else {
+      scrollEl.style.overflowY = prevOverflowRef.current;
+      scrollEl.style.paddingRight = prevPaddingRightRef.current;
+      scrollEl.scrollTop = scrollTopRef.current;
+    }
 
-      // Cleanup safety (in case component unmounts while modal open)
-      return () => {
-        scrollEl.style.overflowY = prevOverflowRef.current;
-        scrollEl.style.paddingRight = prevPaddingRightRef.current;
-      };
-    }, [openImage]);
+    return () => {
+      scrollEl.style.overflowY = prevOverflowRef.current;
+      scrollEl.style.paddingRight = prevPaddingRightRef.current;
+    };
+  }, [openImage]);
 
   return (
-    <section className="w-full py-0 px-4 transition-colors">
-      {/* Header scaffold aligned with Project.js */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
-        {/* Title block */}
-        <div className="w-full">
-          <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
-            <FaGraduationCap className="text-3xl text-purple-700 dark:text-purple-300" />
-            Education
-          </h2>
+    <section
+      ref={scrollElRef}
+      className="w-full py-0 px-4 transition-colors"
+    >
+      <SectionHeader icon={FaGraduationCap} title="Education" />
 
-          {/* Keep this placeholder to match Projects' structure */}
-          <div>{/* underline placeholder */}</div>
-        </div>
-
-        {/* Right-side controls placeholder (intentionally empty to match layout rhythm) */}
-        <div className="hidden sm:block" />
-      </div>
-
-      {/* Cards (gap aligned closer to Project.js) */}
+      {/* Cards */}
       <div className="grid md:grid-cols-2 gap-x-16 gap-y-10 px-6 max-w-6xl mx-auto">
-        {educationData.map((edu) => (
+        {EDUCATION.map((edu) => (
           <div
             key={`${edu.school}-${edu.degree}`}
-            className="
-              rounded-2xl
-              border border-gray-200 dark:border-gray-700
-              bg-white/80 dark:bg-gray-800/60
-              backdrop-blur-md
-              shadow-lg hover:shadow-xl transition-shadow duration-300
-              p-5
-              text-left
-            "
+            className={cx(CARD_SURFACE, CARD_ROUNDED_2XL, "p-5 text-left")}
           >
             {/* Header row */}
             <div className="flex items-start gap-4">
@@ -222,7 +91,6 @@ export default function Education() {
                     {edu.school}
                   </h3>
 
-                  {/* Optional badge */}
                   {edu.badge && edu.attachment && (
                     <button
                       type="button"
@@ -232,11 +100,11 @@ export default function Education() {
                         setOpenImage(edu.attachment);
                       }}
                       className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full
-                                bg-green-100 text-green-800
-                                dark:bg-green-900/40 dark:text-green-200
-                                border border-green-200 dark:border-green-800
-                                hover:bg-green-200 dark:hover:bg-green-900
-                                transition-colors"
+                                 bg-green-100 text-green-800
+                                 dark:bg-green-900/40 dark:text-green-200
+                                 border border-green-200 dark:border-green-800
+                                 hover:bg-green-200 dark:hover:bg-green-900
+                                 transition-colors"
                       aria-label={`View ${edu.badge} certificate`}
                     >
                       {edu.badgeIcon}
@@ -267,7 +135,9 @@ export default function Education() {
                 </div>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {edu.coursework.map((c) => (
-                    <Chip key={c}>{c}</Chip>
+                    <Pill key={c} variant="purple">
+                      {c}
+                    </Pill>
                   ))}
                 </div>
               </>
@@ -292,56 +162,20 @@ export default function Education() {
               </ul>
             )}
 
-            {/* Skills/Tags */}
+            {/* Tags */}
             {edu.tags?.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-4">
                 {edu.tags.map((t) => (
-                  <span
-                    key={t}
-                    className="text-xs px-3 py-1 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-purple-200 dark:hover:bg-purple-700 transition-colors"
-                  >
+                  <Pill key={t} variant="gray">
                     {t}
-                  </span>
+                  </Pill>
                 ))}
               </div>
             )}
-
-            {/* Optional attachment (award photo) -- TO HAVE A THUMBNAIL OF AWARD PHOTO -- */}
-            {/* {edu.attachment?.image && (
-              <div className="mt-5 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-700">
-                <div className="px-4 py-2 text-xs font-semibold bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-200 flex items-center justify-between">
-                  <span>{edu.attachment.title}</span>
-                  <button
-                    type="button"
-                    onClick={() => setOpenImage(edu.attachment)}
-                    className="text-xs text-purple-700 dark:text-purple-300 hover:underline"
-                  >
-                    View
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setOpenImage(edu.attachment);
-                  }}
-                  className="block w-full focus:outline-none"
-                  aria-label={`Open ${edu.attachment.title}`}
-                >
-                  <img
-                    src={edu.attachment.image}
-                    alt={edu.attachment.title}
-                    className="w-full h-24 object-cover object-[50%_42.5%] cursor-zoom-in"
-                    loading="lazy"
-                  />
-                </button>
-              </div>
-            )} */}
           </div>
         ))}
       </div>
+
       {/* Image Modal */}
       {openImage &&
         createPortal(

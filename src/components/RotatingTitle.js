@@ -43,32 +43,3 @@ export default function RotatingTitle() {
   );
 }
 
-
-
-// import { useEffect, useState } from 'react';
-// import { FaCode, FaCloud, FaDatabase, FaChartLine } from 'react-icons/fa';
-
-// const rotatingItems = [
-//   { icon: <FaCode className="inline-block mr-2 text-purple-300 dark:text-purple-400" />, text: 'Full-Stack Developer' },
-//   { icon: <FaCloud className="inline-block mr-2 text-blue-300 dark:text-blue-400" />, text: 'Cloud Platforms: AWS, Azure' },
-//   { icon: <FaDatabase className="inline-block mr-2 text-green-300 dark:text-green-400" />, text: 'Data Engineering: SQL, Airflow, dbt' },
-//   { icon: <FaChartLine className="inline-block mr-2 text-yellow-300 dark:text-yellow-400" />, text: 'BI: Tableau, Power BI, MATLAB' },
-// ];
-
-// export default function RotatingTitle() {
-//   const [index, setIndex] = useState(0);
-
-//   useEffect(() => {
-//     const interval = setInterval(() => {
-//       setIndex((prev) => (prev + 1) % rotatingItems.length);
-//     }, 3500); // Rotate every 3.5 seconds
-//     return () => clearInterval(interval);
-//   }, []);
-
-//   return (
-//     <p className="mt-4 text-lg text-purple-200 dark:text-gray-400 font-jakarta transition-all duration-500 ease-in-out">
-//       {rotatingItems[index].icon}
-//       {rotatingItems[index].text}
-//     </p>
-//   );
-// }

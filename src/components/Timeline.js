@@ -1,8 +1,14 @@
+// src/components/Timeline.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaMapMarkedAlt } from "react-icons/fa";
 
 import { timelineData } from "../data/timeline";
 
+import SectionHeader from "./shared/SectionHeader";
+import Pill from "./shared/Pill";
+
+import { cx } from "../utils/cx";
+import { CARD_SURFACE } from "../utils/ui";
 
 /**
  * ---------- helpers ----------
@@ -51,8 +57,8 @@ function completedYearKey(duration) {
 /**
  * For ordering inside a year (concurrency):
  * Prefer:
- * 1) bigger start year first (newer)
- * 2) Present > not present
+ * 1) Present > not present
+ * 2) bigger start year first (newer)
  */
 function compareWithinYear(a, b) {
   const A = parseDurationYears(a.duration);
@@ -78,18 +84,23 @@ function deriveChips(text) {
   add("AWS", t.includes("aws"));
   add("Event-driven", t.includes("event-driven") || t.includes("event"));
   add("Real-time", t.includes("real-time") || t.includes("realtime"));
-  add("Reliability", t.includes("reliability") || t.includes("error") || t.includes("recovery"));
+  add(
+    "Reliability",
+    t.includes("reliability") || t.includes("error") || t.includes("recovery")
+  );
   add("Orchestration", t.includes("orchestration"));
   add("ETL", t.includes("etl"));
   add("OLAP", t.includes("olap"));
   add("CDK", t.includes("cdk"));
   add("FastAPI", t.includes("fastapi"));
   add("Go", t.includes("go-based") || t.includes("golang") || t.includes("go "));
-  add("Systems", t.includes("distributed") || t.includes("systems") || t.includes("boundaries"));
+  add(
+    "Systems",
+    t.includes("distributed") || t.includes("systems") || t.includes("boundaries")
+  );
 
   return chips.slice(0, 6);
 }
-
 
 export default function Timeline() {
   const railRef = useRef(null);
@@ -131,13 +142,13 @@ export default function Timeline() {
   /**
    * Concurrency handling:
    * If a year has multiple entries, show them all as cards.
-   * (No “conflict”: they simply co-exist.)
    */
   const activeYear = years[clamp(activeYearIndex, 0, totalYears - 1)];
   const activeEntries = grouped.map.get(activeYear) || [];
 
   // Rail mapping
-  const indexToPct = (idx) => (totalYears <= 1 ? 0 : (idx / (totalYears - 1)) * 100);
+  const indexToPct = (idx) =>
+    totalYears <= 1 ? 0 : (idx / (totalYears - 1)) * 100;
 
   const pctToNearestIndex = (pct) => {
     if (totalYears <= 1) return 0;
@@ -192,8 +203,10 @@ export default function Timeline() {
   // keyboard nav (optional + stable)
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (e.key === "ArrowLeft") setActiveYearIndex((p) => clamp(p - 1, 0, totalYears - 1));
-      if (e.key === "ArrowRight") setActiveYearIndex((p) => clamp(p + 1, 0, totalYears - 1));
+      if (e.key === "ArrowLeft")
+        setActiveYearIndex((p) => clamp(p - 1, 0, totalYears - 1));
+      if (e.key === "ArrowRight")
+        setActiveYearIndex((p) => clamp(p + 1, 0, totalYears - 1));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -201,22 +214,17 @@ export default function Timeline() {
 
   return (
     <section className="w-full py-0 px-4 transition-colors">
-      {/* Section Title (your theme) */}
-      <div className="text-left px-6 mb-10">
-        <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
-          <FaMapMarkedAlt className="text-3xl" />
-          Timeline
-        </h2>
-      </div>
+      {/* ✅ Standard header */}
+      <SectionHeader icon={FaMapMarkedAlt} title="Timeline" />
 
-      {/* Ingevity-style center header */}
+      {/* Helper line (keep) */}
       <div className="max-w-4xl mx-auto text-center px-6">
         <p className="mt-6 text-sm text-gray-500 dark:text-gray-400 italic">
           ( Select a year or drag the timeline to see more )
         </p>
       </div>
 
-      {/* ✅ Timeline rail moved HERE (directly under the helper line) */}
+      {/* Timeline rail */}
       <div className="max-w-5xl mx-auto mt-10 px-6">
         {/* Year labels above markers */}
         <div className="relative h-10">
@@ -237,8 +245,15 @@ export default function Timeline() {
                 "
                 style={{ left: `${pct}%` }}
                 aria-label={`Go to ${y}`}
+                type="button"
               >
-                <span className={isActive ? "font-bold text-indigo-500 dark:text-indigo-300" : "font-bold"}>
+                <span
+                  className={
+                    isActive
+                      ? "font-bold text-indigo-500 dark:text-indigo-300"
+                      : "font-bold"
+                  }
+                >
                   {y}
                 </span>
               </button>
@@ -291,6 +306,7 @@ export default function Timeline() {
                 className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2"
                 style={{ left: `${pct}%` }}
                 aria-label={`Select year ${y}`}
+                type="button"
               >
                 <div
                   className={[
@@ -304,7 +320,7 @@ export default function Timeline() {
             );
           })}
 
-          {/* Draggable scrubber pill */}
+          {/* Draggable scrubber pill (keep) */}
           <div
             className="
               absolute top-1/2 -translate-y-1/2 -translate-x-1/2
@@ -322,17 +338,18 @@ export default function Timeline() {
           </div>
         </div>
 
+        {/* Tip text (keep) */}
         <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
           Tip: Drag the scrubber or use ← → keys.
         </div>
       </div>
 
-      {/* ✅ Focused cards BELOW the rail (stable layout, no floating) */}
+      {/* Focused cards BELOW the rail */}
       <div className="max-w-5xl mx-auto mt-10 px-6">
-        {/* Year heading */}
+        {/* Year heading row */}
         <div className="flex items-center justify-between mb-5">
 
-          {/* concurrency note */}
+          {/* concurrency badge (keep) */}
           {activeEntries.length > 1 && (
             <div
               className="
@@ -344,20 +361,15 @@ export default function Timeline() {
               {activeEntries.length} activities in {activeYear}
             </div>
           )}
+          
         </div>
 
         {/* Cards list (handles concurrency cleanly) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {activeEntries.map((entry, i) => (
             <div
-              key={`${activeYear}-${i}-${entry.company}`}
-              className="
-                rounded-3xl border border-gray-200 dark:border-gray-700
-                bg-white/80 dark:bg-gray-800/60
-                backdrop-blur-md
-                shadow-lg hover:shadow-xl transition-shadow duration-300
-                p-7 text-left
-              "
+              key={`${activeYear}-${i}-${entry.company}-${entry.role}`}
+              className={cx(CARD_SURFACE, "rounded-3xl p-7 text-left")}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -371,14 +383,8 @@ export default function Timeline() {
                     Milestone
                   </div>
 
-                  <h4
-                    className="
-                      mt-2 text-xl font-bold font-epilogue
-                      bg-gray-700 text-gray-700 dark:text-gray-300
-                      dark:from-purple-300 dark:via-purple-200 dark:to-indigo-300
-                      bg-clip-text text-transparent
-                    "
-                  >
+                  {/* ✅ Fix: remove accidental bg/text conflict and keep readable */}
+                  <h4 className="mt-2 text-xl font-bold font-epilogue text-gray-900 dark:text-gray-100">
                     {entry.role}
                   </h4>
 
@@ -387,11 +393,13 @@ export default function Timeline() {
                   </p>
                 </div>
 
+                {/* ✅ Fix: duration pill/badge stable & consistent */}
                 <span
                   className="
-                    shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium
+                    shrink-0 inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold
                     bg-indigo-500 dark:bg-indigo-600 text-white
                     border border-purple-400/25
+                    shadow-sm
                   "
                 >
                   {entry.duration}
@@ -402,21 +410,16 @@ export default function Timeline() {
                 {entry.description}
               </p>
 
+              {/* ✅ Use shared Pill for chips (static, no hover highlight) */}
               {entry.chips?.length > 0 && (
                 <div className="mt-5 flex flex-wrap gap-2">
                   {entry.chips.map((tag) => (
-                    <span
-                      key={`${entry.company}-${tag}`}
-                      className="
-                        text-xs px-3 py-1 rounded-full
-                        bg-purple-100 dark:bg-purple-800 
-                        text-purple-800 dark:text-white
-                        border border-purple-400/25
-                        backdrop-blur
-                      "
+                    <Pill
+                      key={`${entry.company}-${entry.role}-${tag}`}
+                      variant="purpleStatic"
                     >
                       {tag}
-                    </span>
+                    </Pill>
                   ))}
                 </div>
               )}

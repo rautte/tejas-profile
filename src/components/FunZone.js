@@ -10,11 +10,15 @@
  */
 
 import React from "react";
-// import TicTacToeWeb from "@/components/TicTacToeWeb";
-import { FaPlay, FaGithub, FaDownload } from 'react-icons/fa';
-import { GiConsoleController } from 'react-icons/gi';
+import { FaPlay, FaGithub, FaDownload } from "react-icons/fa";
+import { GiConsoleController } from "react-icons/gi";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+
+import SectionHeader from "./shared/SectionHeader";
+import { cx } from "../utils/cx";
+import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../utils/ui";
+
 import { BattleshipSVG, MinesweeperSVG, TicTacToeSVG } from "./games/GameSVGs";
 
 // helper: package a zip containing the live SVG, a demo source file, README, and requirements.txt
@@ -23,15 +27,18 @@ const downloadZipBySvgId = async (id, baseName) => {
   if (!root) return;
 
   // Accept either the SVG itself or a wrapper containing one
-  const svgEl = root.tagName?.toLowerCase() === "svg" ? root : root.querySelector("svg");
+  const svgEl =
+    root.tagName?.toLowerCase() === "svg" ? root : root.querySelector("svg");
   if (!svgEl) return;
 
   // Clone so we can tweak attrs without touching the live DOM
   const clone = svgEl.cloneNode(true);
 
   // Ensure required namespaces for a clean standalone SVG
-  if (!clone.getAttribute("xmlns")) clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  if (!clone.getAttribute("xmlns:xlink")) clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  if (!clone.getAttribute("xmlns"))
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  if (!clone.getAttribute("xmlns:xlink"))
+    clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
 
   const serialized = new XMLSerializer().serializeToString(clone);
   const svg = `<?xml version="1.0" encoding="UTF-8"?>\n${serialized}`;
@@ -94,27 +101,28 @@ Then open the printed URL in your browser.`;
   saveAs(blob, `${baseName}.zip`);
 };
 
-function Card({ title, preview, actions }) {
+function GameCard({ title, svgId, baseName, preview, actions }) {
   return (
-    <div
-      className="
-        group w-[320px] rounded-2xl border border-gray-200 dark:border-gray-700
-        bg-white/80 dark:bg-gray-800/60 backdrop-blur-md shadow-lg
-        hover:shadow-xl transition-shadow duration-300
-      "
-    >
+    <div className={cx(CARD_SURFACE, CARD_ROUNDED_2XL, "group w-[320px]")}>
       {/* Move only inner content on hover to prevent jitter */}
       <div className="transition-transform duration-300 group-hover:-translate-y-1">
-        {/* Title on top */}
+        {/* Title */}
         <div className="px-6 pt-6">
           <h3 className="text-xl text-center font-semibold text-purple-700 dark:text-purple-300 mb-4">
             {title}
           </h3>
         </div>
 
-        {/* Preview */}
+        {/* Preview (double-click → generate zip from SVG) */}
         <div className="px-6">
-          {preview}
+          <div
+            id={svgId}
+            onDoubleClick={() => downloadZipBySvgId(svgId, baseName)}
+            title="Double-click to download ZIP generated from this SVG"
+            className="cursor-pointer"
+          >
+            {preview}
+          </div>
         </div>
 
         {/* Actions */}
@@ -128,17 +136,10 @@ function Card({ title, preview, actions }) {
   );
 }
 
-
-export default function Fun() {
+export default function FunZone() {
   return (
     <section className="py-0 px-4 transition-colors">
-      {/* Title */}
-      <div className="text-left px-6 mb-10">
-        <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
-          <GiConsoleController className="text-4xl text-purple-700 dark:text-purple-300" />
-          Fun Zone
-        </h2>
-      </div>
+      <SectionHeader icon={GiConsoleController} title="Fun Zone" />
 
       {/* Subtitle */}
       <p className="text-gray-600 dark:text-gray-300 px-6 mb-14 font-epilogue">
@@ -147,20 +148,13 @@ export default function Fun() {
 
       {/* Cards */}
       <div className="flex flex-wrap justify-center gap-10 px-4">
-        <Card
+        <GameCard
           title="Minesweeper"
-          preview={
-            <div
-              onDoubleClick={() => downloadZipBySvgId('minesweeper-svg', 'minesweeper')}
-              title="Double-click to download ZIP to this SVG"
-              className="cursor-pointer"
-            >
-              < MinesweeperSVG />
-            </div>
-          }
+          svgId="minesweeper-svg"
+          baseName="minesweeper"
+          preview={<MinesweeperSVG />}
           actions={
             <>
-              {/* top row: Code (left) + GitHub (right) */}
               <div className="flex w-full gap-5 mt-3">
                 <a
                   href="./downloads/Minesweeper.zip"
@@ -169,6 +163,7 @@ export default function Fun() {
                 >
                   <FaDownload className="opacity-90" /> <span>Code</span>
                 </a>
+
                 <a
                   href="https://github.com/rautte/Minesweeper"
                   target="_blank"
@@ -179,7 +174,6 @@ export default function Fun() {
                 </a>
               </div>
 
-              {/* bottom row: Play full width */}
               <a
                 href="#/fun-zone/minesweeper"
                 className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/80 via-emerald-600/80 to-green-700/80 text-white shadow hover:opacity-90"
@@ -190,20 +184,13 @@ export default function Fun() {
           }
         />
 
-        <Card
+        <GameCard
           title="Battleship"
-          preview={
-            <div
-              onDoubleClick={() => downloadZipBySvgId('battleship-svg', 'battleship')}
-              title="Double-click to download ZIP to this SVG"
-              className="cursor-pointer"
-            >
-              < BattleshipSVG />
-            </div>
-          }
+          svgId="battleship-svg"
+          baseName="battleship"
+          preview={<BattleshipSVG />}
           actions={
             <>
-              {/* top row: Code (left) + GitHub (right) */}
               <div className="flex w-full gap-5 mt-3">
                 <a
                   href="./downloads/Battleship.zip"
@@ -212,6 +199,7 @@ export default function Fun() {
                 >
                   <FaDownload className="opacity-90" /> <span>Code</span>
                 </a>
+
                 <a
                   href="https://github.com/rautte/Battleship"
                   target="_blank"
@@ -222,7 +210,6 @@ export default function Fun() {
                 </a>
               </div>
 
-              {/* bottom row: Play full width */}
               <a
                 href="#/fun-zone/battleship"
                 className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/80 via-emerald-600/80 to-green-700/80 text-white shadow hover:opacity-90"
@@ -233,44 +220,35 @@ export default function Fun() {
           }
         />
 
-        <Card
-          title="Tic-Tac-Toe (AI)"
-          preview={
-            <div
-              onDoubleClick={() => downloadZipBySvgId('tictactoe-svg', 'tictactoe')}
-              title="Double-click to download ZIP to this SVG"
-              className="cursor-pointer"
-            >
-              < TicTacToeSVG />
-            </div>
-          }
+        <GameCard
+          title="Tic Tac Toe (AI)"
+          svgId="tictactoe-svg"
+          baseName="tictactoe"
+          preview={<TicTacToeSVG />}
           actions={
             <>
-              {/* top row: Code (left) + GitHub (right) */}
               <div className="flex w-full gap-5 mt-3">
                 <a
-                  href="./downloads/TicTacToe.zip"
+                  href="./downloads/TicTacToe_AI.zip"
                   download
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-purple-500/90 via-purple-600/90 to-purple-700/90 text-white shadow hover:opacity-90"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-purple-500/80 via-purple-600/80 to-purple-700/80 text-white shadow hover:opacity-90"
                 >
                   <FaDownload className="opacity-90" /> <span>Code</span>
                 </a>
+
                 <a
-                  href="https://github.com/rautte/TicTacToe"
+                  href="https://github.com/rautte/TicTacToe_AI"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-gray-700/90 via-gray-800/90 to-gray-900/90 text-white shadow hover:opacity-90"
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-gray-700/80 via-gray-800/80 to-gray-900/80 text-white shadow hover:opacity-90"
                 >
                   <FaGithub className="opacity-90" /> <span>GitHub</span>
                 </a>
               </div>
 
-              {/* bottom row: Play full width */}
               <a
                 href="#/fun-zone/tictactoe"
-                // target="_blank"
-                // rel="noopener noreferrer"
-                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/90 via-emerald-600/90 to-green-700/90 text-white shadow hover:opacity-90"
+                className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md bg-gradient-to-r from-green-500/80 via-emerald-600/80 to-green-700/80 text-white shadow hover:opacity-90"
               >
                 <FaPlay className="opacity-90" /> <span>Play</span>
               </a>
@@ -281,4 +259,3 @@ export default function Fun() {
     </section>
   );
 }
-

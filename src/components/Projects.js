@@ -15,6 +15,12 @@ import { MdArticle } from "react-icons/md";
 
 import { PROJECTS, PROJECT_FILTER_OPTIONS } from "../data/projects";
 
+import SectionHeader from "./shared/SectionHeader";
+import Pill from "./shared/Pill";
+
+import { cx } from "../utils/cx";
+import { CARD_SURFACE, CARD_ROUNDED_XL } from "../utils/ui";
+
 export default function Project() {
   // ------------------------------------------------------------
   // Filters (data stays dumb, UI stays predictable)
@@ -214,105 +220,107 @@ export default function Project() {
   // ------------------------------------------------------------
   return (
     <section className="w-full py-0 px-4 transition-colors">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10">
-        <div>
-          <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">
-            <FaProjectDiagram className="text-3xl text-purple-700 dark:text-purple-300" />
-            Projects
-          </h2>
-          <div>{/* underline intentionally omitted here */}</div>
-        </div>
+      <SectionHeader
+        icon={FaProjectDiagram}
+        title="Projects"
+        // underline intentionally omitted here (kept same behavior)
+        right={
+          <div className="relative w-fit text-left" ref={dropdownWrapRef}>
+            <button
+              ref={filterBtnRef}
+              onClick={() => (showDropdown ? setShowDropdown(false) : openDropdown())}
+              className="bg-gray-200/40 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-3 py-1 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
+              type="button"
+            >
+              <HiOutlineFilter className="text-lg" />
+              Filter ▾
+            </button>
 
-        {/* Filter trigger */}
-        <div className="relative w-fit text-left" ref={dropdownWrapRef}>
-          <button
-            ref={filterBtnRef}
-            onClick={() => (showDropdown ? setShowDropdown(false) : openDropdown())}
-            className="bg-gray-200/40 dark:bg-white/10 backdrop-blur-xl border border-gray-300 dark:border-white/30 rounded-xl px-3 py-1 font-medium text-gray-800 dark:text-white shadow-lg hover:bg-gray-200 dark:hover:bg-white/20 transition-all flex items-center gap-2"
-            type="button"
-          >
-            <HiOutlineFilter className="text-lg" />
-            Filter ▾
-          </button>
-
-          {showDropdown &&
-            createPortal(
-              <div
-                ref={dropdownPanelRef}
-                className="
-                  fixed z-50 p-4
-                  bg-gray-300/40 dark:bg-gray-600/40 text-gray-800 dark:text-gray-200
-                  backdrop-blur-xl backdrop-saturate-150
-                  rounded-2xl border border-white/20 dark:border-white/20
-                  shadow-xl ring-1 ring-white/20 text-left
-                  transition-opacity duration-150
-                  overflow-y-auto overscroll-contain
-                "
-                style={{
-                  left: dropdownPos.left,
-                  width: dropdownPos.width,
-                  top: dropdownPos.top ?? "auto",
-                  bottom: dropdownPos.bottom ?? "auto",
-                  maxHeight: dropdownPos.maxHeight,
-                  willChange: "top,left,bottom,max-height",
-                }}
-              >
-                {Object.entries(PROJECT_FILTER_OPTIONS).map(([category, values]) => (
-                  <div key={category} className="mb-10">
-                    <h4 className="text-sm text-gray-700 dark:text-white/70 font-semibold uppercase mb-2">
-                      {category}
-                    </h4>
-                    <div className="w-full h-[1px] bg-gray-300 dark:bg-gray-600 mb-3" />
-                    <div className="flex flex-wrap gap-2">
-                      {values.map((option) => (
-                        <button
-                          key={option}
-                          onClick={() => toggleFilter(option)}
-                          type="button"
-                          className={`px-3 py-1 rounded-full text-xs font-medium transition-all border
-                            ${
-                              filters.includes(option)
-                                ? "bg-purple-600 text-white border-purple-700"
-                                : "bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/30"
-                            }`}
-                        >
-                          {option} ({getCount(option)})
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  onClick={resetFilters}
-                  type="button"
-                  className="mt-2 text-sm text-purple-600 dark:text-purple-300 hover:underline"
+            {showDropdown &&
+              createPortal(
+                <div
+                  ref={dropdownPanelRef}
+                  className={cx(
+                    "fixed z-50 p-4",
+                    "bg-gray-300/40 dark:bg-gray-600/40 text-gray-800 dark:text-gray-200",
+                    "backdrop-blur-xl backdrop-saturate-150",
+                    "rounded-2xl border border-white/20 dark:border-white/20",
+                    "shadow-xl ring-1 ring-white/20 text-left",
+                    "transition-opacity duration-150",
+                    "overflow-y-auto overscroll-contain"
+                  )}
+                  style={{
+                    left: dropdownPos.left,
+                    width: dropdownPos.width,
+                    top: dropdownPos.top ?? "auto",
+                    bottom: dropdownPos.bottom ?? "auto",
+                    maxHeight: dropdownPos.maxHeight,
+                    willChange: "top,left,bottom,max-height",
+                  }}
                 >
-                  Reset Filters
-                </button>
-              </div>,
-              document.body
-            )}
-        </div>
-      </div>
+                  {Object.entries(PROJECT_FILTER_OPTIONS).map(([category, values]) => (
+                    <div key={category} className="mb-10">
+                      <h4 className="text-sm text-gray-700 dark:text-white/70 font-semibold uppercase mb-2">
+                        {category}
+                      </h4>
+                      <div className="w-full h-[1px] bg-gray-300 dark:bg-gray-600 mb-3" />
+
+                      <div className="flex flex-wrap gap-2">
+                        {values.map((option) => {
+                          const selected = filters.includes(option);
+                          return (
+                            <Pill
+                              key={option}
+                              as="button"
+                              type="button"
+                              onClick={() => toggleFilter(option)}
+                              variant={selected ? "purple" : "gray"}
+                              className={cx(
+                                "border",
+                                selected
+                                  ? "bg-purple-600 text-white border-purple-700 hover:bg-purple-600"
+                                  : "bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200 dark:bg-white/20 dark:text-white dark:border-white/30 dark:hover:bg-white/30"
+                              )}
+                            >
+                              {option} ({getCount(option)})
+                            </Pill>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={resetFilters}
+                    type="button"
+                    className="mt-2 text-sm text-purple-600 dark:text-purple-300 hover:underline"
+                  >
+                    Reset Filters
+                  </button>
+                </div>,
+                document.body
+              )}
+          </div>
+        }
+      />
 
       {/* Cards */}
       <div className="grid md:grid-cols-2 gap-x-16 gap-y-10 px-6 py-4 md:px-25">
         {filteredProjects.map((project) => (
           <div
             key={project.title}
-            className="border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/60 backdrop-blur-md shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl p-6 text-left"
+            className={cx(CARD_SURFACE, CARD_ROUNDED_XL, "p-6 text-left")}
           >
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xl font-semibold font-epilogue">{project.title}</h3>
 
               <span
-                className={`text-xs px-2 py-1 text-white rounded-full ${
+                className={cx(
+                  "text-xs px-2 py-1 text-white rounded-full",
                   project.status === "Deployed"
                     ? "bg-green-500 dark:bg-green-600"
                     : "bg-indigo-500 dark:bg-indigo-600"
-                }`}
+                )}
               >
                 {project.status}
               </span>
@@ -324,12 +332,9 @@ export default function Project() {
 
             <div className="flex flex-wrap gap-2 mb-3">
               {project.techStack.map((tech) => (
-                <span
-                  key={tech}
-                  className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-800 text-purple-800 dark:text-white rounded-full"
-                >
+                <Pill key={tech} variant="purple">
                   {tech}
-                </span>
+                </Pill>
               ))}
             </div>
 
