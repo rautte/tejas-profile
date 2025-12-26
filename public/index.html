@@ -7,14 +7,17 @@
     <script>
       (function () {
         try {
-          var stored = sessionStorage.getItem('theme') || localStorage.getItem('theme');
-          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var dark = stored ? stored === 'dark' : prefersDark;
-          if (dark) document.documentElement.classList.add('dark');
-          else document.documentElement.classList.remove('dark');
+          var stored =
+            sessionStorage.getItem("theme") || localStorage.getItem("theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = stored ? stored === "dark" : prefersDark;
+          if (dark) document.documentElement.classList.add("dark");
+          else document.documentElement.classList.remove("dark");
         } catch (e) {
           /* if storage blocked, fall back to light */
-          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.remove("dark");
         }
       })();
     </script>
@@ -26,22 +29,35 @@
         authDomain: "tejas-profile.firebaseapp.com",
         databaseURL: "https://tejas-profile-default-rtdb.firebaseio.com",
         projectId: "tejas-profile",
-        appId: "1:173112208205:web:8957d77565821101eea504"
+        appId: "1:173112208205:web:8957d77565821101eea504",
       };
     </script>
 
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://unpkg.com/feather-icons"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Epilogue:wght@400;500;600;700&family=General+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <base href="%PUBLIC_URL%/" />
     <meta name="theme-color" content="#000000" />
+
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <base href="%PUBLIC_URL%/" />
+
+    <script src="https://unpkg.com/feather-icons"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Epilogue:wght@400;500;600;700&family=General+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <title>Tejas Profile</title>
+
+    <!-- Primary SEO -->
     <meta
       name="description"
       content="Tejas Raut — Software Engineer focused on backend systems, data platforms, and cloud infrastructure."
     />
+    <link rel="canonical" href="https://rautte.github.io/tejas-profile/" />
 
     <!-- Open Graph (WhatsApp / LinkedIn / Slack / iMessage) -->
+    <meta property="og:site_name" content="Tejas Profile" />
     <meta property="og:title" content="Tejas Raut | Portfolio" />
     <meta
       property="og:description"
@@ -53,6 +69,7 @@
       property="og:image"
       content="https://rautte.github.io/tejas-profile/og-image.png"
     />
+    <meta property="og:image:secure_url" content="https://rautte.github.io/tejas-profile/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
 
@@ -63,58 +80,15 @@
       name="twitter:description"
       content="Projects, experience, and systems work across backend, data engineering, and cloud platforms."
     />
+    <meta name="twitter:url" content="https://rautte.github.io/tejas-profile/" />
     <meta
       name="twitter:image"
       content="https://rautte.github.io/tejas-profile/og-image.png"
     />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <title>Tejas Profile</title>
   </head>
+
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
   </body>
 </html>
-
-
-
-<!-- <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-
-    <script>
-      (function () {
-        try {
-          var stored = sessionStorage.getItem('theme') || localStorage.getItem('theme');
-          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var dark = stored ? stored === 'dark' : prefersDark;
-          if (dark) document.documentElement.classList.add('dark');
-          else document.documentElement.classList.remove('dark');
-        } catch (e) {
-          /* if storage blocked, fall back to light */
-          document.documentElement.classList.remove('dark');
-        }
-      })();
-    </script>
-
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://unpkg.com/feather-icons"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Epilogue:wght@400;500;600;700&family=General+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <base href="%PUBLIC_URL%/" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <title>Tejas Profile</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-  </body>
-</html> -->
