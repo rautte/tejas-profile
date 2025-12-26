@@ -911,6 +911,9 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
               <div className="text-sm text-center mb-2 font-semibold tracking-wide text-gray-700 dark:text-gray-200">
                 Open Seas
               </div>
+              <span className="text-xs italic font-normal text-gray-600 dark:text-gray-400">
+                (Online rooms temporarily unavailable)
+              </span>
               <div className="mt-2 h-px w-40 sm:w-20 md:w-44 bg-gray-300 dark:bg-white/10 backdrop-blur-sm rounded-full mx-auto" />
             </div>
 

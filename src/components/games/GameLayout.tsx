@@ -42,7 +42,7 @@ export default function GameLayout({
         aria-label="Toggle dark mode"
         >
         {darkMode ? (
-            <span className="text-yellow-300">
+            <span className="text-yellow-400">
             <FaSun size={18} />
             </span>
         ) : (
