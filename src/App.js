@@ -3,7 +3,7 @@
 
 /**
  * CHECKPOINT (Mobile UI/UX):
- * Discarding the top hero section view for mobile UI/UX
+ * Updating changes to section content for view on mobile UI/UX
  * 
  * TODO CONSIDER:
  * When selectedSection changes, restore last-known scroll for that section (current behavior) OR set the scroll container’s scrollTop = 0 (absolute)
@@ -24,6 +24,7 @@ import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } fr
 
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
+import ThemeToggle from "./components/shared/ThemeToggle";
 import MobileDockNav from "./components/shared/MobileDockNav";
 import QuickConnectPill from "./components/shared/QuickConnectPill";
 import MobileQuickConnectFab from "./components/shared/MobileQuickConnectFab";
@@ -56,8 +57,6 @@ import {
   FaCogs,
   FaGraduationCap,
   FaProjectDiagram,
-  FaMoon,
-  FaSun,
   FaCode,
 } from "react-icons/fa";
 
@@ -873,6 +872,11 @@ function App() {
       {/* Background underlay to avoid showing raw/mismatched background during overscroll bounce */}
       <div aria-hidden className="fixed inset-0 -z-10 bg-gray-50 dark:bg-[#181826] transition-colors" />
 
+      {/* Global theme toggle (always available) */}
+      <div className="fixed top-4 right-4 z-[90]">
+        <ThemeToggle darkMode={darkMode} onToggle={toggleTheme} />
+      </div>
+
       {/* Collapsible Hero (desktop only) */}
       {!isMobile && (
         <>
@@ -885,16 +889,6 @@ function App() {
             style={{ maxHeight: heroCollapsed ? 0 : heroMaxHeight }}
             aria-expanded={!heroCollapsed}
           >
-            {/* Top-right controls */}
-            <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-              <button
-                onClick={toggleTheme}
-                className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
-                title="Toggle dark mode"
-              >
-                {darkMode ? <FaSun className="text-yellow-400" /> : <FaMoon className="text-purple-400" />}
-              </button>
-            </div>
 
             <div
               className={`transition-all duration-400 ease-out ${
@@ -925,20 +919,6 @@ function App() {
             />
           )}
         </>
-      )}
-
-      {/* Floating controls when hero is collapsed */}
-      {heroCollapsed && (
-        <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
-
-          <button
-            onClick={toggleTheme}
-            className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
-            title="Toggle dark mode"
-          >
-            {darkMode ? <FaSun className="text-yellow-300" /> : <FaMoon className="text-purple-400" />}
-          </button>
-        </div>
       )}
 
       <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
