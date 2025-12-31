@@ -752,15 +752,6 @@ function App() {
     }
   }, [selectedSection, sharedCollapsed, PINNED_SET]);
 
-  useEffect(() => {
-    if (!isMobile) return;
-
-    // Mobile: hero is ALWAYS expanded and non-collapsible
-    setHeroCollapsed(false);
-    setSharedCollapsed(false);
-    skipNextPinnedExpand.current = false;
-  }, [isMobile]);
-
   const setHero = useCallback(
     (collapsed) => {
       setHeroCollapsed(collapsed);
@@ -882,64 +873,63 @@ function App() {
       {/* Background underlay to avoid showing raw/mismatched background during overscroll bounce */}
       <div aria-hidden className="fixed inset-0 -z-10 bg-gray-50 dark:bg-[#181826] transition-colors" />
 
-      {/* Collapsible Hero */}
-      <div
-        className="
-          w-full z-30 bg-gradient-to-r from-purple-300 to-blue-300
-          dark:from-purple-900 dark:to-blue-900 shadow-md relative overflow-hidden
-          transition-[max-height] duration-400 ease-out
-        "
-        style={{ maxHeight: isMobile ? heroMaxHeight : heroCollapsed ? 0 : heroMaxHeight }}
-        aria-expanded={!heroCollapsed}
-      >
-        {/* Top-right controls */}
-        <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-          {/* <button
-            onClick={toggleSidebar}
-            className="md:hidden p-2 bg-white/80 dark:bg-[#26263a] text-gray-700 dark:text-white
-                      border border-gray-200 dark:border-[#31314a] rounded-full shadow-sm
-                      transition hover:ring-2 hover:dark:ring-purple-600 hover:ring-purple-300"
-            title={sidebarCollapsed ? "Open menu" : "Close menu"}
-            aria-label="Toggle sidebar"
+      {/* Collapsible Hero (desktop only) */}
+      {!isMobile && (
+        <>
+          <div
+            className="
+              w-full z-30 bg-gradient-to-r from-purple-300 to-blue-300
+              dark:from-purple-900 dark:to-blue-900 shadow-md relative overflow-hidden
+              transition-[max-height] duration-400 ease-out
+            "
+            style={{ maxHeight: heroCollapsed ? 0 : heroMaxHeight }}
+            aria-expanded={!heroCollapsed}
           >
-            <FiSidebar className={`${sidebarCollapsed ? "rotate-180" : "rotate-0"} transition-transform`} size={18} />
-          </button> */}
+            {/* Top-right controls */}
+            <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+              <button
+                onClick={toggleTheme}
+                className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
+                title="Toggle dark mode"
+              >
+                {darkMode ? <FaSun className="text-yellow-400" /> : <FaMoon className="text-purple-400" />}
+              </button>
+            </div>
 
-          <button
-            onClick={toggleTheme}
-            className="p-2 bg-[#26263a] text-white border border-[#31314a] rounded-full shadow-sm transition hover:ring-2 hover:ring-purple-600"
-            title="Toggle dark mode"
-          >
-            {darkMode ? <FaSun className="text-yellow-400" /> : <FaMoon className="text-purple-400" />}
-          </button>
-        </div>
+            <div
+              className={`transition-all duration-400 ease-out ${
+                heroCollapsed ? "opacity-0 scale-[0.98]" : "opacity-100 scale-100"
+              }`}
+            >
+              <Hero darkMode={darkMode} />
+            </div>
 
-        <div className={`transition-all duration-400 ease-out ${heroCollapsed ? "opacity-0 scale-[0.98]" : "opacity-100 scale-100"}`}>
-          <Hero darkMode={darkMode} />
-        </div>
+            {!heroCollapsed && (
+              <HeroHandle
+                collapsed={false}
+                onToggle={() => setHero(true)}
+                placement="bottom"
+                width={120}
+                height={22}
+              />
+            )}
+          </div>
 
-        {!isMobile && !heroCollapsed && (
-          <HeroHandle collapsed={false} onToggle={() => setHero(true)} placement="bottom" width={120} height={22} />
-        )}
-      </div>
-
-      {!isMobile && heroCollapsed && (
-        <HeroHandle collapsed onToggle={() => setHero(false)} placement="top" width={120} height={22} />
+          {heroCollapsed && (
+            <HeroHandle
+              collapsed
+              onToggle={() => setHero(false)}
+              placement="top"
+              width={120}
+              height={22}
+            />
+          )}
+        </>
       )}
 
       {/* Floating controls when hero is collapsed */}
       {heroCollapsed && (
         <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
-          {/* <button
-            onClick={toggleSidebar}
-            className="md:hidden p-2 bg-white/80 dark:bg-[#26263a] text-gray-700 dark:text-white
-                      border border-gray-200 dark:border-[#31314a] rounded-full shadow-sm
-                      transition hover:ring-2 hover:dark:ring-purple-600 hover:ring-purple-300"
-            title={sidebarCollapsed ? "Open menu" : "Close menu"}
-            aria-label="Toggle sidebar"
-          >
-            <FiSidebar className={`${sidebarCollapsed ? "rotate-180" : "rotate-0"} transition-transform`} size={18} />
-          </button> */}
 
           <button
             onClick={toggleTheme}
