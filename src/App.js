@@ -864,18 +864,31 @@ function App() {
           />
 
           <div className={`shrink-0 relative ${sidebarCollapsed ? "px-0" : "px-0"}`}>
-            <button
-              onClick={toggleSidebar}
-              className="hidden md:inline-flex absolute mb-2 top-4 right-1 z-10 p-2
-                        text-gray-700 dark:text-white rounded-full shadow-sm transition
-                        hover:ring-2 hover:dark:ring-purple-500/60 hover:ring-purple-300/70
-                        focus:outline-none focus:ring-2 focus:dark:ring-purple-500/60 focus:ring-purple-300/70
-                        bg-white/10 dark:bg-[#0b0b12]/40 backdrop-blur-xl"
-              title={sidebarCollapsed ? "Expand sidebar (Ctrl/Cmd + \\)" : "Collapse sidebar (Ctrl/Cmd + \\)"}
-              aria-label="Toggle sidebar"
-            >
-              <FiSidebar size={16} className={`transform transition-transform duration-300 ${sidebarCollapsed ? "rotate-180" : "rotate-0"}`} />
-            </button>
+            <div className="hidden md:flex absolute top-4 right-1 z-10 items-center gap-2">
+              {!sidebarCollapsed && (
+                <span className="text-[9px] font-small text-gray-600 dark:text-gray-300/90 italic select-none">
+                  Use ← / → to switch sections
+                </span>
+              )}
+
+              <button
+                onClick={toggleSidebar}
+                className="p-2
+                          text-gray-700 dark:text-white rounded-full shadow-sm transition
+                          hover:ring-2 hover:dark:ring-purple-500/60 hover:ring-purple-300/70
+                          focus:outline-none focus:ring-2 focus:dark:ring-purple-500/60 focus:ring-purple-300/70
+                          bg-white/10 dark:bg-[#0b0b12]/40 backdrop-blur-xl"
+                title={sidebarCollapsed ? "Expand sidebar (Ctrl/Cmd + \\)" : "Collapse sidebar (Ctrl/Cmd + \\)"}
+                aria-label="Toggle sidebar"
+              >
+                <FiSidebar
+                  size={16}
+                  className={`transform transition-transform duration-300 ${
+                    sidebarCollapsed ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+            </div>
 
             <div className="pt-16 space-y-4">
               <ul className={`space-y-0.5 ${sidebarCollapsed ? "px-1" : "px-0"}`}>

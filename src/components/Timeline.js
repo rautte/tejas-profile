@@ -365,7 +365,7 @@ export default function Timeline() {
         </div>
 
         {/* Cards list (handles concurrency cleanly) */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {activeEntries.map((entry, i) => (
             <div
               key={`${activeYear}-${i}-${entry.company}-${entry.role}`}

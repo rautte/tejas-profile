@@ -115,8 +115,8 @@ export default function Resume() {
 
   const hdr = RESUME_DATA.header;
 
-  const websiteUrl = useMemo(() => normalizeUrl(hdr.website), [hdr.website]);
-  const linkedinUrl = useMemo(() => normalizeUrl(hdr.linkedin), [hdr.linkedin]);
+  const websiteUrl = useMemo(() => normalizeUrl(hdr.websiteURL), [hdr.websiteURL]);
+  const linkedinUrl = useMemo(() => normalizeUrl(hdr.linkedinURL), [hdr.linkedinURL]);
 
   const [isPdfPreviewOpen, setIsPdfPreviewOpen] = useState(false);
 
@@ -176,6 +176,18 @@ export default function Resume() {
                   </Pill>
                 </span>
 
+                 <a href={linkedinUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
+                  <span className="group">
+                    <Pill
+                      variant="grayStatic"
+                      className={cx(RESUME_PILL_CLASS, RESUME_PILL_INTERACTIVE_CLASS)}
+                    >
+                      <FaLink className="opacity-80" />
+                      {hdr.linkedin}
+                    </Pill>
+                  </span>
+                </a>
+
                 <a href={mailto(hdr.email)} className="hover:opacity-90 transition">
                   <span className="group">
                     <Pill
@@ -184,6 +196,18 @@ export default function Resume() {
                     >
                       <FaEnvelope className="opacity-80" />
                       {hdr.email}
+                    </Pill>
+                  </span>
+                </a>
+
+                <a href={websiteUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
+                  <span className="group">
+                    <Pill
+                      variant="grayStatic"
+                      className={cx(RESUME_PILL_CLASS, RESUME_PILL_INTERACTIVE_CLASS)}
+                    >
+                      <FaLink className="opacity-80" />
+                      {hdr.website}
                     </Pill>
                   </span>
                 </a>
@@ -198,29 +222,6 @@ export default function Resume() {
                   </Pill>
                 </span>
 
-                <a href={websiteUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
-                  <span className="group">
-                    <Pill
-                      variant="grayStatic"
-                      className={cx(RESUME_PILL_CLASS, RESUME_PILL_INTERACTIVE_CLASS)}
-                    >
-                      <FaLink className="opacity-80" />
-                      {hdr.website}
-                    </Pill>
-                  </span>
-                </a>
-
-                <a href={linkedinUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
-                  <span className="group">
-                    <Pill
-                      variant="grayStatic"
-                      className={cx(RESUME_PILL_CLASS, RESUME_PILL_INTERACTIVE_CLASS)}
-                    >
-                      <FaLink className="opacity-80" />
-                      {hdr.linkedin}
-                    </Pill>
-                  </span>
-                </a>
               </div>
             </div>
           </div>
@@ -234,7 +235,7 @@ export default function Resume() {
                 <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
                   <div className="text-left">
                     <div className="font-semibold text-gray-900 dark:text-gray-100">
-                      {x.company} • {x.title}
+                      {x.title} • {x.company}
                     </div>
                     <div className="text-sm text-gray-600 dark:text-gray-300">
                       {x.location}

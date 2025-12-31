@@ -5,10 +5,12 @@ export const RESUME_DATA = {
   header: {
     name: "Tejas Rajendra Raut",
     location: "San Francisco, Bay Area",
+    linkedin: "linkedin.com/in/tejas-raut",
+    linkedinURL: "linkedin.com/in/tejas-raut",
     email: "raut.tejas@outlook.com",
-    phone: "(857) 264-8844",
     website: "rautte.github.io",
-    linkedin: "linkedin.com/tejas-raut/",
+    websiteURL: "github.com/rautte/rautte.github.io",
+    phone: "(857) 264-8844",
   },
 
   education: [
@@ -35,10 +37,10 @@ export const RESUME_DATA = {
       location: "San Francisco, CA",
       dates: "Jun 2024 - Present",
       bullets: [
-        "Designed and deployed AWS Lambda functions to process notification events from SNS and SQS, incorporating specialized logic for failure recovery, notification handling, and systematized message resubmission",
-        "Developed a scalable OpenSearch ingestion pipeline using AWS CDK to process over 90 million records per month, optimizing bulk write operations and document update patterns for data consistency and performance",
-        "Implemented advanced error handling strategies in Lambda functions, leveraging SQS visibility timeouts and dead-letter queues to ensure a 99.9% success rate in event-driven processing",
-        "Engineered AWS CDK integration tests and CI/CD pipelines with staged rollouts and mechanized rollback for reliable deployments",
+        "Architected event-driven AWS Lambda services processing SNS and SQS notification streams, implementing failure recovery, retry orchestration, and controlled message reprocessing to maintain system correctness under partial failures",
+        "Ingested and materialized high-throughput OpenSearch indices processing over 90M+ records per month, tuned bulk indexing paths and mitigated write amplification to preserve query latency under load",
+        "Operationalized resilient error-handling strategies using SQS visibility timeouts, DLQs, and idempotent consumers, achieving 99.9% success rate across asynchronous event processing workflows",
+        "Codified CDK-based integration tests and CI/CD pipelines with staged deployments and automated rollback mechanisms to ensure safe releases for production infrastructure",
       ],
     },
     {
@@ -47,9 +49,9 @@ export const RESUME_DATA = {
       location: "Bellevue, WA",
       dates: "Oct 2023 - Jun 2024",
       bullets: [
-        "Migrated on-prem data systems to Azure Cloud, optimizing storage and query design to improve performance by 35% and reduce costs by 25%",
-        "Designed and automated Azure ETL pipelines to process 2 TB+ of data daily and enhanced CI/CD workflows, increasing deployment throughput by 40% and minimizing downtime by 30%",
-        "Built data marts and clustering models in Python, enabling refined customer segmentation that boosted marketing engagement by 15%",
+        "Owned the migration of on-premises data systems to Azure Cloud, redesigning storage layouts and query patterns to improve analytical performance by 35% while reducing infrastructure costs by 25%",
+        "Orchestrated Azure-based ETL pipelines processing 2TB+ daily, implementing CI/CD-driven data workflows that increased deployment throughput by 40% and reduced downtime by 30%",
+        "Developed Python-based data marts and clustering models to support customer segmentation and downstream analytics, increasing marketing engagement by 15% through improved data accessibility",
       ],
     },
     {
@@ -58,9 +60,9 @@ export const RESUME_DATA = {
       location: "Mumbai, India",
       dates: "May 2020 - Jun 2021",
       bullets: [
-        "Enabled an 11% revenue uplift for enterprise clients by developing KPI-focused Tableau dashboards and optimizing SAP HANA queries to deliver real-time insights across finance and operations",
-        "Strengthened credit and operational risk models by 20% by building Python and Excel-based variance and stress testing tools that improved the accuracy of investment planning",
-        "Optimized financial workflows by rebuilding ETL pipelines in Azure Data Factory, automating reporting to reduce refresh time",
+        "Enabled an 11% revenue uplift by designing KPI-driven Tableau dashboards and optimizing SAP HANA queries to deliver near-real-time insights across finance and operations teams",
+        "Improved credit and operational risk modeling accuracy by 20% by building Python and Excel-based variance analysis and stress testing tools used in investment planning workflows",
+        "Automated financial ETL pipelines using Azure Data Factory, automating reporting workflows to significantly reduce data refresh latency and manual intervention",
       ],
     },
   ],
@@ -68,45 +70,43 @@ export const RESUME_DATA = {
   skills: {
     "Programming Languages": [
       "Python",
-      "R",
       "SQL",
-      "Transact-SQL",
-      "Scala",
-      "Java",
       "JavaScript",
       "TypeScript",
+      "Java",
+      "R",
+      "Transact-SQL",
       "HTML/CSS",
     ],
-    "Python Libraries and APIs": [
+    "Data & ML Libraries": [
       "NumPy",
       "Pandas",
+      "PySpark",
       "TensorFlow",
       "Scikit-learn",
       "Matplotlib",
       "Seaborn",
-      "PySpark",
     ],
-    "Databases and Big Data Technologies": [
+    "Data Platforms & Distributed Systems": [
       "PostgreSQL",
       "MySQL",
       "MongoDB",
       "Azure Cosmos",
       "Kafka",
-      "Airflow",
       "Spark",
       "Hive",
+      "Airflow",
     ],
-    "Frameworks & Tools": [
-      "Databricks",
-      "Snowflakes",
+    "Cloud, Frameworks & Tools": [
       "AWS",
       "Azure",
+      "Databricks",
+      "Snowflake",
       "Git",
       "Node.js",
       "Angular",
       "Tableau",
       "Power BI",
-      "Microsoft Excel",
       "Minitab",
       "MATLAB",
     ],
@@ -114,16 +114,16 @@ export const RESUME_DATA = {
 
   projects: [
     {
-      name: "Battleship Web Game",
+      name: "Battleship Multiplayer Web Game",
       dates: "Jan 2024 - Apr 2024",
       stack: ["React", "TypeScript", "Firebase", "AWS S3", "CloudFront"],
       bullets: [
-        "Built a real-time 1v1 Battleship game in React/TypeScript with Firebase rooms, turn sync, and 30-second auto-resume; implemented full game logic, compass-based ship control, and an AI bot with hit-streak heuristics",
-        "Created a CDN pipeline for 240-frame ship animations using AWS S3 + CloudFront with auto-sync hooks for Blender-rendered assets; optimized GPU rendering and z-layering to improve in-game responsiveness",
+        "Created a real-time 1v1 multiplayer Battleship web game in React and TypeScript using Firebase for room coordination, turn synchronization, and fault-tolerant session recovery, including AI bot logic with hit-streak heuristics",
+        "Engineered a CDN-backed asset pipeline using AWS S3 and CloudFront to serve 240-frame ship animations, optimizing GPU rendering paths and z-layering for improved runtime responsiveness",
       ],
     },
     {
-      name: "SyzManiac – Developer Environment Automation Framework",
+      name: "SyzManiac – Developer Environment Automation CLI Platform",
       dates: "May 2023 - Dec 2024",
       stack: ["Go", "Shell", "GitHub"],
       bullets: [
