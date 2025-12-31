@@ -9,7 +9,7 @@ import SectionHeader from "./shared/SectionHeader";
 
 export default function AboutMe() {
   return (
-    <section className="w-full py-0 px-4 transition-colors">
+    <section className="w-full py-0 px-0 md:px-4 transition-colors">
       <SectionHeader icon={FaUser} title="About Me" />
 
       {/* Content (NO CARD) */}
@@ -43,7 +43,7 @@ export default function AboutMe() {
         </div>
 
         {/* Mobile-only quote below (ONLY mobile) */}
-        <blockquote className="md:hidden italic text-gray-700 dark:text-gray-300 text-center mb-6 px-4">
+        <blockquote className="md:hidden italic text-gray-700 dark:text-gray-300 text-center mb-6">
           <span className="block text-[12px] leading-relaxed">
             {ABOUT_ME.quote}
           </span>
