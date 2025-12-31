@@ -87,7 +87,7 @@ export default function Footer() {
 
   return (
     <footer
-      className="fixed bottom-2 left-1/2 -translate-x-1/2 z-50"
+      className="fixed md:block hidden bottom-2 left-1/2 -translate-x-1/2 z-50"
       // combine the base centering with the drag offset
       style={{ transform: `translateX(calc(-50% + ${xOffset}px))` }}
       aria-label="Footer quick links"

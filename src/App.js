@@ -2,6 +2,9 @@
 // https://rautte.github.io/tejas-profile
 
 /**
+ * CHECKPOINT (Mobile UI/UX):
+ * Discarding the top hero section view for mobile UI/UX
+ * 
  * TODO CONSIDER:
  * When selectedSection changes, restore last-known scroll for that section (current behavior) OR set the scroll container’s scrollTop = 0 (absolute)
  * After a lazy scroll to the end of a section, it still triggers section navigation even after a hard threshold scroll value of "STRONG_CONFIRM_MIN = 150". 
@@ -20,6 +23,10 @@ import "./index.css";
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
 
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
+
+import MobileDockNav from "./components/shared/MobileDockNav";
+import QuickConnectPill from "./components/shared/QuickConnectPill";
+import MobileQuickConnectFab from "./components/shared/MobileQuickConnectFab";
 
 import TicTacToeWeb from "./components/games/tictactoe/TicTacToeWeb";
 import MinesweeperWeb from "./components/games/minesweeper/MinesweeperWeb";
@@ -53,6 +60,7 @@ import {
   FaSun,
   FaCode,
 } from "react-icons/fa";
+
 
 const ICONS = {
   "About Me": <FaUser className="text-sm" />,
@@ -141,6 +149,18 @@ function parseFunZoneRoute(rawHashPath) {
 }
 
 function App() {
+
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const onChange = (e) => setIsMobile(e.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+
   // ------------------------------
   // Theme state + actions
   // ------------------------------
@@ -214,6 +234,28 @@ function App() {
     }),
     [darkMode]
   );
+
+  const mobileDockItems = useMemo(() => {
+    // Keep the exact same navigation order as your app uses
+    const short = {
+      "About Me": "About",
+      Experience: "Work",
+      Skills: "Skills",
+      Education: "Edu",
+      Resume: "Resume",
+      Projects: "Projects",
+      "Code Lab": "Code",
+      "Fun Zone": "Fun",
+      Timeline: "Time",
+    };
+
+    return LABELS.map((id) => ({
+      id,
+      label: id,
+      shortLabel: short[id] ?? id,
+      icon: ICONS[id],
+    }));
+  }, []);
 
   const recruiterQuickLook = [DEFAULT_SECTION, ...SIDEBAR_GROUPS.recruiter];
   const hiringManagerQuickLookBody = SIDEBAR_GROUPS.hiringManager;
@@ -584,6 +626,66 @@ function App() {
     };
   }, [selectedSection, goTo]);
 
+
+  // ------------------------------
+  // Mobile swipe sections
+  // ------------------------------
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const el = mainScrollRef.current;
+    if (!el) return;
+
+    const THRESH_X = 60;     // minimum horizontal distance
+    const THRESH_Y = 50;     // if vertical movement is too large, ignore
+    const EDGE_GUARD = 8;    // ignore if multi-touch, etc.
+
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    const onTouchStart = (e) => {
+      if (!e.touches || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      tracking = true;
+    };
+
+    const onTouchEnd = (e) => {
+      if (!tracking) return;
+      tracking = false;
+
+      const t = e.changedTouches?.[0];
+      if (!t) return;
+
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+
+      // Ignore mostly-vertical gestures (normal scrolling)
+      if (Math.abs(dy) > THRESH_Y) return;
+      if (Math.abs(dx) < THRESH_X) return;
+
+      const idx = LABELS.indexOf(selectedSection);
+      if (idx < 0) return;
+
+      // Swipe left -> next section, swipe right -> previous section
+      if (dx < -EDGE_GUARD && idx < LABELS.length - 1) {
+        goTo(LABELS[idx + 1], { animated: true });
+      } else if (dx > EDGE_GUARD && idx > 0) {
+        goTo(LABELS[idx - 1], { animated: true });
+      }
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isMobile, selectedSection, goTo]);
+
   // ------------------------------
   // Sidebar collapse
   // ------------------------------
@@ -649,6 +751,15 @@ function App() {
       setHeroCollapsed(sharedCollapsed);
     }
   }, [selectedSection, sharedCollapsed, PINNED_SET]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+
+    // Mobile: hero is ALWAYS expanded and non-collapsible
+    setHeroCollapsed(false);
+    setSharedCollapsed(false);
+    skipNextPinnedExpand.current = false;
+  }, [isMobile]);
 
   const setHero = useCallback(
     (collapsed) => {
@@ -778,12 +889,12 @@ function App() {
           dark:from-purple-900 dark:to-blue-900 shadow-md relative overflow-hidden
           transition-[max-height] duration-400 ease-out
         "
-        style={{ maxHeight: heroCollapsed ? 0 : heroMaxHeight }}
+        style={{ maxHeight: isMobile ? heroMaxHeight : heroCollapsed ? 0 : heroMaxHeight }}
         aria-expanded={!heroCollapsed}
       >
         {/* Top-right controls */}
         <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-          <button
+          {/* <button
             onClick={toggleSidebar}
             className="md:hidden p-2 bg-white/80 dark:bg-[#26263a] text-gray-700 dark:text-white
                       border border-gray-200 dark:border-[#31314a] rounded-full shadow-sm
@@ -792,7 +903,7 @@ function App() {
             aria-label="Toggle sidebar"
           >
             <FiSidebar className={`${sidebarCollapsed ? "rotate-180" : "rotate-0"} transition-transform`} size={18} />
-          </button>
+          </button> */}
 
           <button
             onClick={toggleTheme}
@@ -807,19 +918,19 @@ function App() {
           <Hero darkMode={darkMode} />
         </div>
 
-        {!heroCollapsed && (
+        {!isMobile && !heroCollapsed && (
           <HeroHandle collapsed={false} onToggle={() => setHero(true)} placement="bottom" width={120} height={22} />
         )}
       </div>
 
-      {heroCollapsed && (
+      {!isMobile && heroCollapsed && (
         <HeroHandle collapsed onToggle={() => setHero(false)} placement="top" width={120} height={22} />
       )}
 
       {/* Floating controls when hero is collapsed */}
       {heroCollapsed && (
         <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
-          <button
+          {/* <button
             onClick={toggleSidebar}
             className="md:hidden p-2 bg-white/80 dark:bg-[#26263a] text-gray-700 dark:text-white
                       border border-gray-200 dark:border-[#31314a] rounded-full shadow-sm
@@ -828,7 +939,7 @@ function App() {
             aria-label="Toggle sidebar"
           >
             <FiSidebar className={`${sidebarCollapsed ? "rotate-180" : "rotate-0"} transition-transform`} size={18} />
-          </button>
+          </button> */}
 
           <button
             onClick={toggleTheme}
@@ -844,7 +955,7 @@ function App() {
         {/* Sidebar */}
         <nav
           className={`
-            shrink-0 flex flex-col relative ${sidebarRound}
+            hidden md:flex shrink-0 flex-col relative ${sidebarRound}
             backdrop-blur-lg bg-white/10 dark:bg-[#0b0b12]/40
             border border-white/20 dark:border-white/10
             shadow-[0_8px_30px_rgba(0,0,0,0.12)] ring-1 ring-white/10
@@ -929,7 +1040,7 @@ function App() {
             role="main"
           >
             <div
-              className={`flex-1 overflow-y-auto p-6 pb-24 transition-opacity duration-200 ease-out ${
+              className={`p-6 pb-[140px] md:pb-24 transition-opacity duration-200 ease-out ${
                 isSectionTransitioning ? "opacity-0" : "opacity-100"
               }`}
             >
@@ -940,6 +1051,17 @@ function App() {
           <Footer />
         </div>
       </div>
+
+      <MobileQuickConnectFab>
+        <QuickConnectPill />
+      </MobileQuickConnectFab>
+
+      <MobileDockNav
+        items={mobileDockItems}
+        activeId={selectedSection}
+        onSelect={(id) => goTo(id)}
+      />
+
     </div>
   );
 }
