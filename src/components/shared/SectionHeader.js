@@ -1,3 +1,4 @@
+// src/components/shared/SectionHeader.js
 import React from "react";
 import { cx } from "../../utils/cx";
 import { SECTION_ICON, SECTION_TITLE, SECTION_UNDERLINE } from "../../utils/ui";
@@ -16,12 +17,25 @@ export default function SectionHeader({
   return (
     <div
       className={cx(
-        "flex flex-col sm:flex-row justify-between items-center gap-4 px-6 mb-10",
+        "flex flex-col sm:flex-row justify-between items-center gap-4 mb-8",
+        // Mobile padding
+        "px-0",
+        // Desktop padding unchanged
+        "md:px-6 md:mb-10",
         className
       )}
     >
       <div className="w-full">
-        <h2 className={SECTION_TITLE}>
+        <h2
+          className={cx(
+            SECTION_TITLE,
+            // Mobile-only adjustments
+            // "justify-center text-center text-2xl",
+            "justify-start text-left text-xl",
+            // Desktop restores original behavior
+            "md:justify-start md:text-left md:text-3xl"
+          )}
+        >
           {Icon ? <Icon className={SECTION_ICON} /> : null}
           {title}
         </h2>
