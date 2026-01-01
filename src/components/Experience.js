@@ -1,10 +1,4 @@
-// components/Experience.js
-
-/**
- * TODO FIX:
- * Move any data to ../data/funZone/index.js
- * Clean the code prod-like with modular, reliable, and scalable structure
- */
+// src/components/Experience.js
 
 import React from "react";
 import { FaBriefcase } from "react-icons/fa";
@@ -14,11 +8,16 @@ import SectionHeader from "./shared/SectionHeader";
 import Pill from "./shared/Pill";
 
 import { cx } from "../utils/cx";
-import { CARD_SURFACE, CARD_ROUNDED_XL } from "../utils/ui";
+import {
+  CARD_SURFACE,
+  CARD_ROUNDED_XL,
+  SECTION_SHELL,
+  SECTION_CONTAINER,
+} from "../utils/ui";
 
 function ExperienceCard({ exp }) {
   return (
-    <div className={cx(CARD_SURFACE, CARD_ROUNDED_XL, "p-6 text-left")}>
+    <div className={cx(CARD_SURFACE, CARD_ROUNDED_XL, "p-4 sm:p-6 text-left")}>
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -69,16 +68,16 @@ function ExperienceCard({ exp }) {
 }
 
 export default function Experience() {
-  // const [showEarly, setShowEarly] = React.useState(false);
-
   return (
-    <section className="w-full py-0 px-4 transition-colors">
+    <section className={SECTION_SHELL}>
       <SectionHeader icon={FaBriefcase} title="Experience" />
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10 px-6 max-w-6xl mx-auto">
-        {EXPERIENCE.map((exp) => (
-          <ExperienceCard key={`${exp.company}-${exp.role}`} exp={exp} />
-        ))}
+      <div className={SECTION_CONTAINER}>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10">
+          {EXPERIENCE.map((exp) => (
+            <ExperienceCard key={`${exp.company}-${exp.role}`} exp={exp} />
+          ))}
+        </div>
       </div>
 
       {/* Collapsible Early Experience (kept commented as-is) */}

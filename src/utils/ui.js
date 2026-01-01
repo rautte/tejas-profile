@@ -35,3 +35,11 @@ export const SECTION_ICON =
 
 export const SECTION_UNDERLINE =
   "w-64 h-0.5 mt-2 rounded-full bg-gradient-to-r from-purple-700 via-purple-900 to-purple-600 dark:from-purple-500 dark:via-purple-600 dark:to-purple-400 backdrop-blur-sm opacity-90 shadow-[0_0_2px_1px_rgba(147,51,234,0.6)]";
+
+// MOBILE CONSISTENCY
+export const SECTION_SHELL = "w-full py-1 px-1 md:px-4 transition-colors";
+export const SECTION_CONTAINER = "px-0 sm:px-6 md:px-4 max-w-6xl mx-auto";
+
+// (optional) common mobile body text
+export const BODY_TEXT =
+  "text-gray-800 dark:text-gray-300 leading-relaxed font-epilogue text-[12px] sm:text-md md:text-[15px]";

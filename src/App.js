@@ -1006,7 +1006,7 @@ function App() {
               if (!el) return;
               sectionScrollRef.current.set(selectedSection, el.scrollTop);
             }}
-            className="flex-1 overflow-y-auto p-4 sm:p-6 bg-transparent transition-colors"
+            className="flex-1 overflow-y-auto p-0 sm:p-6 bg-transparent transition-colors"
             role="main"
           >
             <div
