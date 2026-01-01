@@ -35,3 +35,86 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* --- Global subtle "tech" wallpaper (theme-aware) --- */
+.tech-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: -10; /* stays behind everything */
+  pointer-events: none;
+
+  /* Base background (matches your existing theme colors) */
+  background: var(--tw-bg-opacity) 1;
+
+  /* Layered: soft gradient wash + subtle grid + tiny dots */
+  background-image:
+    radial-gradient(1200px 600px at 20% 0%, rgba(168, 85, 247, 0.10), transparent 55%),
+    radial-gradient(900px 500px at 85% 10%, rgba(59, 130, 246, 0.08), transparent 55%),
+    linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0,0,0,0.03) 1px, transparent 1px),
+    radial-gradient(circle, rgba(0,0,0,0.06) 1px, transparent 1px);
+
+  background-size:
+    auto,
+    auto,
+    48px 48px,
+    48px 48px,
+    24px 24px;
+
+  background-position:
+    center,
+    center,
+    0 0,
+    0 0,
+    0 0;
+
+  /* keep it subtle */
+  opacity: 0.9;
+}
+
+/* Dark mode tuning */
+.dark .tech-wallpaper {
+  background-image:
+    radial-gradient(1200px 600px at 18% 0%, rgba(168, 85, 247, 0.18), transparent 55%),
+    radial-gradient(900px 500px at 88% 10%, rgba(59, 130, 246, 0.14), transparent 55%),
+    linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px),
+    radial-gradient(circle, rgba(255,255,255,0.08) 1px, transparent 1px);
+
+  opacity: 0.75; /* even less distracting in dark mode */
+}
+
+/* Style A — minimal grid */
+.wallpaper-grid {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* Style B — nodes / network */
+.wallpaper-nodes {
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(168,85,247,.12), transparent 40%),
+    radial-gradient(circle at 80% 10%, rgba(59,130,246,.10), transparent 40%);
+}
+
+/* Style C — blueprint */
+.wallpaper-blueprint {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.08) 1px, transparent 1px),
+    radial-gradient(circle, rgba(255,255,255,.10) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 20px 20px;
+}
+
+/* Optional: tiny noise to make gradients feel less flat (super subtle) */
+.tech-wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+}
+

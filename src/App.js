@@ -871,7 +871,9 @@ function App() {
     <div className="relative h-screen flex flex-col overflow-hidden bg-transparent text-black dark:text-gray-200 transition-all">
       {/* Background underlay to avoid showing raw/mismatched background during overscroll bounce */}
       <div aria-hidden className="fixed inset-0 -z-10 bg-gray-50 dark:bg-[#181826] transition-colors" />
-
+      {/* Global background wallpaper (subtle + theme-aware) */}
+      {/* <div aria-hidden className="tech-wallpaper wallpaper-nodes bg-gray-50 dark:bg-[#181826] transition-colors" /> */}
+      
       {/* Global theme toggle (always available) */}
       <div className="fixed top-4 right-4 z-[90]">
         <ThemeToggle darkMode={darkMode} onToggle={toggleTheme} />
