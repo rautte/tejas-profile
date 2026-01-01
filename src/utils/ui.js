@@ -10,7 +10,7 @@ export const CARD_ROUNDED_2XL = "rounded-2xl";
 
 // ---- Pills / tags ----
 export const PILL_BASE =
-  "text-xs font-medium px-3 py-1 rounded-full transition-colors";
+  "text-[11px] md:text-xs font-medium px-3 py-1 rounded-full transition-colors";
 
 // Interactive (default across site)
 export const PILL_GRAY =
@@ -40,6 +40,9 @@ export const SECTION_UNDERLINE =
 export const SECTION_SHELL = "w-full py-1 px-1 md:px-4 transition-colors";
 export const SECTION_CONTAINER = "px-0 sm:px-6 md:px-4 max-w-6xl mx-auto";
 
+// export const ABOUTME_BODY_TEXT =
+//   "text-gray-800 dark:text-gray-300 leading-relaxed font-epilogue text-[12px] sm:text-md md:text-[15px]";
+
 // (optional) common mobile body text
 export const BODY_TEXT =
-  "text-gray-800 dark:text-gray-300 leading-relaxed font-epilogue text-[12px] sm:text-md md:text-[15px]";
+  "text-gray-800 dark:text-gray-300 leading-relaxed font-epilogue text-[12px] sm:text-sm md:text-md";

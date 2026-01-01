@@ -33,8 +33,8 @@ export default function MobileQuickConnectFab({ children, label = "Connect" }) {
         title={label}
       >
         <span className="flex items-center gap-2">
-          <FaLink className="text-xs" />
-          <span className="text-xs font-semibold">{label}</span>
+          <FaLink className="text-[10px]" />
+          <span className="text-[10px] font-semibold">{label}</span>
         </span>
       </button>
 

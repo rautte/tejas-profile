@@ -13,6 +13,7 @@ import {
   CARD_ROUNDED_XL,
   SECTION_SHELL,
   SECTION_CONTAINER,
+  BODY_TEXT,
 } from "../utils/ui";
 
 function ExperienceCard({ exp }) {
@@ -21,7 +22,7 @@ function ExperienceCard({ exp }) {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold font-epilogue text-gray-900 dark:text-white">
+          <h3 className="text-md md:text-lg font-semibold font-epilogue text-gray-900 dark:text-white">
             {exp.company}
           </h3>
 
@@ -44,9 +45,10 @@ function ExperienceCard({ exp }) {
 
       {/* Highlights */}
       {exp.highlights?.length > 0 && (
-        <ul className="mt-4 text-sm text-gray-700 dark:text-gray-300 list-disc list-outside pl-6 space-y-2">
+        <ul className={` ${BODY_TEXT} md:text-sm mt-4 list-disc list-outside pl-6 space-y-2 `}>
           {exp.highlights.map((h) => (
             <li key={h} className="leading-relaxed">
+            {/* // <li key={h}> */}
               {h}
             </li>
           ))}
@@ -80,8 +82,6 @@ export default function Experience() {
         </div>
       </div>
 
-      {/* Collapsible Early Experience (kept commented as-is) */}
-      {/* ... */}
     </section>
   );
 }

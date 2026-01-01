@@ -42,7 +42,7 @@ export default function QuickConnectPill({ className = "" }) {
             className={`${l.colorClass} transition`}
             aria-label={l.label}
           >
-            <Icon size={20} />
+            <Icon size={24} />
           </a>
         );
       })}
