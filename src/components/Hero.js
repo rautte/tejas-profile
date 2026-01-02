@@ -1,7 +1,7 @@
 // src/components/Hero.js
 import { motion } from "framer-motion";
 import Particles from "react-tsparticles";
-import RotatingTitle from "./RotatingTitle";
+// import RotatingTitle from "./RotatingTitle";
 import React, { useCallback, useMemo } from "react";
 
 import { loadLinksPreset } from "tsparticles-preset-links";
@@ -170,14 +170,14 @@ export default function Hero({ darkMode }) {
       />
 
       {/* Rotating Title */}
-      <motion.div
+      {/* <motion.div
         className="relative z-10 px-4 pointer-events-none"
         initial={{ opacity: 0, y: -40 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
       >
         <RotatingTitle />
-      </motion.div>
+      </motion.div> */}
     </section>
   );
 }

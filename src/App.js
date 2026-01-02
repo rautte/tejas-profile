@@ -88,6 +88,22 @@ const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
 
 const THEME_KEY = "theme";
 
+const NAV_HINT_KEY = "navHintDismissed";
+
+function readNavHintDismissed() {
+  try {
+    return sessionStorage.getItem(NAV_HINT_KEY) === "true";
+  } catch {}
+  return false;
+}
+
+function writeNavHintDismissed() {
+  try {
+    sessionStorage.setItem(NAV_HINT_KEY, "true");
+  } catch {}
+}
+
+
 /**
  * Theme boot rules:
  * 1) URL override: ?theme=dark|light (one-time, no persistence)
@@ -215,6 +231,19 @@ function App() {
     return () => mq.removeEventListener?.("change", onChange);
   }, []);
 
+
+  // ------------------------------
+  // Section Navigation Hint
+  // ------------------------------
+
+  const [navHintDismissed, setNavHintDismissed] = useState(() => readNavHintDismissed());
+
+  const dismissNavHint = useCallback(() => {
+    setNavHintDismissed(true);
+    writeNavHintDismissed();
+  }, []);
+
+
   // ------------------------------
   // Sections
   // ------------------------------
@@ -304,6 +333,8 @@ function App() {
 
   const goTo = useCallback(
     (label, { animated = false } = {}) => {
+      if (!navHintDismissed) dismissNavHint();
+
       if (!animated) {
         setSelectedSection(label);
         return;
@@ -318,7 +349,7 @@ function App() {
         setSelectedSection(label);
       }, TRANSITION_MS);
     },
-    [isSectionTransitioning]
+    [isSectionTransitioning, navHintDismissed, dismissNavHint]
   );
 
   // Keep app in sync when user uses browser back/forward
@@ -873,7 +904,7 @@ function App() {
       <div aria-hidden className="fixed inset-0 -z-10 bg-gray-50 dark:bg-[#181826] transition-colors" />
       {/* Global background wallpaper (subtle + theme-aware) */}
       {/* <div aria-hidden className="tech-wallpaper wallpaper-nodes bg-gray-50 dark:bg-[#181826] transition-colors" /> */}
-      
+
       {/* Global theme toggle (always available) */}
       <div className="fixed top-4 right-4 z-[90]">
         <ThemeToggle darkMode={darkMode} onToggle={toggleTheme} />
@@ -947,13 +978,10 @@ function App() {
           />
 
           <div className={`shrink-0 relative ${sidebarCollapsed ? "px-0" : "px-0"}`}>
-            <div className="hidden md:flex absolute top-4 right-1 z-10 items-center gap-2">
-              {!sidebarCollapsed && (
-                <span className="text-[9px] font-small text-gray-600 dark:text-gray-300/90 italic select-none">
-                  Use ← / → to switch sections
-                </span>
-              )}
+            {/* Top-right controls (desktop only) */}
+            <div className="hidden md:flex absolute top-4 left-2 right-2 z-10 items-center gap-2">
 
+              {/* Collapse button (unchanged) */}
               <button
                 onClick={toggleSidebar}
                 className="p-2
@@ -1027,6 +1055,80 @@ function App() {
       <MobileQuickConnectFab>
         <QuickConnectPill />
       </MobileQuickConnectFab>
+
+      {isMobile && !navHintDismissed && (
+        <div className="md:hidden fixed left-1/2 -translate-x-1/2 z-[70] bottom-[calc(env(safe-area-inset-bottom)+72px)]">
+          <div
+            className="
+              flex items-center gap-2
+              px-3 py-2 rounded-full
+              bg-white/80 dark:bg-[#0b0b12]/70
+              backdrop-blur-xl
+              border border-gray-200/70 dark:border-white/10
+              shadow-lg
+              text-[12px]
+              text-gray-800 dark:text-gray-100
+              whitespace-nowrap
+            "
+          >
+            <span>Swipe <span className="font-semibold">← →</span> to switch</span>
+            <button
+              type="button"
+              onClick={dismissNavHint}
+              className="
+                ml-1 w-6 h-6 rounded-full
+                bg-gray-100 dark:bg-white/10
+                hover:bg-gray-200 dark:hover:bg-white/15
+                transition
+              "
+              aria-label="Dismiss navigation tip"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Navigation tip (desktop only, sits above footer) */}
+      {!sidebarCollapsed && !navHintDismissed && (
+        <div className="hidden md:flex justify-center mb-3 px-3 pb-14">
+          <div
+            className="
+              relative
+              w-[min(230px,calc(100%-24px))]
+              text-[11px] leading-none px-4 py-2 pr-9 rounded-full
+              bg-gray-300/70 dark:bg-white/10
+              text-indigo-900 dark:text-indigo-100
+              border border-purple-200/70 dark:border-white/10
+              backdrop-blur-md shadow-sm
+              select-none
+            "
+            title="Tip: Use ← → to switch sections"
+          >
+            <span className="block text-center">
+              Tip: Use <span className="font-semibold">← →</span> to switch sections
+            </span>
+
+            <button
+              type="button"
+              onClick={dismissNavHint}
+              className="
+                absolute right-2 top-1/2 -translate-y-1/2
+                w-5 h-5 rounded-full
+                bg-white/30 dark:bg-white/10
+                border border-white/40 dark:border-white/10
+                hover:bg-white/50 dark:hover:bg-white/15
+                transition
+                text-[10px]
+                flex items-center justify-center
+              "
+              aria-label="Dismiss navigation tip"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <MobileDockNav
         items={mobileDockItems}
