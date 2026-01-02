@@ -1089,13 +1089,13 @@ function App() {
         </div>
       )}
 
-      {/* Navigation tip (desktop only, sits above footer) */}
+      {/* Navigation tip (desktop only, overlay — does NOT affect layout) */}
       {!sidebarCollapsed && !navHintDismissed && (
-        <div className="hidden md:flex justify-center mb-3 px-3 pb-14">
+        <div className="hidden md:flex fixed left-1/2 -translate-x-1/2 z-[85] bottom-[62px] px-3">
           <div
+            // left-1/2 -translate-x-1/2 This was under relative in below classname 
             className="
               relative
-              w-[min(230px,calc(100%-24px))]
               text-[11px] leading-none px-4 py-2 pr-9 rounded-full
               bg-gray-300/70 dark:bg-white/10
               text-indigo-900 dark:text-indigo-100
