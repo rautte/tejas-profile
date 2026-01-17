@@ -33,5 +33,5 @@ export const SIDEBAR_GROUPS = {
   recruiter: ["Experience", "Skills", "Education", "Resume"],
   hiringManager: ["Projects", "Code Lab", "Fun Zone"],
   explore: ["Timeline"],
-  admin: ["Analytics", "Data", "Settings"],
+  admin: ["Analytics", "Snapshots", "Data", "Settings"],
 };

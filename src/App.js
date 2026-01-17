@@ -23,7 +23,7 @@ import "./index.css";
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
 
 import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
-import { AdminAnalytics, AdminData, AdminSettings } from "./components/admin";
+import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
 import { OWNER_SECRET, OWNER_SESSION_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
@@ -64,7 +64,8 @@ import {
   FaUserShield,
   FaChartLine, 
   FaDatabase, 
-  FaCog
+  FaCog,
+  FaRegFolderOpen,
 } from "react-icons/fa";
 
 
@@ -79,12 +80,13 @@ const ICONS = {
   "Fun Zone": <GiConsoleController className="text-sm" />,
   "Code Lab": <FaCode className="text-sm" />,
   Analytics: <FaChartLine className="text-sm" />,
+  Snapshots: <FaRegFolderOpen className="text-sm" />,
   Data: <FaDatabase className="text-sm" />,
   Settings: <FaCog className="text-sm" />,
   // "Connect": <FaEnvelope className="text-sm" />,
 };
 
-const ADMIN_LABELS = ["Analytics", "Data", "Settings"];
+const ADMIN_LABELS = ["Analytics", "Snapshots", "Data", "Settings"];
 
 const LABELS = SECTION_ORDER;
 
@@ -388,6 +390,7 @@ function App() {
     return {
       ...base,
       Analytics: <AdminAnalytics darkMode={darkMode} />,
+      Snapshots: <AdminSnapshots darkMode={darkMode} />,
       Data: <AdminData darkMode={darkMode} />,
       Settings: <AdminSettings darkMode={darkMode} />,
     };
