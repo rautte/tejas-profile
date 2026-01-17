@@ -19,6 +19,9 @@ export const SECTION_ORDER = [
   "Code Lab",
   "Fun Zone",
   "Timeline",
+  "Analytics",
+  "Data",
+  "Settings",
 ];
 
 /**
@@ -30,4 +33,5 @@ export const SIDEBAR_GROUPS = {
   recruiter: ["Experience", "Skills", "Education", "Resume"],
   hiringManager: ["Projects", "Code Lab", "Fun Zone"],
   explore: ["Timeline"],
+  admin: ["Analytics", "Data", "Settings"],
 };

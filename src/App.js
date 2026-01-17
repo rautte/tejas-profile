@@ -22,6 +22,8 @@ import "./index.css";
 
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
 
+import { AdminAnalytics, AdminData, AdminSettings } from "./components/admin";
+import { OWNER_PARAM, OWNER_SECRET, OWNER_SESSION_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
@@ -58,6 +60,10 @@ import {
   FaGraduationCap,
   FaProjectDiagram,
   FaCode,
+  FaUserShield,
+  FaChartLine, 
+  FaDatabase, 
+  FaCog
 } from "react-icons/fa";
 
 
@@ -71,8 +77,13 @@ const ICONS = {
   Projects: <FaProjectDiagram className="text-sm" />,
   "Fun Zone": <GiConsoleController className="text-sm" />,
   "Code Lab": <FaCode className="text-sm" />,
+  Analytics: <FaChartLine className="text-sm" />,
+  Data: <FaDatabase className="text-sm" />,
+  Settings: <FaCog className="text-sm" />,
   // "Connect": <FaEnvelope className="text-sm" />,
 };
+
+const ADMIN_LABELS = ["Analytics", "Data", "Settings"];
 
 const LABELS = SECTION_ORDER;
 
@@ -144,6 +155,59 @@ function writeSessionTheme(isDark) {
   } catch {}
 }
 
+
+// ------------------------------
+// Owner privilege (session-only, hash-query based)
+// ------------------------------
+
+function readOwnerEnabled() {
+  try {
+    return sessionStorage.getItem(OWNER_SESSION_KEY) === "1";
+  } catch {}
+  return false;
+}
+
+function writeOwnerEnabled() {
+  try {
+    sessionStorage.setItem(OWNER_SESSION_KEY, "1");
+  } catch {}
+}
+
+function clearOwnerEnabled() {
+  try {
+    sessionStorage.removeItem(OWNER_SESSION_KEY);
+  } catch {}
+}
+
+/**
+ * Parses current hash into:
+ *   path: "about-me" or "fun-zone/battleship-AX9G"
+ *   params: URLSearchParams from the hash query
+ */
+function parseHashPathAndParams() {
+  const full = (window.location.hash || "").replace(/^#\/?/, ""); // "about-me?x=1"
+  const [pathRaw, queryRaw = ""] = full.split("?");
+  const path = decodeURIComponent((pathRaw || "").trim()).toLowerCase();
+  const params = new URLSearchParams(queryRaw);
+  return { path, params };
+}
+
+/**
+ * Removes only OWNER_PARAM from hash query string while preserving all other params.
+ * Example:
+ *   #/about-me?owner-privilege=...&theme=dark  ->  #/about-me?theme=dark
+ * If no other params remain: #/about-me
+ */
+function stripOwnerParamFromHash() {
+  const { path, params } = parseHashPathAndParams();
+  if (!params.has(OWNER_PARAM)) return;
+
+  params.delete(OWNER_PARAM);
+  const rest = params.toString();
+  window.location.hash = rest ? `/${path}?${rest}` : `/${path}`;
+}
+
+
 // ------------------------------
 // Fun Zone hash routing helpers
 // ------------------------------
@@ -168,6 +232,8 @@ function App() {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
   );
+
+  const [isOwner, setIsOwner] = useState(() => readOwnerEnabled());
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -248,23 +314,30 @@ function App() {
   // Sections
   // ------------------------------
 
-  const sections = useMemo(
-    () => ({
-      "About Me": <AboutMe darkMode={darkMode} />,
-      Experience: <Experience darkMode={darkMode} />,
-      Skills: <Skills darkMode={darkMode} />,
-      Education: <Education darkMode={darkMode} />,
-      Resume: <Resume darkMode={darkMode} />,
-      Projects: <Project darkMode={darkMode} />,
-      "Code Lab": <CodeLab darkMode={darkMode} />,
-      "Fun Zone": <FunZone darkMode={darkMode} />,
-      Timeline: <Timeline darkMode={darkMode} />,
-    }),
-    [darkMode]
-  );
+  const sections = useMemo(() => {
+    const base = {
+      "About Me": <AboutMe darkMode={darkMode} isOwner={isOwner} />,
+      Experience: <Experience darkMode={darkMode} isOwner={isOwner} />,
+      Skills: <Skills darkMode={darkMode} isOwner={isOwner} />,
+      Education: <Education darkMode={darkMode} isOwner={isOwner} />,
+      Resume: <Resume darkMode={darkMode} isOwner={isOwner} />,
+      Projects: <Project darkMode={darkMode} isOwner={isOwner} />,
+      "Code Lab": <CodeLab darkMode={darkMode} isOwner={isOwner} />,
+      "Fun Zone": <FunZone darkMode={darkMode} isOwner={isOwner} />,
+      Timeline: <Timeline darkMode={darkMode} isOwner={isOwner} />,
+    };
+
+    if (!isOwner) return base;
+
+    return {
+      ...base,
+      Analytics: <AdminAnalytics darkMode={darkMode} />,
+      Data: <AdminData darkMode={darkMode} />,
+      Settings: <AdminSettings darkMode={darkMode} />,
+    };
+  }, [darkMode, isOwner]);
 
   const mobileDockItems = useMemo(() => {
-    // Keep the exact same navigation order as your app uses
     const short = {
       "About Me": "About",
       Experience: "Work",
@@ -277,17 +350,20 @@ function App() {
       Timeline: "Time",
     };
 
-    return LABELS.map((id) => ({
-      id,
-      label: id,
-      shortLabel: short[id] ?? id,
-      icon: ICONS[id],
-    }));
+    return LABELS
+      .filter((id) => !ADMIN_LABELS.includes(id))
+      .map((id) => ({
+        id,
+        label: id,
+        shortLabel: short[id] ?? id,
+        icon: ICONS[id],
+      }));
   }, []);
 
   const recruiterQuickLook = [DEFAULT_SECTION, ...SIDEBAR_GROUPS.recruiter];
   const hiringManagerQuickLookBody = SIDEBAR_GROUPS.hiringManager;
   const moreAboutMe = SIDEBAR_GROUPS.explore;
+  const adminOnly = SIDEBAR_GROUPS.admin ?? [];
 
   // ------------------------------
   // Step 2: per-section scroll memory (session-only)
@@ -351,6 +427,28 @@ function App() {
     },
     [isSectionTransitioning, navHintDismissed, dismissNavHint]
   );
+
+  useEffect(() => {
+    const tryEnableOwnerFromHash = () => {
+      const { params } = parseHashPathAndParams();
+      const token = params.get(OWNER_PARAM);
+
+      if (token && OWNER_SECRET && token === OWNER_SECRET) {
+        setIsOwner(true);
+        writeOwnerEnabled();
+
+        // 🔒 Remove secret from URL but keep other params
+        stripOwnerParamFromHash();
+      }
+    };
+
+    // run once on load
+    tryEnableOwnerFromHash();
+
+    // run on hash changes too
+    window.addEventListener("hashchange", tryEnableOwnerFromHash);
+    return () => window.removeEventListener("hashchange", tryEnableOwnerFromHash);
+  }, []);
 
   // Keep app in sync when user uses browser back/forward
   useEffect(() => {
@@ -849,11 +947,12 @@ function App() {
         </div>
       )}
       <ul className={`space-y-0.5 ${sidebarCollapsed ? "px-1" : "px-0"}`}>
-        {items.map((label) => (
-          <li key={label} className="relative group">
-            <NavButton label={label} active={selectedSection === label} onClick={() => goTo(label)} />
-          </li>
-        ))}
+        {items
+          .map((label) => (
+            <li key={label} className="relative group">
+              <NavButton label={label} active={selectedSection === label} onClick={() => goTo(label)} />
+            </li>
+          ))}
       </ul>
     </div>
   );
@@ -906,7 +1005,55 @@ function App() {
       {/* <div aria-hidden className="tech-wallpaper wallpaper-nodes bg-gray-50 dark:bg-[#181826] transition-colors" /> */}
 
       {/* Global theme toggle (always available) */}
-      <div className="fixed top-4 right-4 z-[90]">
+      <div className="fixed top-4 right-4 z-[90] flex items-center gap-2">
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => {
+              clearOwnerEnabled();
+              setIsOwner(false);
+            }}
+            className="
+              hidden sm:inline-flex items-center gap-2
+              px-3 py-2 rounded-full
+              bg-gray-200 dark:bg-gray-800
+              backdrop-blur-xl
+              border border-gray-200/70 dark:border-white/10
+              shadow-sm
+              text-[12px]
+              text-gray-800 dark:text-gray-100
+              hover:shadow-md transition
+            "
+            title="Owner mode enabled (click to exit)"
+          >
+            <FaUserShield className="text-[15px] text-purple-600 dark:text-purple-300" />
+            Owner Mode
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation(); // prevent bubbling
+                clearOwnerEnabled();
+                setIsOwner(false);
+              }}
+              className="
+                ml-2
+                px-2 py-[2px]
+                rounded-full
+                bg-red-600 hover:bg-red-700
+                text-white
+                text-[10px]
+                font-semibold
+                leading-none
+                transition
+                shadow-sm
+              "
+              title="Exit owner mode"
+            >
+              OFF
+            </button>
+          </button>
+        )}
+
         <ThemeToggle darkMode={darkMode} onToggle={toggleTheme} />
       </div>
 
@@ -1023,6 +1170,13 @@ function App() {
               {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
 
               <Group title="Explore" items={moreAboutMe} titleClassName="text-[11px] md:text-[11px]" />
+
+              {isOwner && adminOnly.length > 0 && (
+                <>
+                  {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
+                  <Group title="Admin" items={adminOnly} titleClassName="text-[11px] md:text-[11px]" />
+                </>
+              )}
             </div>
           </div>
         </nav>
