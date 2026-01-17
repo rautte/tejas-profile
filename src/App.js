@@ -248,6 +248,7 @@ function App() {
         if (exit) {
           clearOwnerEnabled();
           setIsOwner(false);
+          setSelectedSection(DEFAULT_SECTION);
         }
         return;
       }
@@ -457,6 +458,12 @@ function App() {
   })();
 
   const [selectedSection, setSelectedSection] = useState(initialSection);
+
+  useEffect(() => {
+    if (!isOwner && ADMIN_LABELS.includes(selectedSection)) {
+      setSelectedSection(DEFAULT_SECTION);
+    }
+  }, [isOwner, selectedSection]);
 
   const [hashPath, setHashPath] = useState(() =>
     window.location.hash.replace(/^#\/?/, "").split("?")[0].toLowerCase()
@@ -1070,6 +1077,7 @@ function App() {
               onClick={() => {
                 clearOwnerEnabled();
                 setIsOwner(false);
+                setSelectedSection(DEFAULT_SECTION); // or goTo(DEFAULT_SECTION)
               }}
               className="
                 ml-2
