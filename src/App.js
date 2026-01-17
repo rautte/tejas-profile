@@ -22,8 +22,9 @@ import "./index.css";
 
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
 
+import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
 import { AdminAnalytics, AdminData, AdminSettings } from "./components/admin";
-import { OWNER_PARAM, OWNER_SECRET, OWNER_SESSION_KEY } from "./config/owner";
+import { OWNER_SECRET, OWNER_SESSION_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
@@ -179,34 +180,6 @@ function clearOwnerEnabled() {
   } catch {}
 }
 
-/**
- * Parses current hash into:
- *   path: "about-me" or "fun-zone/battleship-AX9G"
- *   params: URLSearchParams from the hash query
- */
-function parseHashPathAndParams() {
-  const full = (window.location.hash || "").replace(/^#\/?/, ""); // "about-me?x=1"
-  const [pathRaw, queryRaw = ""] = full.split("?");
-  const path = decodeURIComponent((pathRaw || "").trim()).toLowerCase();
-  const params = new URLSearchParams(queryRaw);
-  return { path, params };
-}
-
-/**
- * Removes only OWNER_PARAM from hash query string while preserving all other params.
- * Example:
- *   #/about-me?owner-privilege=...&theme=dark  ->  #/about-me?theme=dark
- * If no other params remain: #/about-me
- */
-function stripOwnerParamFromHash() {
-  const { path, params } = parseHashPathAndParams();
-  if (!params.has(OWNER_PARAM)) return;
-
-  params.delete(OWNER_PARAM);
-  const rest = params.toString();
-  window.location.hash = rest ? `/${path}?${rest}` : `/${path}`;
-}
-
 
 // ------------------------------
 // Fun Zone hash routing helpers
@@ -240,6 +213,88 @@ function App() {
     const onChange = (e) => setIsMobile(e.matches);
     mq.addEventListener?.("change", onChange);
     return () => mq.removeEventListener?.("change", onChange);
+  }, []);
+
+  // ------------------------------
+  // Analytics: init once + flush on tab close
+  // ------------------------------
+  useEffect(() => {
+    analyticsInit();
+
+    const onUnload = () => flushAndClose();
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
+
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      // Cmd+Shift+O (Mac) OR Ctrl+Shift+O (Win/Linux)
+      const isO = (e.key || "").toLowerCase() === "o";
+      const isCombo = isO && e.shiftKey && (e.metaKey || e.ctrlKey);
+
+      if (!isCombo) return;
+
+      // Don’t trigger while typing in inputs
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      const tag = (t?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || t?.isContentEditable) return;
+
+      e.preventDefault();
+
+      // Already owner? offer exit
+      if (readOwnerEnabled()) {
+        const exit = window.confirm("Owner mode is ON. Turn it OFF?");
+        if (exit) {
+          clearOwnerEnabled();
+          setIsOwner(false);
+        }
+        return;
+      }
+
+      // Fail closed if env missing
+      if (!OWNER_SECRET) {
+        alert("Owner secret not configured.");
+        return;
+      }
+
+      const token = window.prompt("Enter owner passcode:");
+      if (!token) return;
+
+      if (token.trim() === OWNER_SECRET) {
+        setIsOwner(true);
+        writeOwnerEnabled();
+        alert("Owner mode enabled for this session.");
+      } else {
+        alert("Incorrect passcode.");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+
+  // ------------------------------
+  // Analytics: delegated click tracking (opt-in via data-analytics attr)
+  // ------------------------------
+  useEffect(() => {
+    const onClick = (e) => {
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (!t) return;
+
+      const el = t.closest?.("[data-analytics]");
+      if (!el) return;
+
+      trackClick({
+        id: el.getAttribute("data-analytics"),
+        text: (el.textContent || "").trim().slice(0, 60),
+        href: el.getAttribute("href") || null,
+      });
+    };
+
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
   }, []);
 
   // ------------------------------
@@ -428,27 +483,6 @@ function App() {
     [isSectionTransitioning, navHintDismissed, dismissNavHint]
   );
 
-  useEffect(() => {
-    const tryEnableOwnerFromHash = () => {
-      const { params } = parseHashPathAndParams();
-      const token = params.get(OWNER_PARAM);
-
-      if (token && OWNER_SECRET && token === OWNER_SECRET) {
-        setIsOwner(true);
-        writeOwnerEnabled();
-
-        // 🔒 Remove secret from URL but keep other params
-        stripOwnerParamFromHash();
-      }
-    };
-
-    // run once on load
-    tryEnableOwnerFromHash();
-
-    // run on hash changes too
-    window.addEventListener("hashchange", tryEnableOwnerFromHash);
-    return () => window.removeEventListener("hashchange", tryEnableOwnerFromHash);
-  }, []);
 
   // Keep app in sync when user uses browser back/forward
   useEffect(() => {
@@ -505,6 +539,13 @@ function App() {
     });
 
     prevSectionRef.current = selectedSection;
+  }, [selectedSection]);
+
+  // ------------------------------
+  // Analytics: section enter tracking
+  // ------------------------------
+  useEffect(() => {
+    trackSectionEnter(selectedSection);
   }, [selectedSection]);
 
   // finish fade-in after animated nav
@@ -1007,12 +1048,7 @@ function App() {
       {/* Global theme toggle (always available) */}
       <div className="fixed top-4 right-4 z-[90] flex items-center gap-2">
         {isOwner && (
-          <button
-            type="button"
-            onClick={() => {
-              clearOwnerEnabled();
-              setIsOwner(false);
-            }}
+          <div
             className="
               hidden sm:inline-flex items-center gap-2
               px-3 py-2 rounded-full
@@ -1024,14 +1060,14 @@ function App() {
               text-gray-800 dark:text-gray-100
               hover:shadow-md transition
             "
-            title="Owner mode enabled (click to exit)"
+            title="Owner mode enabled"
           >
             <FaUserShield className="text-[15px] text-purple-600 dark:text-purple-300" />
-            Owner Mode
+            <span>Owner Mode</span>
+
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation(); // prevent bubbling
+              onClick={() => {
                 clearOwnerEnabled();
                 setIsOwner(false);
               }}
@@ -1051,7 +1087,7 @@ function App() {
             >
               OFF
             </button>
-          </button>
+          </div>
         )}
 
         <ThemeToggle darkMode={darkMode} onToggle={toggleTheme} />
@@ -1188,7 +1224,11 @@ function App() {
             onScroll={() => {
               const el = mainScrollRef.current;
               if (!el) return;
+
               sectionScrollRef.current.set(selectedSection, el.scrollTop);
+
+              // analytics
+              trackScrollDepth(selectedSection, el);
             }}
             className="flex-1 overflow-y-auto p-0 sm:p-6 bg-transparent transition-colors"
             role="main"
