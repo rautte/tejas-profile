@@ -4,7 +4,7 @@
 export const RESUME_DATA = {
   header: {
     name: "Tejas Rajendra Raut",
-    location: "San Francisco, Bay Area",
+    location: "Bellevue, WA",
     linkedin: "linkedin.com/in/tejas-raut",
     linkedinURL: "linkedin.com/in/tejas-raut",
     email: "raut.tejas@outlook.com",
@@ -34,7 +34,7 @@ export const RESUME_DATA = {
     {
       company: "CloudBig Technology",
       title: "Software Engineer",
-      location: "San Francisco, CA",
+      location: "Bellevue, WA",
       dates: "Jun 2024 - Present",
       bullets: [
         "Architected event-driven AWS Lambda services processing SNS and SQS notification streams, implementing failure recovery, retry orchestration, and controlled message reprocessing to maintain system correctness under partial failures",

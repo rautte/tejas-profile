@@ -7,7 +7,7 @@ export const EXPERIENCE = [
     role: "Software Engineer",
     employmentType: "Full-time",
     duration: "Jun 2024 – Present",
-    location: "Remote · San Francisco, CA",
+    location: "Remote · Bellevue, WA",
     highlights: [
       "Owned event-driven notification processing on AWS (SNS/SQS → Lambda), implementing failure recovery, idempotency guards, and automated resubmission to reduce operational toil.",
       "Built and scaled an OpenSearch ingestion pipeline using AWS CDK, reliably processing 90M+ records/month by optimizing bulk indexing, update semantics, and document versioning patterns.",
