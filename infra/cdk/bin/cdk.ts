@@ -11,7 +11,7 @@ import { SnapshotsStack } from "../lib/snapshots-stack";
 const app = new cdk.App();
 
 new AssetsCdnStack(app, "AssetsCdnStack", {
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_ACCOUNT },
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 });
 
 const isDev = process.env.NODE_ENV !== "production";

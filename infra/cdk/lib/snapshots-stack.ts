@@ -139,7 +139,7 @@ export class SnapshotsStack extends cdk.Stack {
         this,
         "GitHubDeployerRole",
         props.githubDeployerRoleArn,
-        { mutable: false }
+        { mutable: true }
       );
 
       repoBucket.grantPut(githubRole, "profiles/*");
