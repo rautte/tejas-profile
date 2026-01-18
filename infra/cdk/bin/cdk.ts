@@ -2,7 +2,6 @@
 // infra/cdk/bin/cdk.ts
 
 import "dotenv/config";
-
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { AssetsCdnStack } from "../lib/assets-cdn-stack";
