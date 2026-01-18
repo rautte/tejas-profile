@@ -12,11 +12,6 @@ import * as iam from "aws-cdk-lib/aws-iam";
 type SnapshotsStackProps = cdk.StackProps & {
   githubPagesOrigin: string; // kept for compatibility (not used directly now)
   ownerToken: string;
-
-  /**
-   * Optional: existing GitHub OIDC role ARN that your Actions uses
-   * e.g. arn:aws:iam::978416150779:role/tejas-profile-github-deployer
-   */
   githubDeployerRoleArn?: string;
 };
 
@@ -24,23 +19,19 @@ export class SnapshotsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SnapshotsStackProps) {
     super(scope, id, props);
 
-    // Allow both local dev + GitHub Pages
     const allowedOrigins = ["http://localhost:3000", "https://rautte.github.io"];
 
-    const bucket = new s3.Bucket(this, "TejasProfileSnapshotsBucket", {
+    // -----------------------------
+    // 1) Snapshots bucket (JSON snapshots + trash)
+    // -----------------------------
+    const snapshotsBucket = new s3.Bucket(this, "TejasProfileSnapshotsBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       versioned: true,
-
-      // ✅ IMPORTANT: allow browser PUT/GET to presigned URLs
       cors: [
         {
-          allowedMethods: [
-            s3.HttpMethods.PUT,
-            s3.HttpMethods.GET,
-            s3.HttpMethods.HEAD,
-          ],
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
           allowedOrigins,
           allowedHeaders: ["*"],
           exposedHeaders: ["ETag"],
@@ -49,27 +40,53 @@ export class SnapshotsStack extends cdk.Stack {
       ],
     });
 
+    // -----------------------------
+    // 2) Repo bucket (repo ZIP uploads under profiles/*)  ✅ OPTION 2
+    // -----------------------------
+    const repoBucket = new s3.Bucket(this, "TejasProfileRepoZipsBucket", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      versioned: true,
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins,
+          allowedHeaders: ["*"],
+          exposedHeaders: ["ETag"],
+          maxAge: 3000,
+        },
+      ],
+
+      // ✅ optional: enable later to control costs
+      // lifecycleRules: [
+      //   {
+      //     prefix: "profiles/",
+      //     expiration: cdk.Duration.days(90),
+      //   },
+      // ],
+    });
+
+    // -----------------------------
+    // Lambda (API) - presigns URLs + lists + soft deletes
+    // -----------------------------
     const fn = new nodeLambda.NodejsFunction(this, "SnapshotsApiHandler", {
       runtime: lambda.Runtime.NODEJS_18_X,
       entry: "lambda/snapshots-handler.ts",
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.seconds(12),
-      bundling: {
-        minify: true,
-        target: "node18",
-      },
+      bundling: { minify: true, target: "node18" },
       environment: {
-        SNAPSHOTS_BUCKET: bucket.bucketName,
+        SNAPSHOTS_BUCKET: snapshotsBucket.bucketName,
+        REPO_BUCKET: repoBucket.bucketName,
+
         OWNER_TOKEN: props.ownerToken,
 
-        // Active snapshots live here
         SNAPSHOTS_PREFIX: "snapshots/",
-
-        // Soft-deleted snapshots live here (recoverable)
         TRASH_PREFIX: "trash/",
+        PROFILES_PREFIX: "profiles/",
 
-        // comma-separated allowlist
         ALLOWED_ORIGINS: allowedOrigins.join(","),
       },
     });
@@ -77,16 +94,14 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     // S3 permissions (strict + correct)
     // -----------------------------
+    snapshotsBucket.grantReadWrite(fn, "snapshots/*");
+    snapshotsBucket.grantReadWrite(fn, "trash/*");
 
-    // Read/write ONLY objects under snapshots/ and trash/
-    bucket.grantReadWrite(fn, "snapshots/*");
-    bucket.grantReadWrite(fn, "trash/*");
-
-    // Allow listing ONLY under snapshots/* and trash/* (ListBucket is bucket-level)
+    // Allow listing ONLY under snapshots/* and trash/*
     fn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["s3:ListBucket"],
-        resources: [bucket.bucketArn],
+        resources: [snapshotsBucket.bucketArn],
         conditions: {
           StringLike: {
             "s3:prefix": ["snapshots/*", "trash/*"],
@@ -95,43 +110,36 @@ export class SnapshotsStack extends cdk.Stack {
       })
     );
 
-    // Allow copy + delete (used to move objects snapshots <-> trash)
+    // ✅ FIXED: Copy requires Get/Put (there is no s3:CopyObject)
     fn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["s3:CopyObject", "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:GetObject"],
-        resources: [bucket.arnForObjects("*")],
+        actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
+        resources: [snapshotsBucket.arnForObjects("*")],
       })
     );
 
+    // ✅ Repo bucket permissions for Lambda (ONLY presign PUT under profiles/*)
+    repoBucket.grantPut(fn, "profiles/*");
+
     // -----------------------------
-    // ✅ GitHub Actions deployer role access (for repo zip uploads)
+    // GitHub Actions deployer role access (repo zip uploads)
     // -----------------------------
-    // Your workflow uploads repo snapshots to:
-    //   s3://<bucket>/profiles/<profileVersion>/repo/<zip>
-    //
-    // So the GitHub OIDC role must be able to PutObject under profiles/*
-    // (Lambda does NOT need this access.)
     if (props.githubDeployerRoleArn) {
       const githubRole = iam.Role.fromRoleArn(
         this,
         "GitHubDeployerRole",
         props.githubDeployerRoleArn,
-        { mutable: false } // don't try to edit the role inline (it's managed elsewhere)
+        { mutable: false }
       );
 
-      // Upload permission (minimum)
-      bucket.grantPut(githubRole, "profiles/*");
+      repoBucket.grantPut(githubRole, "profiles/*");
 
-      // Optional but recommended for failed multipart uploads cleanup:
       githubRole.addToPrincipalPolicy(
         new iam.PolicyStatement({
           actions: ["s3:AbortMultipartUpload"],
-          resources: [bucket.arnForObjects("profiles/*")],
+          resources: [repoBucket.arnForObjects("profiles/*")],
         })
       );
-
-      // Optional: if later you want the role to verify/download artifacts
-      // bucket.grantRead(githubRole, "profiles/*");
     }
 
     // -----------------------------
@@ -161,33 +169,36 @@ export class SnapshotsStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });
-
     httpApi.addRoutes({
       path: "/snapshots/list",
       methods: [apigwv2.HttpMethod.GET],
       integration,
     });
-
     httpApi.addRoutes({
       path: "/snapshots/presign-get",
       methods: [apigwv2.HttpMethod.GET],
       integration,
     });
-
     httpApi.addRoutes({
       path: "/snapshots/delete",
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });
-
     httpApi.addRoutes({
       path: "/snapshots/restore",
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });
 
+    // ✅ NEW: repo route
+    httpApi.addRoutes({
+      path: "/repo/presign-put",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+    });
+
     new cdk.CfnOutput(this, "SnapshotsApiUrl", { value: httpApi.apiEndpoint });
-    new cdk.CfnOutput(this, "SnapshotsBucketName", { value: bucket.bucketName });
+    new cdk.CfnOutput(this, "SnapshotsBucketName", { value: snapshotsBucket.bucketName });
+    new cdk.CfnOutput(this, "RepoBucketName", { value: repoBucket.bucketName });
   }
 }
-

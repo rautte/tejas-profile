@@ -1,6 +1,5 @@
 // infra/cdk/lambda/snapshots-handler.ts
 
-
 import {
   S3Client,
   ListObjectsV2Command,
@@ -22,7 +21,8 @@ type Event = {
 
 const s3 = new S3Client({});
 
-const BUCKET = process.env.SNAPSHOTS_BUCKET!;
+const SNAPSHOTS_BUCKET = process.env.SNAPSHOTS_BUCKET!;
+const REPO_BUCKET = process.env.REPO_BUCKET || SNAPSHOTS_BUCKET; // Option 2 sets this to a different bucket
 const SNAP_PREFIX = process.env.SNAPSHOTS_PREFIX || "snapshots/";
 const TRASH_PREFIX = process.env.TRASH_PREFIX || "trash/";
 const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
@@ -44,7 +44,7 @@ function getHeader(headers: Record<string, string> | undefined, key: string) {
 
 function pickCorsOrigin(headers: Record<string, string> | undefined) {
   const origin = getHeader(headers, "origin");
-  if (!origin) return ""; // curl etc won't send origin
+  if (!origin) return "";
   if (ALLOWED_ORIGINS.includes(origin)) return origin;
   return "";
 }
@@ -103,31 +103,25 @@ function basename(key: string) {
 }
 
 // -----------------------------
-// NEW: parse metadata from key
+// parse metadata from key
 // -----------------------------
 type ParsedMeta = {
   name: string | null;
   from: string | null;
   to: string | null;
-  createdAt: string | null; // still string; UI can format
+  createdAt: string | null;
 };
 
 function tryParseFromKey(key: string): ParsedMeta {
-  // Works for both snapshots/... and trash/...
-  // After removing prefix, expect:
-  // name/from_FROM_to_TO/name__FROM__TO__CREATEDAT.json
-
   const k = normalizeKey(key);
 
   const stripPrefix = (full: string) => {
-    if (full.startsWith(SNAP_PREFIX)) return { scope: "snapshots" as const, rest: full.slice(SNAP_PREFIX.length) };
-    if (full.startsWith(TRASH_PREFIX)) return { scope: "trash" as const, rest: full.slice(TRASH_PREFIX.length) };
-    return { scope: null, rest: full };
+    if (full.startsWith(SNAP_PREFIX)) return { rest: full.slice(SNAP_PREFIX.length) };
+    if (full.startsWith(TRASH_PREFIX)) return { rest: full.slice(TRASH_PREFIX.length) };
+    return { rest: full };
   };
 
   const { rest } = stripPrefix(k);
-  // rest might be: analytics/from_2026-01-17_to_2026-01-17/analytics__2026-01-17__2026-01-17__2026-01-17T12_38_44.812Z.json
-
   const parts = rest.split("/").filter(Boolean);
   if (parts.length < 3) return { name: null, from: null, to: null, createdAt: null };
 
@@ -135,32 +129,25 @@ function tryParseFromKey(key: string): ParsedMeta {
   const rangePart = parts[1] || "";
   const file = parts[2] || "";
 
-  // rangePart: from_X_to_Y
   let from: string | null = null;
   let to: string | null = null;
-  {
-    const m = /^from_(.+)_to_(.+)$/.exec(rangePart);
-    if (m) {
-      from = m[1] || null;
-      to = m[2] || null;
-    }
+
+  const m = /^from_(.+)_to_(.+)$/.exec(rangePart);
+  if (m) {
+    from = m[1] || null;
+    to = m[2] || null;
   }
 
-  // file: name__from__to__createdAt.json
   let createdAt: string | null = null;
-  {
-    const base = file.endsWith(".json") ? file.slice(0, -5) : file;
-    const prefix = `${name}__`;
-    if (name && base.startsWith(prefix)) {
-      const rest2 = base.slice(prefix.length); // from__to__createdAt
-      const chunks = rest2.split("__");
-      if (chunks.length >= 3) {
-        // chunks[0]=from chunks[1]=to chunks[2..]=createdAt (in case createdAt contains __, rare but safe)
-        createdAt = chunks.slice(2).join("__") || null;
-        // if filename-derived from/to exists, prefer it if range parsing failed
-        if (!from) from = chunks[0] || from;
-        if (!to) to = chunks[1] || to;
-      }
+  const base = file.endsWith(".json") ? file.slice(0, -5) : file;
+  const prefix = `${name}__`;
+  if (name && base.startsWith(prefix)) {
+    const rest2 = base.slice(prefix.length);
+    const chunks = rest2.split("__");
+    if (chunks.length >= 3) {
+      createdAt = chunks.slice(2).join("__") || null;
+      if (!from) from = chunks[0] || from;
+      if (!to) to = chunks[1] || to;
     }
   }
 
@@ -182,21 +169,18 @@ export async function handler(event: Event) {
     qs: event.queryStringParameters || {},
   });
 
-  // Preflight
   if (method === "OPTIONS") return json(200, { ok: true }, corsOrigin);
 
-  // Explicit CORS reject (only if a browser origin is present)
   const origin = getHeader(event.headers, "origin");
   if (origin && !corsOrigin) {
     return json(403, { ok: false, error: "CORS origin not allowed", origin }, "");
   }
 
-  // Auth
   const auth = requireOwner(event.headers);
   if (!auth.ok) return json(auth.status, { ok: false, error: auth.msg }, corsOrigin);
 
   // -----------------------------
-  // POST /snapshots/presign-put
+  // POST /snapshots/presign-put  (SNAPSHOTS BUCKET)
   // -----------------------------
   if (method === "POST" && path.endsWith("/snapshots/presign-put")) {
     let payload: any = {};
@@ -216,7 +200,7 @@ export async function handler(event: Event) {
     const key = `${SNAP_PREFIX}${name}/from_${from}_to_${to}/${name}__${from}__${to}__${createdAt}.json`;
 
     const cmd = new PutObjectCommand({
-      Bucket: BUCKET,
+      Bucket: SNAPSHOTS_BUCKET,
       Key: key,
       ContentType: "application/json",
     });
@@ -225,47 +209,47 @@ export async function handler(event: Event) {
     return json(200, { ok: true, key, url }, corsOrigin);
   }
 
-    // -----------------------------
-    // POST /repo/presign-put
-    // body: { profileVersion, checkpointTag, gitSha, contentType? }
-    // returns: { key, url }
-    // -----------------------------
-    if (method === "POST" && path.endsWith("/repo/presign-put")) {
+  // -----------------------------
+  // POST /repo/presign-put  (REPO BUCKET)
+  // -----------------------------
+  if (method === "POST" && path.endsWith("/repo/presign-put")) {
     let payload: any = {};
     try {
-        payload = event.body ? JSON.parse(event.body) : {};
+      payload = event.body ? JSON.parse(event.body) : {};
     } catch {
-        return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+      return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
     }
 
     const profileVersion = safeKeyPart(payload.profileVersion || "unknown");
+    if (!profileVersion || profileVersion === "unknown") {
+      return json(400, { ok: false, error: "profileVersion required" }, corsOrigin);
+    }
+
     const checkpointTag = safeKeyPart(payload.checkpointTag || "unknown");
     const gitSha = safeKeyPart(payload.gitSha || "unknown");
     const gitShaShort = gitSha ? gitSha.slice(0, 7) : "unknown";
 
-    // enforce .zip
     const key = `${PROFILES_PREFIX}${profileVersion}/repo/${checkpointTag}__${gitShaShort}.zip`;
 
     const cmd = new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: key,
-        ContentType: payload.contentType || "application/zip",
+      Bucket: REPO_BUCKET,
+      Key: key,
+      ContentType: payload.contentType || "application/zip",
     });
 
     const url = await getSignedUrl(s3, cmd, { expiresIn: 120 });
-    return json(200, { ok: true, key, url }, corsOrigin);
-    }
+    return json(200, { ok: true, bucket: REPO_BUCKET, key, url }, corsOrigin);
+  }
 
   // -----------------------------
-  // GET /snapshots/list?scope=trash
-  // default scope = active snapshots
+  // GET /snapshots/list?scope=trash  (SNAPSHOTS BUCKET)
   // -----------------------------
   if (method === "GET" && path.endsWith("/snapshots/list")) {
     const scope = (event.queryStringParameters?.scope || "").toLowerCase();
     const prefix = scope === "trash" ? TRASH_PREFIX : SNAP_PREFIX;
 
     const cmd = new ListObjectsV2Command({
-      Bucket: BUCKET,
+      Bucket: SNAPSHOTS_BUCKET,
       Prefix: prefix,
       MaxKeys: 200,
     });
@@ -296,8 +280,7 @@ export async function handler(event: Event) {
   }
 
   // -----------------------------
-  // GET /snapshots/presign-get?key=...
-  // allow BOTH snapshots/* and trash/*
+  // GET /snapshots/presign-get?key=...  (SNAPSHOTS BUCKET)
   // -----------------------------
   if (method === "GET" && path.endsWith("/snapshots/presign-get")) {
     const keyRaw = event.queryStringParameters?.key || "";
@@ -311,7 +294,7 @@ export async function handler(event: Event) {
     }
 
     const cmd = new GetObjectCommand({
-      Bucket: BUCKET,
+      Bucket: SNAPSHOTS_BUCKET,
       Key: key,
     });
 
@@ -320,9 +303,7 @@ export async function handler(event: Event) {
   }
 
   // -----------------------------
-  // POST /snapshots/delete  (soft delete)
-  // body: { key: "snapshots/..." }
-  // moves to trash/...
+  // POST /snapshots/delete (soft delete)  (SNAPSHOTS BUCKET)
   // -----------------------------
   if (method === "POST" && path.endsWith("/snapshots/delete")) {
     let payload: any = {};
@@ -344,28 +325,21 @@ export async function handler(event: Event) {
 
     await s3.send(
       new CopyObjectCommand({
-        Bucket: BUCKET,
-        CopySource: `${BUCKET}/${fromKey}`,
+        Bucket: SNAPSHOTS_BUCKET,
+        CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(fromKey)}`,
         Key: toKey,
         ContentType: "application/json",
         MetadataDirective: "COPY",
       })
     );
 
-    await s3.send(
-      new DeleteObjectCommand({
-        Bucket: BUCKET,
-        Key: fromKey,
-      })
-    );
+    await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
     return json(200, { ok: true, fromKey, toKey }, corsOrigin);
   }
 
   // -----------------------------
-  // POST /snapshots/restore
-  // body: { key: "trash/..." }
-  // moves back to snapshots/...
+  // POST /snapshots/restore  (SNAPSHOTS BUCKET)
   // -----------------------------
   if (method === "POST" && path.endsWith("/snapshots/restore")) {
     let payload: any = {};
@@ -387,20 +361,15 @@ export async function handler(event: Event) {
 
     await s3.send(
       new CopyObjectCommand({
-        Bucket: BUCKET,
-        CopySource: `${BUCKET}/${fromKey}`,
+        Bucket: SNAPSHOTS_BUCKET,
+        CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(fromKey)}`,
         Key: toKey,
         ContentType: "application/json",
         MetadataDirective: "COPY",
       })
     );
 
-    await s3.send(
-      new DeleteObjectCommand({
-        Bucket: BUCKET,
-        Key: fromKey,
-      })
-    );
+    await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
     return json(200, { ok: true, fromKey, toKey }, corsOrigin);
   }
