@@ -594,13 +594,13 @@ export default function AdminSnapshots() {
                   <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
-                      <th className="py-3 px-4 font-semibold">File</th>
+                      <th className="py-3 px-4 font-semibold">Filename</th>
                       {/* <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th> */}
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">From</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">To</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Created at</th>
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Size</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Key</th>
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">
                         {showTrash ? "Restore" : "Delete"}
