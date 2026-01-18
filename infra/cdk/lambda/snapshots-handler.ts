@@ -25,6 +25,7 @@ const BUCKET = process.env.SNAPSHOTS_BUCKET!;
 const SNAP_PREFIX = process.env.SNAPSHOTS_PREFIX || "snapshots/";
 const TRASH_PREFIX = process.env.TRASH_PREFIX || "trash/";
 const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
+const PROFILES_PREFIX = process.env.PROFILES_PREFIX || "profiles/";
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
@@ -222,6 +223,37 @@ export async function handler(event: Event) {
     const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
     return json(200, { ok: true, key, url }, corsOrigin);
   }
+
+    // -----------------------------
+    // POST /repo/presign-put
+    // body: { profileVersion, checkpointTag, gitSha, contentType? }
+    // returns: { key, url }
+    // -----------------------------
+    if (method === "POST" && path.endsWith("/repo/presign-put")) {
+    let payload: any = {};
+    try {
+        payload = event.body ? JSON.parse(event.body) : {};
+    } catch {
+        return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+    }
+
+    const profileVersion = safeKeyPart(payload.profileVersion || "unknown");
+    const checkpointTag = safeKeyPart(payload.checkpointTag || "unknown");
+    const gitSha = safeKeyPart(payload.gitSha || "unknown");
+    const gitShaShort = gitSha ? gitSha.slice(0, 7) : "unknown";
+
+    // enforce .zip
+    const key = `${PROFILES_PREFIX}${profileVersion}/repo/${checkpointTag}__${gitShaShort}.zip`;
+
+    const cmd = new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+        ContentType: payload.contentType || "application/zip",
+    });
+
+    const url = await getSignedUrl(s3, cmd, { expiresIn: 120 });
+    return json(200, { ok: true, key, url }, corsOrigin);
+    }
 
   // -----------------------------
   // GET /snapshots/list?scope=trash

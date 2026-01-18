@@ -3,6 +3,8 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
 import { FaChartLine } from "react-icons/fa";
 
+import { readBuildProfileVersion } from "../../utils/profileVersion";
+
 import SectionHeader from "../shared/SectionHeader";
 import { cx } from "../../utils/cx";
 import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../../utils/ui";
@@ -98,62 +100,8 @@ const PROFILE_SECTIONS = [
   "Snapshots",
 ];
 
-// Prefer setting this at build time (CRA): REACT_APP_PROFILE_VERSION="v2026-01-17__A"
-function getProfileVersionId() {
-  // CRA build-time env:
-  const envVer =
-    (typeof process !== "undefined" &&
-      process?.env &&
-      process.env.REACT_APP_PROFILE_VERSION) ||
-    "";
-  // Optional: you can also set window.__PROFILE_VERSION__ in index.html
-  const winVer = typeof window !== "undefined" ? window.__PROFILE_VERSION__ : "";
-  return String(envVer || winVer || "dev").trim();
-}
 
-// This is where you’ll later store a “profile manifest” (sections + content hashes) in S3
-// and save its S3 key here for joining analytics -> profile content.
-// For now it's null, but the field exists (schema-ready).
-function getProfileManifestKey() {
-  // Example later: "profiles/v2026-01-17__A/manifest.json"
-  return null;
-}
-
-// ---- Profile version helpers (build-time injected by CI)
-function readBuildProfileVersion() {
-  const env = (typeof process !== "undefined" && process.env) ? process.env : {};
-
-  // These should come from GitHub Actions during build
-  const id =
-    env.REACT_APP_PROFILE_VERSION ||
-    env.REACT_APP_GIT_SHA ||
-    "unknown";
-
-  const gitSha = env.REACT_APP_GIT_SHA || null;
-
-  // This is the "repo snapshot" object (zip of repo, or metadata)
-  const repo = {
-    provider: "github",
-    repo: env.REACT_APP_REPO || null,                 // e.g. tejasraut/tejas-profile
-    commit: gitSha,
-    ref: env.REACT_APP_GIT_REF || null,               // e.g. refs/heads/main or a tag
-    buildRunId: env.REACT_APP_GH_RUN_ID || null,      // github run id
-    artifactUrl: env.REACT_APP_REPO_ARTIFACT_URL || null,   // optional: signed/https link
-    artifactKey: env.REACT_APP_REPO_ARTIFACT_KEY || null,   // preferred: S3 key
-    artifactSha256: env.REACT_APP_REPO_ARTIFACT_SHA256 || null,
-  };
-
-  return {
-    id,
-    gitSha,
-    buildTime: env.REACT_APP_BUILD_TIME || null,
-    sections: typeof window !== "undefined" ? (window.__PROFILE_SECTIONS__ || null) : null, // optional if you expose it
-    manifestKey: env.REACT_APP_PROFILE_MANIFEST_KEY || null, // optional (S3 key)
-    repo,
-  };
-}
-
-function buildAnalyticsSnapshot({
+export function buildAnalyticsSnapshot({
   events,
   overview,
   granularity,
@@ -168,22 +116,29 @@ function buildAnalyticsSnapshot({
     createdAt: new Date().toISOString(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 
-    // ✅ required new fields
     category: "Analytics",
     profileVersion: {
       id: pv.id,
       sections: pv.sections || PROFILE_SECTIONS,
-      manifestKey: pv.manifestKey, // can be null for now
-      gitSha: pv.gitSha,
-      buildTime: pv.buildTime,
-      repo: pv.repo, // ✅ stores entire repo snapshot metadata (zip key/url/hash)
+      manifestKey: pv.manifestKey || null,
+      gitSha: pv.gitSha || null,
+      buildTime: pv.buildTime || null,
+      repo: pv.repo || {
+        provider: "github",
+        repo: null,
+        commit: null,
+        ref: null,
+        buildRunId: null,
+        checkpointTag: null,
+        artifactUrl: null,
+        artifactKey: null,
+        artifactSha256: null,
+      },
     },
 
-    // optional
     tags: tags && Object.keys(tags).length ? tags : undefined,
     geo: geo || undefined,
 
-    // existing
     granularity,
     counts: {
       events: events.length,
@@ -366,6 +321,7 @@ function PublishOptionsModal({
   defaultTagKey = "",
   defaultTagValue = "",
   defaultGeoHint = "",
+  profileVersion,
 }) {
   const [tagKey, setTagKey] = useState(defaultTagKey);
   const [tagValue, setTagValue] = useState(defaultTagValue);
@@ -445,7 +401,8 @@ function PublishOptionsModal({
             </div>
             <div className="mt-1 text-[12px] text-gray-600 dark:text-gray-400">
               <div>category: Analytics</div>
-              <div>profileVersion.id: {getProfileVersionId()}</div>
+              <div>profileVersion.id: {profileVersion?.id || "unknown"}</div>
+              <div>gitSha: {profileVersion?.gitSha ? String(profileVersion.gitSha).slice(0,10) + "…" : "—"}</div>
               <div>timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}</div>
               <div>locale: {typeof navigator !== "undefined" ? navigator.language : "—"}</div>
             </div>
@@ -609,6 +566,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
 }
 
 export default function AdminAnalytics() {
+  const pv = useMemo(() => readBuildProfileVersion(), []);
   const [granularity, setGranularity] = useState("day");
   const [events, setEvents] = useState(() => getAllEvents());
   const [resetOpen, setResetOpen] = useState(false);
@@ -762,7 +720,7 @@ export default function AdminAnalytics() {
                 title="Profile version id stored into snapshots"
               >
                 <span className="text-gray-500 dark:text-gray-400 font-medium">Profile:</span>
-                <span>{getProfileVersionId()}</span>
+                <span className="truncate max-w-[140px]">{pv?.id || "unknown"}</span>
               </span>
             </div>
           }
@@ -967,9 +925,10 @@ export default function AdminAnalytics() {
         open={publishOptionsOpen}
         onClose={() => setPublishOptionsOpen(false)}
         busy={publishing}
+        profileVersion={pv}
         onConfirm={async ({ tags, geo }) => {
-          setPublishOptionsOpen(false);
-          await publishSnapshotToS3({ tags, geo });
+            setPublishOptionsOpen(false);
+            await publishSnapshotToS3({ tags, geo });
         }}
       />
 

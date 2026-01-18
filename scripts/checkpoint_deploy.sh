@@ -77,24 +77,46 @@ git remote get-url origin >/dev/null 2>&1 || die "Remote 'origin' not found."
 
 # ---- 1a) Write local build env (so snapshots have profileVersion/repo metadata in local builds too)
 echo ""
-info "Writing local build env (.env) for CRA..."
+info "Writing local build env (.env.local) for CRA (non-destructive merge)..."
 
 GIT_SHA="$(git rev-parse HEAD)"
 GIT_SHA_SHORT="$(git rev-parse --short HEAD)"
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
 PROFILE_VERSION="pv_${GIT_SHA_SHORT}"
+GIT_REF="$(git branch --show-current)"
+
+# Precompute checkpoint tag NOW so build can embed it too
+CHECKPOINT_TAG="checkpoint-$(date +%Y-%m-%d_%H-%M-%S)"
 
 # Best-effort repo slug from origin url: git@github.com:user/repo.git OR https://github.com/user/repo.git
 ORIGIN_URL="$(git remote get-url origin)"
 REPO_SLUG="$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
 
-# Don't overwrite if you prefer: replace ">" with ">>" to append
-cat > .env <<EOF
+ENV_FILE=".env.local"
+TMP_FILE="$(mktemp)"
+
+# If file exists, remove ONLY the keys we manage, keep everything else
+if [[ -f "$ENV_FILE" ]]; then
+  grep -vE '^(REACT_APP_PROFILE_VERSION|REACT_APP_GIT_SHA|REACT_APP_BUILD_TIME|REACT_APP_REPO|REACT_APP_GIT_REF|REACT_APP_CHECKPOINT_TAG)=' "$ENV_FILE" > "$TMP_FILE" || true
+else
+  : > "$TMP_FILE"
+fi
+
+# Append/refresh our managed keys
+cat >> "$TMP_FILE" <<EOF
+
+# ---- Auto-written by scripts/checkpoint_deploy.sh ----
 REACT_APP_PROFILE_VERSION=${PROFILE_VERSION}
 REACT_APP_GIT_SHA=${GIT_SHA}
 REACT_APP_BUILD_TIME=${BUILD_TIME}
 REACT_APP_REPO=${REPO_SLUG}
+REACT_APP_GIT_REF=${GIT_REF}
+REACT_APP_CHECKPOINT_TAG=${CHECKPOINT_TAG}
 EOF
+
+mv "$TMP_FILE" "$ENV_FILE"
+ok "Updated $ENV_FILE (preserved existing vars like REACT_APP_SNAPSHOTS_API)."
+info "Checkpoint tag to be used: ${CHECKPOINT_TAG}"
 
 ok "Wrote .env with profile version metadata."
 
@@ -147,7 +169,7 @@ git push --no-verify -f origin "${backup_branch}"
 ok "Pushed ${backup_branch}."
 
 # ---- 5) Tag checkpoint + move last-deployed tag (then push tags)
-tag="checkpoint-$(date +%Y-%m-%d_%H-%M-%S)"
+tag="${CHECKPOINT_TAG}"
 echo ""
 info "Tagging: ${tag}"
 git tag "${tag}"
