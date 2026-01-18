@@ -70,7 +70,7 @@ if [[ "$current_branch" != "main" ]]; then
 fi
 
 if [[ -z "$(git status --porcelain)" ]]; then
-  die "No changes to commit. (Working tree is clean.)"
+  echo "No changes to commit. (Working tree is clean.)"
 fi
 
 git remote get-url origin >/dev/null 2>&1 || die "Remote 'origin' not found."
