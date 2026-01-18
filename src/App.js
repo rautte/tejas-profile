@@ -24,7 +24,7 @@ import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } fr
 
 import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
 import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
-import { OWNER_SECRET, OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
+import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
@@ -237,38 +237,28 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (e) => {
-      // Cmd+Shift+O (Mac) OR Ctrl+Shift+O (Win/Linux)
       const isO = (e.key || "").toLowerCase() === "o";
       const isCombo = isO && e.shiftKey && (e.metaKey || e.ctrlKey);
-
       if (!isCombo) return;
 
-      // Don’t trigger while typing in inputs
       const t = e.target instanceof HTMLElement ? e.target : null;
       const tag = (t?.tagName || "").toLowerCase();
       if (tag === "input" || tag === "textarea" || tag === "select" || t?.isContentEditable) return;
 
       e.preventDefault();
 
-      // Already owner? offer exit
+      // If already owner -> toggle OFF silently (no confirm popup)
       if (readOwnerEnabled()) {
-        const exit = window.confirm("Owner mode is ON. Turn it OFF?");
-        if (exit) {
-          clearOwnerEnabled();
-          setIsOwner(false);
-          setSelectedSection(DEFAULT_SECTION);
-        }
+        clearOwnerEnabled();
+        try { sessionStorage.removeItem(OWNER_TOKEN_KEY); } catch {}
+        setIsOwner(false);
+        setSelectedSection(DEFAULT_SECTION);
         return;
       }
 
-      // Fail closed if env missing
-      if (!OWNER_SECRET) {
-        alert("Owner secret not configured.");
-        return;
-      }
-
+      // Always open modal (no "OWNER_SECRET not configured" alert)
+      setOwnerError("");
       setOwnerPromptOpen(true);
-      return;
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -276,26 +266,21 @@ function App() {
   }, []);
 
 
-  const submitOwnerPasscode = useCallback(
-    (token) => {
-      if (!token) return;
+  const submitOwnerPasscode = useCallback((token) => {
+    const t = (token || "").trim();
+    if (!t) return;
 
-      if (token.trim() === OWNER_SECRET) {
-        setIsOwner(true);
-        writeOwnerEnabled();
+    // Store token for API calls (session only)
+    try { sessionStorage.setItem(OWNER_TOKEN_KEY, t); } catch {}
 
-        try {
-          sessionStorage.setItem(OWNER_TOKEN_KEY, token.trim());
-        } catch {}
+    // Enable owner mode (session only)
+    writeOwnerEnabled();
+    setIsOwner(true);
 
-        setOwnerError("");
-        setOwnerPromptOpen(false);
-      } else {
-        setOwnerError("Incorrect passcode");
-      }
-    },
-    [setIsOwner]
-  );
+    // Close modal and clear errors
+    setOwnerError("");
+    setOwnerPromptOpen(false);
+  }, []);
 
 
   // ------------------------------
