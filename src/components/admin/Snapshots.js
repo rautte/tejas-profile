@@ -622,7 +622,7 @@ export default function AdminSnapshots() {
                         </td>
 
                         <td className="text-xs py-3 px-4">
-                          <div className="font-semibold text-gray-900 dark:text-gray-100 truncate max-w-[260px]">
+                          <div className="font-semibold text-gray-900 dark:text-gray-100">
                             {it.filename}
                           </div>
                         </td>
@@ -648,7 +648,8 @@ export default function AdminSnapshots() {
                         </td>
 
                         <td className="py-3 px-4">
-                          <div className="text-[12px] text-gray-600 dark:text-gray-400 truncate max-w-[320px]">
+                          {/* <div className="text-[12px] text-gray-600 dark:text-gray-400 truncate max-w-[320px]"> */}
+                          <div className="text-[12px] text-gray-600 dark:text-gray-400">
                             {it.key}
                           </div>
                         </td>
