@@ -191,14 +191,12 @@ if [[ -n "$(git status --porcelain build)" ]]; then
   die "Build directory differs from committed state. Aborting deploy."
 fi
 
-# ---- 6) Deploy
+# ---- 6) Deploy (now handled by GitHub Actions)
 echo ""
-log "✅ Push complete. GitHub Actions will deploy Pages from main."
-log "ℹ️  Check Actions → Build & Deploy (Pages) for the live deploy run."
-success "DONE"
-# info "Deploying (npm run deploy)..."
-# npm run deploy
-# ok "Deployed."
+ok "Push complete. GitHub Actions will deploy Pages from main."
+info "Check Actions → Build & Deploy (Pages) for the live deploy run."
+ok "DONE"
+exit 0
 
 echo ""
 ok "Done."
