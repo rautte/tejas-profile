@@ -1,5 +1,6 @@
 // infra/cdk/lambda/snapshots-handler.ts
 
+
 import {
   S3Client,
   ListObjectsV2Command,
