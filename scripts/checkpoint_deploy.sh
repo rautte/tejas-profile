@@ -193,9 +193,12 @@ fi
 
 # ---- 6) Deploy
 echo ""
-info "Deploying (npm run deploy)..."
-npm run deploy
-ok "Deployed."
+log "✅ Push complete. GitHub Actions will deploy Pages from main."
+log "ℹ️  Check Actions → Build & Deploy (Pages) for the live deploy run."
+success "DONE"
+# info "Deploying (npm run deploy)..."
+# npm run deploy
+# ok "Deployed."
 
 echo ""
 ok "Done."
