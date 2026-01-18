@@ -1,5 +1,7 @@
 // infra/cdk/lib/snapshots-stack.ts
 
+import "dotenv/config";
+
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -88,6 +90,14 @@ export class SnapshotsStack extends cdk.Stack {
         PROFILES_PREFIX: "profiles/",
 
         ALLOWED_ORIGINS: allowedOrigins.join(","),
+
+        // GitHub redeploy trigger (owner-only)
+        GITHUB_REPO: "rautte/tejas-profile",
+        GITHUB_WORKFLOW_FILE: "redeploy.yml",
+        GITHUB_REF: "main",
+        // ⚠️ Put a real secret here ONLY for quick test.
+        // Better: Secrets Manager. But this works right now.
+        GITHUB_TOKEN: process.env.GITHUB_TOKEN || "",
       },
     });
 
@@ -193,6 +203,12 @@ export class SnapshotsStack extends cdk.Stack {
     // ✅ NEW: repo route
     httpApi.addRoutes({
       path: "/repo/presign-put",
+      methods: [apigwv2.HttpMethod.POST],
+      integration,
+    });
+
+    httpApi.addRoutes({
+      path: "/deploy/trigger",
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });

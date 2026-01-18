@@ -594,7 +594,7 @@ export default function AdminSnapshots() {
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
                       <th className="py-3 px-4 font-semibold">File</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
+                      {/* <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th> */}
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">From</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">To</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Created at</th>
@@ -626,9 +626,9 @@ export default function AdminSnapshots() {
                           </div>
                         </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                        {/* <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                           {it.category}
-                        </td>
+                        </td> */}
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                           {it.from}
