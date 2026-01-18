@@ -45,6 +45,7 @@
     "assets:push": "npm run sync:assets && npm run cdn:invalidate",
     "assets:watch": "chokidar 'src/assets/ships/sprites/**/*' -c 'npm run sync:assets' --initial --await-write-finish 1000"
   },
+  
   "eslintConfig": {
     "extends": [
       "react-app",
