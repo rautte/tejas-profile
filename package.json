@@ -36,7 +36,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "deploy": "gh-pages -d build -r https://$GITHUB_TOKEN@github.com/rautte/tejas-profile.git",
+    "deploy": "gh-pages -d build -r https://rautte:${GH_TOKEN}@github.com/rautte/tejas-profile.git",
     "assets:sync": "aws s3 sync src/assets/ships/sprites s3://assetscdnstack-heavyassetsbucket72601c17-nip5jdtseu6y/ships/sprites/ --exclude '*/top/*' --cache-control 'public,max-age=86400' --delete",
     "assets:publish": "npm run assets:sync && npm run cdn:invalidate",
     "prepare": "husky install",
