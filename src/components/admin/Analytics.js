@@ -151,27 +151,34 @@ export function buildAnalyticsSnapshot({
 }
 
 // Resume-style section card wrapper (header + body)
-function SectionCard({ title, action, subtitle, children }) {
+function SectionCard({ title, action, actionBelow, subtitle, children }) {
   return (
     <div className={cx(CARD_SURFACE, CARD_ROUNDED_2XL)}>
-      <div className="px-6 py-3 border-b rounded-t-2xl bg-gray-200/70 dark:bg-gray-700/70 border-gray-200/70 dark:border-white/10 flex items-start sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-left font-epilogue text-lg font-semibold text-gray-900 dark:text-gray-100">
-            {title}
-          </h3>
-          {subtitle ? (
-            <div className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
-              {subtitle}
-            </div>
-          ) : null}
+      <div className="px-6 py-3 border-b rounded-t-2xl bg-gray-200/70 dark:bg-gray-700/70 border-gray-200/70 dark:border-white/10">
+        <div className="flex items-start sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-left font-epilogue text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {title}
+            </h3>
+            {subtitle ? (
+              <div className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
+                {subtitle}
+              </div>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
+
+        {actionBelow ? (
+          <div className="mt-2">{actionBelow}</div>
+        ) : null}
       </div>
 
       <div className="px-6 py-5">{children}</div>
     </div>
   );
 }
+
 
 function KpiCard({ title, value, sub }) {
   return (
@@ -576,6 +583,11 @@ export default function AdminAnalytics() {
   const [publishOk, setPublishOk] = useState("");
 
   const [publishOptionsOpen, setPublishOptionsOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  useEffect(() => {
+    return () => setConfirmClear(false);
+  }, []);
 
   const firstTrackedTs = useMemo(() => {
     if (!events?.length) return null;
@@ -842,31 +854,44 @@ export default function AdminAnalytics() {
         </div>
 
         <SectionCard
-          title="Recent sessions"
-          subtitle="Local summary (last 20)"
-          action={
-            <div className="flex items-center gap-2">
-              <SmallActionButton
-                onClick={() => setEvents(getAllEvents())}
-                title="Reload events from local storage"
-              >
-                Refresh
-              </SmallActionButton>
+            title="Recent sessions"
+            subtitle="Local summary (last 20)"
+            action={
+                <div className="flex items-center gap-2">
+                <SmallActionButton
+                    onClick={() => setEvents(getAllEvents())}
+                    title="Reload events from local storage"
+                >
+                    Refresh
+                </SmallActionButton>
 
-              <SmallActionButton
-                variant="danger"
-                title="Clear all analytics stored in this browser"
-                onClick={() => {
-                  if (!window.confirm("Clear ALL local analytics on this browser?")) return;
-                  resetAnalytics();
-                  setEvents(getAllEvents());
-                }}
-              >
-                Clear data
-              </SmallActionButton>
-            </div>
-          }
+                <SmallActionButton
+                    variant="danger"
+                    title={confirmClear ? "Click again to confirm" : "Clear all analytics stored in this browser"}
+                    onClick={() => {
+                    if (!confirmClear) {
+                        setConfirmClear(true);
+                        window.setTimeout(() => setConfirmClear(false), 3000);
+                        return;
+                    }
+                    resetAnalytics();
+                    setEvents(getAllEvents());
+                    setConfirmClear(false);
+                    }}
+                >
+                    {confirmClear ? "Confirm clear" : "Clear data"}
+                </SmallActionButton>
+                </div>
+            }
+            actionBelow={
+                confirmClear ? (
+                <div className="text-xs text-red-600 dark:text-red-400">
+                    Click <span className="font-semibold">Confirm clear</span> to delete analytics from this browser.
+                </div>
+                ) : null
+            }
         >
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

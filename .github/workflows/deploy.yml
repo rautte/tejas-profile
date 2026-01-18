@@ -120,6 +120,7 @@ jobs:
           echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}" >> .env
           echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}" >> .env
           echo "REACT_APP_BUILD_TIME=${{ steps.meta.outputs.BUILD_TIME }}" >> .env
+          echo "REACT_APP_OWNER_SECRET=${{ secrets.REACT_APP_OWNER_SECRET }}" >> .env
 
           # IMPORTANT: your code reads REACT_APP_REPO (not REPO_URL)
           echo "REACT_APP_REPO=${REPO_URL}" >> .env
