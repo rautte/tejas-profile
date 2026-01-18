@@ -18,3 +18,4 @@ EOF
 
 echo "✅ Wrote .env.local"
 cat .env.local
+
