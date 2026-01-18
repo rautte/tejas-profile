@@ -27,7 +27,7 @@
     "skipLibCheck": true,
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["bin/**/*.ts", "lib/**/*.ts"],
+  "include": ["bin/**/*.ts", "lib/**/*.ts", "lambda/**/*.ts"],
   "exclude": ["node_modules", "cdk.out"]
 }
 

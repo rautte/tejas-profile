@@ -111,14 +111,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "REACT_APP_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
-
           echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}" >> .env
           echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}" >> .env
           echo "REACT_APP_BUILD_TIME=${{ steps.meta.outputs.BUILD_TIME }}" >> .env
 
-          # IMPORTANT: your readBuildProfileVersion() uses REACT_APP_REPO
           echo "REACT_APP_REPO=${REPO_URL}" >> .env
+          echo "REACT_APP_GIT_REF=${GITHUB_REF}" >> .env
+          echo "REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}" >> .env
 
           echo "REACT_APP_REPO_ARTIFACT_KEY=${{ steps.s3.outputs.S3_KEY }}" >> .env
           echo "REACT_APP_REPO_ARTIFACT_SHA256=${{ steps.ziprepo.outputs.SHA256 }}" >> .env
