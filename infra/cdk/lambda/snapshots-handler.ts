@@ -28,6 +28,11 @@ const TRASH_PREFIX = process.env.TRASH_PREFIX || "trash/";
 const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
 const PROFILES_PREFIX = process.env.PROFILES_PREFIX || "profiles/";
 
+const GITHUB_REPO = process.env.GITHUB_REPO || ""; // "rautte/tejas-profile"
+const GITHUB_WORKFLOW_FILE = process.env.GITHUB_WORKFLOW_FILE || "redeploy.yml";
+const GITHUB_REF = process.env.GITHUB_REF || "main";
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ""; // PAT or GitHub App token (secret!)
+
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
@@ -75,6 +80,42 @@ function requireOwner(headers: Record<string, string> | undefined) {
     return { ok: false, status: 401, msg: "Unauthorized" };
   }
   return { ok: true as const };
+}
+
+function requireGithubConfig() {
+  if (!GITHUB_REPO) return { ok: false, status: 500, msg: "GITHUB_REPO not configured" };
+  if (!GITHUB_WORKFLOW_FILE) return { ok: false, status: 500, msg: "GITHUB_WORKFLOW_FILE not configured" };
+  if (!GITHUB_TOKEN) return { ok: false, status: 500, msg: "GITHUB_TOKEN not configured" };
+  return { ok: true as const };
+}
+
+function isLikelyGitSha(s: string) {
+  return /^[a-f0-9]{7,40}$/i.test(s || "");
+}
+
+async function dispatchGithubWorkflow(inputs: Record<string, string>) {
+  const url = `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_FILE}/dispatches`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${GITHUB_TOKEN}`,
+      "user-agent": "tejas-profile-snapshots-handler",
+      accept: "application/vnd.github+json",
+      "x-github-api-version": "2022-11-28",
+    },
+    body: JSON.stringify({
+      ref: GITHUB_REF,
+      inputs,
+    }),
+  });
+
+  // GitHub returns 204 No Content on success
+  if (res.status === 204) return { ok: true as const };
+
+  const txt = await res.text().catch(() => "");
+  return { ok: false as const, status: res.status, error: txt || "dispatch failed" };
 }
 
 // -----------------------------
@@ -237,7 +278,7 @@ export async function handler(event: Event) {
       ContentType: payload.contentType || "application/zip",
     });
 
-    const url = await getSignedUrl(s3, cmd, { expiresIn: 120 });
+    const url = await getSignedUrl(s3, cmd, { expiresIn: 600 }); // 10 min
     return json(200, { ok: true, bucket: REPO_BUCKET, key, url }, corsOrigin);
   }
 
@@ -372,6 +413,52 @@ export async function handler(event: Event) {
     await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
     return json(200, { ok: true, fromKey, toKey }, corsOrigin);
+  }
+
+  // -----------------------------
+  // POST /deploy/trigger (owner-only)
+  // body: { gitSha, checkpointTag?, profileVersion?, reason?, sourceSnapshotKey? }
+  // triggers GitHub Actions workflow_dispatch
+  // -----------------------------
+  if (method === "POST" && path.endsWith("/deploy/trigger")) {
+    const cfg = requireGithubConfig();
+    if (!cfg.ok) return json(cfg.status, { ok: false, error: cfg.msg }, corsOrigin);
+
+    let payload: any = {};
+    try {
+      payload = event.body ? JSON.parse(event.body) : {};
+    } catch {
+      return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+    }
+
+    const gitSha = String(payload.gitSha || "").trim();
+    if (!isLikelyGitSha(gitSha)) {
+      return json(400, { ok: false, error: "gitSha is required (7-40 hex chars)" }, corsOrigin);
+    }
+
+    const checkpointTag = safeKeyPart(payload.checkpointTag || "");
+    const profileVersion = safeKeyPart(payload.profileVersion || "");
+    const sourceSnapshotKey = safeKeyPart(payload.sourceSnapshotKey || "");
+    const reason = safeKeyPart(payload.reason || "owner trigger");
+
+    const inputs: Record<string, string> = {
+      gitSha,
+      checkpointTag: checkpointTag || "unknown",
+      profileVersion: profileVersion || "unknown",
+      sourceSnapshotKey: sourceSnapshotKey || "unknown",
+      reason,
+    };
+
+    const out = await dispatchGithubWorkflow(inputs);
+    if (!out.ok) {
+      return json(
+        502,
+        { ok: false, error: `GitHub dispatch failed (${out.status})`, details: out.error },
+        corsOrigin
+      );
+    }
+
+    return json(200, { ok: true, message: "Deploy triggered" }, corsOrigin);
   }
 
   return json(404, { ok: false, error: "Not found" }, corsOrigin);

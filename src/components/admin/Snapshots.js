@@ -1,6 +1,7 @@
 // src/components/admin/Snapshots.js
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { HiOutlineEye } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
 
 import SectionHeader from "../shared/SectionHeader";
@@ -13,6 +14,7 @@ import {
   deleteSnapshot,
   restoreSnapshot,
   listTrashSnapshots,
+  triggerDeploy,
 } from "../../utils/snapshots/snapshotsApi";
 
 function SectionCard({ title, subtitle, action, children }) {
@@ -76,6 +78,42 @@ function parseMetaFromKey(key) {
       : "—";
 
   return { filename, from, to, createdAt };
+}
+
+function extractDeployMetaFromSnapshotJson(snapJson) {
+  if (!snapJson || typeof snapJson !== "object") return null;
+
+  // Your profileVersion util returns: { id, gitSha, buildTime, repo: {...} }
+  // Some snapshots might store it under different names; we try multiple.
+  const pv =
+    snapJson.profileVersion ||
+    snapJson.profile_version ||
+    snapJson.buildMeta ||
+    snapJson.build_meta ||
+    null;
+
+  const gitSha =
+    pv?.gitSha ||
+    pv?.git_sha ||
+    pv?.repo?.commit ||
+    snapJson.gitSha ||
+    snapJson.git_sha ||
+    null;
+
+  const checkpointTag =
+    pv?.repo?.checkpointTag ||
+    pv?.checkpointTag ||
+    snapJson.checkpointTag ||
+    null;
+
+  const profileVersion =
+    pv?.id || pv?.profileVersion || snapJson.profileVersionId || null;
+
+  return {
+    gitSha,
+    checkpointTag,
+    profileVersion,
+  };
 }
 
 function ActionButton({ variant = "neutral", children, onClick, disabled, title }) {
@@ -315,6 +353,13 @@ export default function AdminSnapshots() {
   const [restoreKey, setRestoreKey] = useState("");
   const [restoreBusy, setRestoreBusy] = useState(false);
 
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [deployBusy, setDeployBusy] = useState(false);
+  const [deployErr, setDeployErr] = useState("");
+  const [deployKey, setDeployKey] = useState("");
+  const [deployMeta, setDeployMeta] = useState(null);
+
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setErr("");
@@ -406,6 +451,63 @@ export default function AdminSnapshots() {
     }
   }, [deleteKey, refresh, refreshTrash, showTrash]);
 
+  const askDeploy = useCallback(async (key) => {
+    setDeployErr("");
+    setDeployKey(key);
+    setDeployMeta(null);
+    setDeployOpen(true);
+
+    try {
+      // fetch the snapshot JSON so we can find gitSha
+      const snap = await fetchSnapshotJson(key);
+      const meta = extractDeployMetaFromSnapshotJson(snap);
+
+      if (!meta?.gitSha) {
+        setDeployErr(
+          "This snapshot JSON does not contain a git SHA. Add build meta to snapshots when publishing."
+        );
+        return;
+      }
+
+      setDeployMeta(meta);
+    } catch (e) {
+      setDeployErr(String(e?.message || e));
+    }
+  }, []);
+
+  const doDeploy = useCallback(async () => {
+    if (!deployMeta?.gitSha) return;
+
+    setDeployBusy(true);
+    setDeployErr("");
+
+    try {
+      const res = await triggerDeploy({
+        gitSha: deployMeta.gitSha,
+        checkpointTag: deployMeta.checkpointTag,
+        profileVersion: deployMeta.profileVersion,
+        reason: "owner redeploy from snapshots UI",
+        sourceSnapshotKey: deployKey,
+      });
+
+      // close modal
+      setDeployOpen(false);
+      setDeployKey("");
+      setDeployMeta(null);
+
+      // optionally show run URL in the main error line area (as success)
+      if (res?.runUrl) {
+        setErr(`✅ Deploy triggered. Run: ${res.runUrl}`);
+      } else {
+        setErr(`✅ Deploy triggered.`);
+      }
+    } catch (e) {
+      setDeployErr(String(e?.message || e));
+    } finally {
+      setDeployBusy(false);
+    }
+  }, [deployMeta, deployKey]);
+
   const askRestore = useCallback((key) => {
     setRestoreKey(key);
     setRestoreOpen(true);
@@ -490,13 +592,15 @@ export default function AdminSnapshots() {
                 <table className="min-w-[980px] w-full text-sm">
                   <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
                       <th className="py-3 px-4 font-semibold">File</th>
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">From</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">To</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Created at</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Size</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">Key</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
+                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
                       <th className="py-3 px-4 font-semibold whitespace-nowrap">
                         {showTrash ? "Restore" : "Delete"}
                       </th>
@@ -506,10 +610,24 @@ export default function AdminSnapshots() {
                   <tbody>
                     {rows.map((it) => (
                       <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
+                        <td className="text-xs py-3 px-4 whitespace-nowrap">
+                          <ActionButton
+                            variant="green"
+                            onClick={() => openPreview(it.key)}
+                            title="Open preview"
+                          >
+                            <HiOutlineEye className="text-base" />
+                          </ActionButton>
+                        </td>
+
                         <td className="text-xs py-3 px-4">
                           <div className="font-semibold text-gray-900 dark:text-gray-100 truncate max-w-[260px]">
                             {it.filename}
                           </div>
+                        </td>
+
+                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                          {it.category}
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
@@ -535,13 +653,14 @@ export default function AdminSnapshots() {
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap">
-                          <ActionButton
-                            variant="green"
-                            onClick={() => openPreview(it.key)}
-                            title="Open preview"
-                          >
-                            Preview
-                          </ActionButton>
+                            <ActionButton
+                                variant="green"
+                                disabled={showTrash}
+                                onClick={() => askDeploy(it.key)}
+                                title={showTrash ? "Restore first, then deploy" : "Deploy this snapshot's version"}
+                            >
+                                Deploy
+                            </ActionButton>
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap">
@@ -603,6 +722,61 @@ export default function AdminSnapshots() {
           <div className="text-xs text-gray-600 dark:text-gray-400 break-words">
             <span className="font-semibold text-gray-800 dark:text-gray-200">Key:</span>{" "}
             {deleteKey}
+          </div>
+        }
+      />
+
+      <ConfirmModal
+        open={deployOpen}
+        title="Deploy this version to production?"
+        body={
+          deployErr
+            ? "Fix the issue below and try again."
+            : "This will trigger a GitHub Actions workflow to redeploy GitHub Pages at the selected commit."
+        }
+        confirmText="Deploy"
+        confirmVariant="green"
+        busy={deployBusy}
+        onClose={() => {
+          setDeployOpen(false);
+          setDeployErr("");
+        }}
+        onConfirm={doDeploy}
+        extra={
+          <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
+            <div className="break-words">
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                Snapshot key:
+              </span>{" "}
+              {deployKey || "—"}
+            </div>
+
+            <div className="break-words">
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                Git SHA:
+              </span>{" "}
+              {deployMeta?.gitSha ? deployMeta.gitSha.slice(0, 12) : "—"}
+            </div>
+
+            <div className="break-words">
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                Checkpoint:
+              </span>{" "}
+              {deployMeta?.checkpointTag || "—"}
+            </div>
+
+            <div className="break-words">
+              <span className="font-semibold text-gray-800 dark:text-gray-200">
+                Profile version:
+              </span>{" "}
+              {deployMeta?.profileVersion || "—"}
+            </div>
+
+            {deployErr ? (
+              <div className="mt-2 text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+                {deployErr}
+              </div>
+            ) : null}
           </div>
         }
       />

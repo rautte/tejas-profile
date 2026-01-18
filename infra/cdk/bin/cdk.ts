@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // infra/cdk/bin/cdk.ts
+
+import "dotenv/config";
+
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { AssetsCdnStack } from "../lib/assets-cdn-stack";
@@ -8,7 +11,7 @@ import { SnapshotsStack } from "../lib/snapshots-stack";
 const app = new cdk.App();
 
 new AssetsCdnStack(app, "AssetsCdnStack", {
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" },
+  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_ACCOUNT },
 });
 
 const isDev = process.env.NODE_ENV !== "production";
