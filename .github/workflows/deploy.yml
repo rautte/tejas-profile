@@ -94,10 +94,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          KEY="profiles/${{ steps.meta.outputs.PROFILE_VERSION }}/repo/${{ steps.ziprepo.outputs.ARTIFACT_NAME }}"
-          aws s3 cp "${{ steps.ziprepo.outputs.ARTIFACT_PATH }}" "s3://${REPO_BUCKET}/${KEY}" \
-            --content-type "application/zip"
-          echo "S3_KEY=$KEY" >> $GITHUB_OUTPUT
+          REPO_KEY="profiles/${{ steps.meta.outputs.PROFILE_VERSION }}/repo/${{ steps.ziprepo.outputs.ARTIFACT_NAME }}"
+          test -n "${REPO_BUCKET}" || (echo "REPO_BUCKET is empty. Set it in Actions Variables." && exit 1)
+          aws s3 cp "${{ steps.ziprepo.outputs.ARTIFACT_PATH }}" "s3://${REPO_BUCKET}/${REPO_KEY}" --content-type "application/zip"
+          echo "S3_KEY=$REPO_KEY" >> $GITHUB_OUTPUT
+          echo "REPO_BUCKET=${REPO_BUCKET}"
 
       # ---- Node build
       - uses: actions/setup-node@v4
