@@ -1,5 +1,6 @@
 // src/configs/owner.js
 
+export const OWNER_TOKEN_KEY = "ownerToken";
 export const OWNER_SECRET = process.env.REACT_APP_OWNER_SECRET;
 export const OWNER_SESSION_KEY = "tejas_profile_owner_enabled";
 

@@ -24,12 +24,13 @@ import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } fr
 
 import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
 import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
-import { OWNER_SECRET, OWNER_SESSION_KEY } from "./config/owner";
+import { OWNER_SECRET, OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
 import MobileDockNav from "./components/shared/MobileDockNav";
 import QuickConnectPill from "./components/shared/QuickConnectPill";
+import OwnerPasscodeModal from "./components/shared/OwnerPasscodeModal";
 import MobileQuickConnectFab from "./components/shared/MobileQuickConnectFab";
 
 import TicTacToeWeb from "./components/games/tictactoe/TicTacToeWeb";
@@ -206,11 +207,14 @@ function parseFunZoneRoute(rawHashPath) {
 
 function App() {
 
+  const [ownerPromptOpen, setOwnerPromptOpen] = useState(false);
+
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
   );
 
   const [isOwner, setIsOwner] = useState(() => readOwnerEnabled());
+  const [ownerError, setOwnerError] = useState("");
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -263,21 +267,35 @@ function App() {
         return;
       }
 
-      const token = window.prompt("Enter owner passcode:");
-      if (!token) return;
-
-      if (token.trim() === OWNER_SECRET) {
-        setIsOwner(true);
-        writeOwnerEnabled();
-        alert("Owner mode enabled for this session.");
-      } else {
-        alert("Incorrect passcode.");
-      }
+      setOwnerPromptOpen(true);
+      return;
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+
+  const submitOwnerPasscode = useCallback(
+    (token) => {
+      if (!token) return;
+
+      if (token.trim() === OWNER_SECRET) {
+        setIsOwner(true);
+        writeOwnerEnabled();
+
+        try {
+          sessionStorage.setItem(OWNER_TOKEN_KEY, token.trim());
+        } catch {}
+
+        setOwnerError("");
+        setOwnerPromptOpen(false);
+      } else {
+        setOwnerError("Incorrect passcode");
+      }
+    },
+    [setIsOwner]
+  );
 
 
   // ------------------------------
@@ -1081,6 +1099,7 @@ function App() {
               type="button"
               onClick={() => {
                 clearOwnerEnabled();
+                try { sessionStorage.removeItem(OWNER_TOKEN_KEY); } catch {}
                 setIsOwner(false);
                 setSelectedSection(DEFAULT_SECTION); // or goTo(DEFAULT_SECTION)
               }}
@@ -1341,6 +1360,16 @@ function App() {
         items={mobileDockItems}
         activeId={selectedSection}
         onSelect={(id) => goTo(id)}
+      />
+
+      <OwnerPasscodeModal
+        open={ownerPromptOpen}
+        onClose={() => {
+          setOwnerPromptOpen(false);
+          setOwnerError("");
+        }}
+        onSubmit={submitOwnerPasscode}
+        error={ownerError}
       />
 
     </div>

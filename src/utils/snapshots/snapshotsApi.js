@@ -1,5 +1,7 @@
 // src/utils/snapshots/snapshotsApi.js
 
+import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "../../config/owner";
+
 const API = process.env.REACT_APP_SNAPSHOTS_API || "";
 
 function mustHaveApi() {
@@ -7,16 +9,36 @@ function mustHaveApi() {
   return API.replace(/\/$/, "");
 }
 
+// function ownerToken() {
+//   return process.env.REACT_APP_OWNER_SECRET || "";
+// }
+
+function isOwnerEnabled() {
+  try {
+    return sessionStorage.getItem(OWNER_SESSION_KEY) === "1";
+  } catch {}
+  return false;
+}
+
 function ownerToken() {
-  return process.env.REACT_APP_OWNER_SECRET || "";
+  try {
+    return sessionStorage.getItem(OWNER_TOKEN_KEY) || "";
+  } catch {}
+  return "";
 }
 
 function headers() {
-  return {
-    "content-type": "application/json",
-    "x-owner-token": ownerToken(),
-  };
+  const h = { "content-type": "application/json" };
+
+  // only attach token if owner mode enabled
+  if (isOwnerEnabled()) {
+    const t = ownerToken();
+    if (t) h["x-owner-token"] = t;
+  }
+
+  return h;
 }
+
 
 // -----------------------------
 // Snapshots (JSON)
