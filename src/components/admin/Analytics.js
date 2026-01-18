@@ -73,11 +73,117 @@ function downloadJsonFile(filename, data) {
   URL.revokeObjectURL(url);
 }
 
-function buildAnalyticsSnapshot({ events, overview, granularity, series }) {
+function safeTagKey(s) {
+  return String(s || "").trim().replace(/\s+/g, "_").slice(0, 64);
+}
+
+function safeTagValue(s) {
+  return String(s || "").trim().slice(0, 180);
+}
+
+// You can keep this list aligned with your actual sections.
+// This is stored in the snapshot to support "engagement per profile version".
+const PROFILE_SECTIONS = [
+  "Hero",
+  "About Me",
+  "Experience",
+  "Skills",
+  "Projects",
+  "Code Lab",
+  "Timeline",
+  "Resume",
+  "Fun Zone",
+  "Footer",
+  "Analytics",
+  "Snapshots",
+];
+
+// Prefer setting this at build time (CRA): REACT_APP_PROFILE_VERSION="v2026-01-17__A"
+function getProfileVersionId() {
+  // CRA build-time env:
+  const envVer =
+    (typeof process !== "undefined" &&
+      process?.env &&
+      process.env.REACT_APP_PROFILE_VERSION) ||
+    "";
+  // Optional: you can also set window.__PROFILE_VERSION__ in index.html
+  const winVer = typeof window !== "undefined" ? window.__PROFILE_VERSION__ : "";
+  return String(envVer || winVer || "dev").trim();
+}
+
+// This is where you’ll later store a “profile manifest” (sections + content hashes) in S3
+// and save its S3 key here for joining analytics -> profile content.
+// For now it's null, but the field exists (schema-ready).
+function getProfileManifestKey() {
+  // Example later: "profiles/v2026-01-17__A/manifest.json"
+  return null;
+}
+
+// ---- Profile version helpers (build-time injected by CI)
+function readBuildProfileVersion() {
+  const env = (typeof process !== "undefined" && process.env) ? process.env : {};
+
+  // These should come from GitHub Actions during build
+  const id =
+    env.REACT_APP_PROFILE_VERSION ||
+    env.REACT_APP_GIT_SHA ||
+    "unknown";
+
+  const gitSha = env.REACT_APP_GIT_SHA || null;
+
+  // This is the "repo snapshot" object (zip of repo, or metadata)
+  const repo = {
+    provider: "github",
+    repo: env.REACT_APP_REPO || null,                 // e.g. tejasraut/tejas-profile
+    commit: gitSha,
+    ref: env.REACT_APP_GIT_REF || null,               // e.g. refs/heads/main or a tag
+    buildRunId: env.REACT_APP_GH_RUN_ID || null,      // github run id
+    artifactUrl: env.REACT_APP_REPO_ARTIFACT_URL || null,   // optional: signed/https link
+    artifactKey: env.REACT_APP_REPO_ARTIFACT_KEY || null,   // preferred: S3 key
+    artifactSha256: env.REACT_APP_REPO_ARTIFACT_SHA256 || null,
+  };
+
   return {
-    schema: "tejas-profile.analytics.snapshot.v1",
+    id,
+    gitSha,
+    buildTime: env.REACT_APP_BUILD_TIME || null,
+    sections: typeof window !== "undefined" ? (window.__PROFILE_SECTIONS__ || null) : null, // optional if you expose it
+    manifestKey: env.REACT_APP_PROFILE_MANIFEST_KEY || null, // optional (S3 key)
+    repo,
+  };
+}
+
+function buildAnalyticsSnapshot({
+  events,
+  overview,
+  granularity,
+  series,
+  tags,
+  geo,
+}) {
+  const pv = readBuildProfileVersion();
+
+  return {
+    schema: "tejas-profile.analytics.snapshot.v2",
     createdAt: new Date().toISOString(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+
+    // ✅ required new fields
+    category: "Analytics",
+    profileVersion: {
+      id: pv.id,
+      sections: pv.sections || PROFILE_SECTIONS,
+      manifestKey: pv.manifestKey, // can be null for now
+      gitSha: pv.gitSha,
+      buildTime: pv.buildTime,
+      repo: pv.repo, // ✅ stores entire repo snapshot metadata (zip key/url/hash)
+    },
+
+    // optional
+    tags: tags && Object.keys(tags).length ? tags : undefined,
+    geo: geo || undefined,
+
+    // existing
     granularity,
     counts: {
       events: events.length,
@@ -250,11 +356,151 @@ function SmallActionButton({
   );
 }
 
-function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true }) {
-  const [saveSnapshot, setSaveSnapshot] = useState(defaultChecked);
+// ✅ A small modal for optional tag + optional geo hint (city/country)
+// City/country is “hint” for now (real geo should be enriched server-side later).
+function PublishOptionsModal({
+  open,
+  onClose,
+  onConfirm,
+  busy,
+  defaultTagKey = "",
+  defaultTagValue = "",
+  defaultGeoHint = "",
+}) {
+  const [tagKey, setTagKey] = useState(defaultTagKey);
+  const [tagValue, setTagValue] = useState(defaultTagValue);
+  const [geoHint, setGeoHint] = useState(defaultGeoHint);
 
   useEffect(() => {
-    if (open) setSaveSnapshot(defaultChecked);
+    if (!open) return;
+    setTagKey(defaultTagKey);
+    setTagValue(defaultTagValue);
+    setGeoHint(defaultGeoHint);
+  }, [open, defaultTagKey, defaultTagValue, defaultGeoHint]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[220] flex items-center justify-center px-4">
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/45"
+      />
+
+      <div className="relative w-full max-w-md rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-200/70 dark:border-white/10">
+          <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            Publish options (optional)
+          </div>
+          <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            Add a tag and/or geo hint before publishing the snapshot.
+          </div>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Tag key
+              </div>
+              <input
+                value={tagKey}
+                onChange={(e) => setTagKey(e.target.value)}
+                placeholder="e.g. experiment"
+                className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+              />
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Tag value
+              </div>
+              <input
+                value={tagValue}
+                onChange={(e) => setTagValue(e.target.value)}
+                placeholder="e.g. A/B-hero-A"
+                className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              Geo hint (optional)
+            </div>
+            <input
+              value={geoHint}
+              onChange={(e) => setGeoHint(e.target.value)}
+              placeholder="e.g. Seattle, US"
+              className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+            />
+            <div className="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
+              Real city/country should be added server-side later. This is just a manual hint.
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/50 dark:bg-white/5 p-3">
+            <div className="text-[12px] text-gray-700 dark:text-gray-300">
+              Snapshot will store:
+            </div>
+            <div className="mt-1 text-[12px] text-gray-600 dark:text-gray-400">
+              <div>category: Analytics</div>
+              <div>profileVersion.id: {getProfileVersionId()}</div>
+              <div>timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}</div>
+              <div>locale: {typeof navigator !== "undefined" ? navigator.language : "—"}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-200/70 dark:border-white/10 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 text-gray-800 dark:text-gray-100 hover:bg-white/80 dark:hover:bg-white/15 transition disabled:opacity-60"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const k = safeTagKey(tagKey);
+              const v = safeTagValue(tagValue);
+
+              const tags = k && v ? { [k]: v } : {};
+              const geo = {
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+                hint: safeTagValue(geoHint) || undefined,
+              };
+
+              onConfirm({ tags, geo });
+            }}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 transition shadow-sm disabled:opacity-60"
+          >
+            {busy ? "Publishing…" : "Publish"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, busy }) {
+  const [saveSnapshot, setSaveSnapshot] = useState(defaultChecked);
+  const [tagKey, setTagKey] = useState("");
+  const [tagValue, setTagValue] = useState("");
+  const [geoHint, setGeoHint] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSaveSnapshot(defaultChecked);
+      setTagKey("");
+      setTagValue("");
+      setGeoHint("");
+    }
   }, [open, defaultChecked]);
 
   if (!open) return null;
@@ -266,7 +512,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true }) 
         onClick={onClose}
         className="absolute inset-0 bg-black/40"
       />
-      <div className="relative w-full max-w-md rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200/70 dark:border-white/10">
           <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
             Reset analytics?
@@ -283,6 +529,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true }) 
               className="mt-0.5 h-4 w-4 accent-purple-600"
               checked={saveSnapshot}
               onChange={(e) => setSaveSnapshot(e.target.checked)}
+              disabled={busy}
             />
             <span>
               Publish a snapshot to S3 before reset
@@ -291,23 +538,69 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true }) 
               </span>
             </span>
           </label>
+
+          {saveSnapshot ? (
+            <div className="mt-2 space-y-3 rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/50 dark:bg-white/5 p-3">
+              <div className="text-[12px] font-semibold text-gray-700 dark:text-gray-300">
+                Optional tag + geo hint (saved into the snapshot)
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  value={tagKey}
+                  onChange={(e) => setTagKey(e.target.value)}
+                  placeholder="tag key"
+                  className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                  disabled={busy}
+                />
+                <input
+                  value={tagValue}
+                  onChange={(e) => setTagValue(e.target.value)}
+                  placeholder="tag value"
+                  className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                  disabled={busy}
+                />
+              </div>
+
+              <input
+                value={geoHint}
+                onChange={(e) => setGeoHint(e.target.value)}
+                placeholder="geo hint (e.g. Seattle, US)"
+                className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                disabled={busy}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="px-5 py-4 border-t border-gray-200/70 dark:border-white/10 flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 text-gray-800 dark:text-gray-100 hover:bg-white/80 dark:hover:bg-white/15 transition"
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 text-gray-800 dark:text-gray-100 hover:bg-white/80 dark:hover:bg-white/15 transition disabled:opacity-60"
           >
             Cancel
           </button>
 
           <button
             type="button"
-            onClick={() => onConfirm({ saveSnapshot })}
-            className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+            onClick={() => {
+              const k = safeTagKey(tagKey);
+              const v = safeTagValue(tagValue);
+              const tags = k && v ? { [k]: v } : {};
+              const geo = {
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+                hint: safeTagValue(geoHint) || undefined,
+              };
+
+              onConfirm({ saveSnapshot, tags, geo });
+            }}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm disabled:opacity-60"
           >
-            Reset
+            {busy ? "Working…" : "Reset"}
           </button>
         </div>
       </div>
@@ -323,6 +616,8 @@ export default function AdminAnalytics() {
   const [publishing, setPublishing] = useState(false);
   const [publishErr, setPublishErr] = useState("");
   const [publishOk, setPublishOk] = useState("");
+
+  const [publishOptionsOpen, setPublishOptionsOpen] = useState(false);
 
   const firstTrackedTs = useMemo(() => {
     if (!events?.length) return null;
@@ -367,39 +662,62 @@ export default function AdminAnalytics() {
 
   const recentSessions = useMemo(() => computeRecentSessions(events, 20), [events]);
 
-  const snapshot = useMemo(
-    () => buildAnalyticsSnapshot({ events, overview, granularity, series }),
-    [events, overview, granularity, series]
+  const publishSnapshotToS3 = useCallback(
+    async ({ tags = {}, geo = null } = {}) => {
+      setPublishErr("");
+      setPublishOk("");
+      setPublishing(true);
+
+      try {
+        // Build snapshot at publish-time so it captures tags/geo/profileVersion accurately
+        const snap = buildAnalyticsSnapshot({
+          events,
+          overview,
+          granularity,
+          series,
+          tags,
+          geo,
+        });
+
+        const from = firstTrackedTs ? formatYMD(firstTrackedTs) : null;
+        const to = formatYMD(Date.now());
+        const createdAt = snap?.createdAt || new Date().toISOString();
+
+        // 1) Ask API for presigned PUT url + key
+        const { key, url } = await presignPutSnapshot({
+          from,
+          to,
+          name: "analytics",
+          createdAt,
+        });
+
+        // 2) Upload snapshot JSON to that presigned url
+        await uploadSnapshotToS3(url, snap);
+
+        setPublishOk(`Published ✅ ${key.split("/").slice(-1)[0]}`);
+      } catch (e) {
+        setPublishErr(String(e?.message || e));
+      } finally {
+        setPublishing(false);
+      }
+    },
+    [events, overview, granularity, series, firstTrackedTs]
   );
 
-  const publishSnapshotToS3 = useCallback(async () => {
-    setPublishErr("");
-    setPublishOk("");
-    setPublishing(true);
-
-    try {
-      const from = firstTrackedTs ? formatYMD(firstTrackedTs) : null;
-      const to = formatYMD(Date.now());
-      const createdAt = snapshot?.createdAt || new Date().toISOString();
-
-      // 1) Ask API for presigned PUT url + key
-      const { key, url } = await presignPutSnapshot({
-        from,
-        to,
-        name: "analytics",
-        createdAt,
-      });
-
-      // 2) Upload the actual snapshot JSON to that presigned url
-      await uploadSnapshotToS3(url, snapshot);
-
-      setPublishOk(`Published ✅ ${key.split("/").slice(-1)[0]}`);
-    } catch (e) {
-      setPublishErr(String(e?.message || e));
-    } finally {
-      setPublishing(false);
-    }
-  }, [firstTrackedTs, snapshot]);
+  // For local download (no tags prompt needed)
+  const snapshotForDownload = useMemo(() => {
+    return buildAnalyticsSnapshot({
+      events,
+      overview,
+      granularity,
+      series,
+      tags: {},
+      geo: {
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+      },
+    });
+  }, [events, overview, granularity, series]);
 
   return (
     <section className="py-0 px-4 transition-colors">
@@ -438,14 +756,22 @@ export default function AdminAnalytics() {
                 <span className="text-gray-500 dark:text-gray-400 font-medium">From:</span>
                 <span>{fromLabel}</span>
               </span>
+
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-white/60 dark:bg-white/10 border border-gray-200/70 dark:border-white/10 text-gray-700 dark:text-gray-200"
+                title="Profile version id stored into snapshots"
+              >
+                <span className="text-gray-500 dark:text-gray-400 font-medium">Profile:</span>
+                <span>{getProfileVersionId()}</span>
+              </span>
             </div>
           }
           subtitle="Quick health check across sessions and engagement"
           action={
             <div className="flex items-center gap-2">
               <SmallActionButton
-                onClick={publishSnapshotToS3}
-                title="Uploads a snapshot to your private S3 bucket via presigned URL"
+                onClick={() => setPublishOptionsOpen(true)}
+                title="Optional tag/geo hint → uploads snapshot to S3 via presigned URL"
                 disabled={publishing}
               >
                 {publishing ? "Publishing…" : "Publish snapshot"}
@@ -458,7 +784,7 @@ export default function AdminAnalytics() {
                   const from = firstTrackedTs ? formatYMD(firstTrackedTs) : "unknown";
                   const to = formatYMD(Date.now());
                   const filename = `tejas-profile-analytics_from-${from}_to-${to}.json`;
-                  downloadJsonFile(filename, snapshot);
+                  downloadJsonFile(filename, snapshotForDownload);
                 }}
                 disabled={publishing}
               >
@@ -636,12 +962,25 @@ export default function AdminAnalytics() {
         </SectionCard>
       </div>
 
+      {/* Publish options modal */}
+      <PublishOptionsModal
+        open={publishOptionsOpen}
+        onClose={() => setPublishOptionsOpen(false)}
+        busy={publishing}
+        onConfirm={async ({ tags, geo }) => {
+          setPublishOptionsOpen(false);
+          await publishSnapshotToS3({ tags, geo });
+        }}
+      />
+
+      {/* Reset confirm */}
       <ConfirmResetModal
         open={resetOpen}
+        busy={publishing}
         onClose={() => setResetOpen(false)}
-        onConfirm={async ({ saveSnapshot }) => {
+        onConfirm={async ({ saveSnapshot, tags, geo }) => {
           if (saveSnapshot) {
-            await publishSnapshotToS3();
+            await publishSnapshotToS3({ tags, geo });
           }
           resetAnalytics();
           setEvents(getAllEvents());

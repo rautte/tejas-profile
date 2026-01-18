@@ -65,7 +65,8 @@ import {
   FaChartLine, 
   FaDatabase, 
   FaCog,
-  FaRegFolderOpen,
+  // FaRegFolderOpen,
+  FaRegSave,
 } from "react-icons/fa";
 
 
@@ -80,7 +81,8 @@ const ICONS = {
   "Fun Zone": <GiConsoleController className="text-sm" />,
   "Code Lab": <FaCode className="text-sm" />,
   Analytics: <FaChartLine className="text-sm" />,
-  Snapshots: <FaRegFolderOpen className="text-sm" />,
+  // Snapshots: <FaRegFolderOpen className="text-sm" />,
+  Snapshots: <FaRegSave className="text-sm" />,
   Data: <FaDatabase className="text-sm" />,
   Settings: <FaCog className="text-sm" />,
   // "Connect": <FaEnvelope className="text-sm" />,

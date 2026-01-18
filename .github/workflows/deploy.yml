@@ -1,29 +1,134 @@
 name: Build & Deploy (Pages)
+
 on:
   push:
     branches: [ main ]
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
   group: "pages"
   cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SNAPSHOTS_BUCKET: ${{ vars.SNAPSHOTS_BUCKET }}
+      REPO_URL: ${{ vars.REPO_URL }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure zip available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v zip >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y zip
+          fi
+
+      # ---- Version metadata
+      - name: Compute version metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          GIT_SHA="$(git rev-parse HEAD)"
+          GIT_SHA_SHORT="$(git rev-parse --short HEAD)"
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+          PROFILE_VERSION="pv_${GIT_SHA_SHORT}"
+
+          echo "GIT_SHA=$GIT_SHA" >> $GITHUB_OUTPUT
+          echo "GIT_SHA_SHORT=$GIT_SHA_SHORT" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+          echo "PROFILE_VERSION=$PROFILE_VERSION" >> $GITHUB_OUTPUT
+
+      # ---- Create allowlist repo zip (code-only)
+      - name: Create repo code snapshot zip (allowlist)
+        id: ziprepo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_NAME="profile_repo__${{ steps.meta.outputs.GIT_SHA_SHORT }}.zip"
+          ARTIFACT_PATH="/tmp/${ARTIFACT_NAME}"
+
+          zip -r "$ARTIFACT_PATH" \
+            src public infra scripts \
+            package.json package-lock.json \
+            tailwind.config.js postcss.config.js tsconfig.json \
+            README.md \
+            -x "public/snapshots/*" \
+            -x "**/.DS_Store" \
+            -x "**/*.log" \
+            -x ".env" -x ".env.*" \
+            -x "node_modules/*" \
+            -x "build/*" \
+            -x "logs/*" \
+            -x ".git/*"
+
+          SHA256="$(sha256sum "$ARTIFACT_PATH" | awk '{print $1}')"
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+          echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+          echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
+
+      # ---- AWS OIDC
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---- Upload repo zip to S3
+      - name: Upload repo code snapshot to S3
+        id: s3
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY="profiles/${{ steps.meta.outputs.PROFILE_VERSION }}/repo/${{ steps.ziprepo.outputs.ARTIFACT_NAME }}"
+          aws s3 cp "${{ steps.ziprepo.outputs.ARTIFACT_PATH }}" "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
+            --content-type "application/zip"
+          echo "S3_KEY=$KEY" >> $GITHUB_OUTPUT
+
+      # ---- Node build
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+
       - run: npm ci
-      - run: echo "VITE_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
+
+      # CRA reads env at build time via REACT_APP_*
+      - name: Write build env (.env)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "REACT_APP_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
+
+          echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}" >> .env
+          echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}" >> .env
+          echo "REACT_APP_BUILD_TIME=${{ steps.meta.outputs.BUILD_TIME }}" >> .env
+
+          # IMPORTANT: your readBuildProfileVersion() uses REACT_APP_REPO
+          echo "REACT_APP_REPO=${REPO_URL}" >> .env
+
+          echo "REACT_APP_REPO_ARTIFACT_KEY=${{ steps.s3.outputs.S3_KEY }}" >> .env
+          echo "REACT_APP_REPO_ARTIFACT_SHA256=${{ steps.ziprepo.outputs.SHA256 }}" >> .env
+
       - run: npm run build
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./build
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -33,3 +138,43 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+
+
+
+
+# name: Build & Deploy (Pages)
+# on:
+#   push:
+#     branches: [ main ]
+# permissions:
+#   contents: read
+#   pages: write
+#   id-token: write
+# concurrency:
+#   group: "pages"
+#   cancel-in-progress: true
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: actions/setup-node@v4
+#         with:
+#           node-version: 20
+#           cache: npm
+#       - run: npm ci
+#       - run: echo "VITE_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
+#       - run: npm run build
+#       - uses: actions/upload-pages-artifact@v3
+#         with:
+#           path: ./build
+#   deploy:
+#     needs: build
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: github-pages
+#       url: ${{ steps.deployment.outputs.page_url }}
+#     steps:
+#       - id: deployment
+#         uses: actions/deploy-pages@v4

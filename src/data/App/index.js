@@ -20,6 +20,7 @@ export const SECTION_ORDER = [
   "Fun Zone",
   "Timeline",
   "Analytics",
+  "Snapshots",
   "Data",
   "Settings",
 ];

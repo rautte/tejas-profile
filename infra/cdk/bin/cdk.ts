@@ -18,8 +18,12 @@ if (!ownerToken) {
   throw new Error("Missing OWNER_TOKEN env var for SnapshotsStack");
 }
 
+// ✅ pass role ARN (optional but required for repo zip uploads from GitHub Actions)
+const githubDeployerRoleArn = process.env.GITHUB_DEPLOYER_ROLE_ARN || "";
+
 new SnapshotsStack(app, "TejasProfileSnapshotsStack", {
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" },
   githubPagesOrigin: isDev ? "http://localhost:3000" : "https://rautte.github.io",
   ownerToken,
+  githubDeployerRoleArn: githubDeployerRoleArn || undefined,
 });
