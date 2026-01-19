@@ -1000,11 +1000,11 @@ export default function AdminSnapshots() {
                           </div>
 
                           {/* optional: show sha under filename (tiny) */}
-                          {snapShaByKey[it.key] ? (
+                          {/* {snapShaByKey[it.key] ? (
                             <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
                               {shortSha(snapShaByKey[it.key])}
                             </div>
-                          ) : null}
+                          ) : null} */}
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap">
