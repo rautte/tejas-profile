@@ -5,6 +5,7 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand, 
   CopyObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -253,10 +254,31 @@ export async function handler(event: Event) {
 
     const key = `${SNAP_PREFIX}${name}/from_${from}_to_${to}/${name}__${from}__${to}__${createdAt}.json`;
 
+    // ✅ extract deploy/meta fields (safe + optional)
+    const category = safeKeyPart(payload.category || "");
+    const tagKey = safeKeyPart(payload.tagKey || "");
+    const tagValue = safeKeyPart(payload.tagValue || "");
+
+    const profileVersionId = safeKeyPart(
+    payload.profileVersionId || payload.profileVersion || ""
+    );
+
+    const gitSha = safeKeyPart(payload.gitSha || "");
+    const checkpointTag = safeKeyPart(payload.checkpointTag || "");
+
+    // ✅ metadata keys become x-amz-meta-* in S3
     const cmd = new PutObjectCommand({
-      Bucket: SNAPSHOTS_BUCKET,
-      Key: key,
-      ContentType: "application/json",
+    Bucket: SNAPSHOTS_BUCKET,
+    Key: key,
+    ContentType: "application/json",
+    Metadata: {
+        category,
+        tagkey: tagKey,
+        tagvalue: tagValue,
+        profileversionid: profileVersionId,
+        gitsha: gitSha,
+        checkpointtag: checkpointTag,
+    },
     });
 
     const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
@@ -310,25 +332,58 @@ export async function handler(event: Event) {
 
     const res = await s3.send(cmd);
 
-    const items =
-      (res.Contents || [])
-        .filter((o) => o.Key && o.Key.endsWith(".json"))
-        .map((o) => {
-          const key = o.Key!;
-          const meta = tryParseFromKey(key);
-          return {
+    const contents = (res.Contents || []).filter((o) => o.Key && o.Key.endsWith(".json"));
+
+    // ✅ fetch per-object metadata (headObject)
+    const metaPairs = await Promise.all(
+    contents.map(async (o) => {
+        const key = o.Key!;
+        try {
+        const head = await s3.send(
+            new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key })
+        );
+        const m = head.Metadata || {};
+        return [
             key,
-            filename: basename(key),
-            scope: scope === "trash" ? "trash" : "snapshots",
-            name: meta.name,
-            from: meta.from,
-            to: meta.to,
-            createdAt: meta.createdAt,
-            size: o.Size ?? 0,
-            lastModified: o.LastModified ? o.LastModified.toISOString() : null,
-          };
-        })
-        .sort((a, b) => (b.lastModified || "").localeCompare(a.lastModified || ""));
+            {
+            category: m.category || "",
+            tagKey: m.tagkey || "",
+            tagValue: m.tagvalue || "",
+            profileVersionId: m.profileversionid || "",
+            gitSha: m.gitsha || "",
+            checkpointTag: m.checkpointtag || "",
+            },
+        ] as const;
+        } catch {
+        return [key, null] as const;
+        }
+    })
+    );
+
+    const metaByKey = new Map(metaPairs);
+
+    const items = contents
+    .map((o) => {
+        const key = o.Key!;
+        const kmeta = tryParseFromKey(key);
+        const meta = metaByKey.get(key) || null;
+
+        return {
+        key,
+        filename: basename(key),
+        scope: scope === "trash" ? "trash" : "snapshots",
+        name: kmeta.name,
+        from: kmeta.from,
+        to: kmeta.to,
+        createdAt: kmeta.createdAt,
+        size: o.Size ?? 0,
+        lastModified: o.LastModified ? o.LastModified.toISOString() : null,
+
+        // ✅ NEW: meta for UI columns + badges
+        meta,
+        };
+    })
+    .sort((a, b) => (b.lastModified || "").localeCompare(a.lastModified || ""));
 
     return json(200, { ok: true, items }, corsOrigin);
   }

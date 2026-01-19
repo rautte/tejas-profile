@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { FaChartLine } from "react-icons/fa";
 
 import { readBuildProfileVersion } from "../../utils/profileVersion";
+import { SECTION_ORDER } from "../../data/App";
 
 import SectionHeader from "../shared/SectionHeader";
 import { cx } from "../../utils/cx";
@@ -83,23 +84,6 @@ function safeTagValue(s) {
   return String(s || "").trim().slice(0, 180);
 }
 
-// You can keep this list aligned with your actual sections.
-// This is stored in the snapshot to support "engagement per profile version".
-const PROFILE_SECTIONS = [
-  "Hero",
-  "About Me",
-  "Experience",
-  "Skills",
-  "Projects",
-  "Code Lab",
-  "Timeline",
-  "Resume",
-  "Fun Zone",
-  "Footer",
-  "Analytics",
-  "Snapshots",
-];
-
 
 export function buildAnalyticsSnapshot({
   events,
@@ -119,7 +103,7 @@ export function buildAnalyticsSnapshot({
     category: "Analytics",
     profileVersion: {
       id: pv.id,
-      sections: pv.sections || PROFILE_SECTIONS,
+      sections: pv.sections || SECTION_ORDER,
       manifestKey: pv.manifestKey || null,
       gitSha: pv.gitSha || null,
       buildTime: pv.buildTime || null,

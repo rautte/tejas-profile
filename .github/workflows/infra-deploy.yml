@@ -1,0 +1,49 @@
+name: Deploy Infra (CDK)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "infra/cdk/**"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  cdk:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: infra/cdk/package-lock.json
+
+      - name: Install CDK deps
+        working-directory: infra/cdk
+        run: npm ci
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: CDK bootstrap (safe no-op if already)
+        working-directory: infra/cdk
+        run: npx cdk bootstrap aws://978416150779/us-east-1
+
+      - name: CDK deploy (Snapshots + Assets)
+        working-directory: infra/cdk
+        env:
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+          GITHUB_DEPLOYER_ROLE_ARN: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
+        run: |
+          npx cdk deploy TejasProfileSnapshotsStack AssetsCdnStack --require-approval never

@@ -485,9 +485,6 @@ export default function AdminSnapshots() {
   const [deployHistory, setDeployHistory] = useState(null);
   const [historyErr, setHistoryErr] = useState("");
 
-  // cache snapshot->gitSha so we don't fetch N times
-  const [snapShaByKey, setSnapShaByKey] = useState(() => ({}));
-
   // selection
   const [selectedKeys, setSelectedKeys] = useState([]);
 
@@ -614,11 +611,15 @@ export default function AdminSnapshots() {
   const rows = useMemo(() => {
     const source = showTrash ? trashItems : items;
     return (source || []).map((it) => {
-      const meta = parseMetaFromKey(it.key || "");
-      return {
+        const meta = parseMetaFromKey(it.key || "");
+        return {
         ...it,
-        ...meta,
-      };
+        // ✅ only fill if missing
+        filename: it.filename || meta.filename,
+        from: it.from || meta.from,
+        to: it.to || meta.to,
+        createdAt: it.createdAt || meta.createdAt,
+        };
     });
   }, [items, trashItems, showTrash]);
 
@@ -627,46 +628,46 @@ export default function AdminSnapshots() {
 
   const allKeysOnScreen = useMemo(() => rows.map((r) => r.key).filter(Boolean), [rows]);
 
-  useEffect(() => {
-    let cancelled = false;
+//   useEffect(() => {
+//     let cancelled = false;
 
-    async function fillMissingShas() {
-        const keys = rows.map((r) => r.key).filter(Boolean);
-        const MAX = 40;
-        const missing = keys.filter((k) => !snapShaByKey[k]).slice(0, MAX);
-        if (!missing.length) return;
+//     async function fillMissingShas() {
+//         const keys = rows.map((r) => r.key).filter(Boolean);
+//         const MAX = 40;
+//         const missing = keys.filter((k) => !snapShaByKey[k]).slice(0, MAX);
+//         if (!missing.length) return;
 
-        try {
-        const results = await Promise.all(
-            missing.map(async (k) => {
-            try {
-                const snap = await fetchSnapshotJson(k);
-                const meta = extractDeployMetaFromSnapshotJson(snap);
-                return [k, meta?.gitSha || ""];
-            } catch {
-                return [k, ""];
-            }
-            })
-        );
+//         try {
+//         const results = await Promise.all(
+//             missing.map(async (k) => {
+//             try {
+//                 const snap = await fetchSnapshotJson(k);
+//                 const meta = extractDeployMetaFromSnapshotJson(snap);
+//                 return [k, meta?.gitSha || ""];
+//             } catch {
+//                 return [k, ""];
+//             }
+//             })
+//         );
 
-        if (cancelled) return;
+//         if (cancelled) return;
 
-        setSnapShaByKey((prev) => {
-            const next = { ...prev };
-            for (const [k, sha] of results) next[k] = sha;
-            return next;
-        });
-        } catch {
-        // ignore
-        }
-    }
+//         setSnapShaByKey((prev) => {
+//             const next = { ...prev };
+//             for (const [k, sha] of results) next[k] = sha;
+//             return next;
+//         });
+//         } catch {
+//         // ignore
+//         }
+//     }
 
-    fillMissingShas();
-    return () => {
-        cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows]); // intentionally only rows
+//     fillMissingShas();
+//     return () => {
+//         cancelled = true;
+//     };
+//   // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, [rows]); // intentionally only rows
 
   const allSelectedOnScreen =
     allKeysOnScreen.length > 0 &&
@@ -739,22 +740,37 @@ export default function AdminSnapshots() {
     setDeployOpen(true);
 
     try {
-      // fetch the snapshot JSON so we can find gitSha
-      const snap = await fetchSnapshotJson(key);
-      const meta = extractDeployMetaFromSnapshotJson(snap);
+        const row = rows.find((r) => r.key === key);
+        const shaFromList = row?.meta?.gitSha || "";
+        const checkpointFromList = row?.meta?.checkpointTag || "";
+        const pvFromList = row?.meta?.profileVersionId || "";
 
-      if (!meta?.gitSha) {
+        // ✅ Prefer list meta (fast path)
+        if (shaFromList) {
+        setDeployMeta({
+            gitSha: shaFromList,
+            checkpointTag: checkpointFromList || null,
+            profileVersion: pvFromList || null,
+        });
+        return;
+        }
+
+        // fallback: fetch snapshot JSON (older snapshots)
+        const snap = await fetchSnapshotJson(key);
+        const meta = extractDeployMetaFromSnapshotJson(snap);
+
+        if (!meta?.gitSha) {
         setDeployErr(
-          "This snapshot JSON does not contain a git SHA. Add build meta to snapshots when publishing."
+            "This snapshot has no git SHA (metadata or JSON). Re-publish snapshot with build meta."
         );
         return;
-      }
+        }
 
-      setDeployMeta(meta);
+        setDeployMeta(meta);
     } catch (e) {
-      setDeployErr(String(e?.message || e));
+        setDeployErr(String(e?.message || e));
     }
-  }, []);
+  }, [rows]);
 
   const doDeploy = useCallback(async () => {
     if (!deployMeta?.gitSha) return;
@@ -916,7 +932,7 @@ export default function AdminSnapshots() {
           ) : rows.length ? (
             <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
               <div className="max-h-[520px] overflow-auto">
-                <table className="min-w-[980px] w-full text-sm">
+                <table className="min-w-[1480px] w-full text-sm">
                   <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">
@@ -930,8 +946,13 @@ export default function AdminSnapshots() {
                         </th>
 
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Profile_Version_ID</th>
                         <th className="py-3 px-4 font-semibold">Filename</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Key</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Value</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
@@ -965,18 +986,27 @@ export default function AdminSnapshots() {
                           </ActionButton>
                         </td>
 
+                        <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <CopyHoverCell
+                                value={it.meta?.profileVersionId || ""}
+                                title={it.meta?.profileVersionId || ""}
+                                textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                                showCopy={Boolean(it.meta?.profileVersionId)}
+                            />
+                        </td>
+
                         <td className="text-xs py-3 px-4">
                           <div className="flex items-center gap-2 min-w-0">
                             <CopyHoverCell
                                 value={it.filename}
                                 title={it.filename}
                                 textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
-                                maxWidthClass="max-w-[360px]"
+                                // maxWidthClass="max-w-[360px]"
                             />
 
                             {/* badges */}
                             {(() => {
-                              const sha = snapShaByKey[it.key] || "";
+                              const sha = it.meta?.gitSha || "";
                               const isActive = sha && activeGitSha && sha === activeGitSha;
                               const isPrev = sha && prevGitSha && sha === prevGitSha;
 
@@ -1009,15 +1039,27 @@ export default function AdminSnapshots() {
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap">
                             <CopyHoverCell
-                                value={shortSha(snapShaByKey[it.key] || "")}
-                                title={snapShaByKey[it.key] || ""}
+                                value={shortSha(it.meta?.gitSha || "")}
+                                title={it.meta?.gitSha || ""}
                                 textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
                             />
                         </td>
 
-                        {/* <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                          {it.category}
-                        </td> */}
+                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.meta?.category || "—"}
+                        </td>
+
+                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.meta?.tagKey || "—"}
+                        </td>
+
+                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.meta?.tagValue || "—"}
+                        </td>
+
+                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.meta?.checkpointTag || "—"}
+                        </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                           {it.from}

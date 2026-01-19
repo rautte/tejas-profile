@@ -4,7 +4,7 @@ import { Construct } from 'constructs';
 
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
-import { S3Origin } from 'aws-cdk-lib/aws-cloudfront-origins';
+import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
 export class AssetsCdnStack extends cdk.Stack {
@@ -31,35 +31,35 @@ export class AssetsCdnStack extends cdk.Stack {
     });
 
     // 2) CloudFront OAI (compatible across CDK versions)
-    const oai = new cloudfront.OriginAccessIdentity(this, 'OAI', {
-      comment: 'OAI for tejas-profile heavy assets',
-    });
+    // const oai = new cloudfront.OriginAccessIdentity(this, 'OAI', {
+    //   comment: 'OAI for tejas-profile heavy assets',
+    // });
 
-    // Allow CloudFront (via OAI) to read objects in the bucket
-    bucket.addToResourcePolicy(
-      new iam.PolicyStatement({
-        actions: ['s3:GetObject'],
-        resources: [bucket.arnForObjects('*')],
-        principals: [
-          new iam.CanonicalUserPrincipal(
-            oai.cloudFrontOriginAccessIdentityS3CanonicalUserId
-          ),
-        ],
-      })
-    );
+    // // Allow CloudFront (via OAI) to read objects in the bucket
+    // bucket.addToResourcePolicy(
+    //   new iam.PolicyStatement({
+    //     actions: ['s3:GetObject'],
+    //     resources: [bucket.arnForObjects('*')],
+    //     principals: [
+    //       new iam.CanonicalUserPrincipal(
+    //         oai.cloudFrontOriginAccessIdentityS3CanonicalUserId
+    //       ),
+    //     ],
+    //   })
+    // );
 
     // 3) CloudFront distribution (S3Origin + OAI)
-    const distribution = new cloudfront.Distribution(this, 'AssetsDist', {
+    const distribution = new cloudfront.Distribution(this, "AssetsDist", {
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       defaultBehavior: {
-        origin: new S3Origin(bucket, { originAccessIdentity: oai }),
+        origin: S3BucketOrigin.withOriginAccessControl(bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         compress: true,
       },
-      defaultRootObject: '',
-      comment: 'CDN for tejas-profile heavy assets',
+      defaultRootObject: "",
+      comment: "CDN for tejas-profile heavy assets",
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
     });
 
