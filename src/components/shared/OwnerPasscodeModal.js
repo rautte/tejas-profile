@@ -16,8 +16,8 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
     if (!open) return;
 
     const onKey = (e) => {
-      if (e.key === "Escape") onClose?.();
-      if (e.key === "Enter") onSubmit?.(value.trim());
+        if (e.key === "Escape") onClose?.();
+        if (e.key === "Enter") onSubmit?.(value.trim());
     };
 
     window.addEventListener("keydown", onKey);
@@ -56,6 +56,10 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
             type="password"
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+                if (e.key === "Escape") onClose?.();
+                if (e.key === "Enter") onSubmit?.(value.trim());
+            }}
             placeholder="Passcode"
             className="
               w-full rounded-xl px-4 py-3

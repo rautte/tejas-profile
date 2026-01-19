@@ -24,8 +24,9 @@ import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } fr
 
 import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
 import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
-import { OWNER_SECRET, OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
+import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
+import { listSnapshots } from "./utils/snapshots/snapshotsApi";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
 import MobileDockNav from "./components/shared/MobileDockNav";
@@ -267,28 +268,36 @@ function App() {
 
 
   const submitOwnerPasscode = useCallback(
-    (token) => {
+    async (token) => {
       const t = (token || "").trim();
-
-      // ✅ Fail closed if build didn't inject secret
-      if (!OWNER_SECRET || typeof OWNER_SECRET !== "string" || OWNER_SECRET.trim().length < 6) {
-        setOwnerError("Owner secret not configured.");
+      if (!t) {
+        setOwnerError("Enter a passcode");
         return;
       }
 
-      if (t === OWNER_SECRET.trim()) {
+      // Put token + enable flag FIRST so snapshotsApi attaches x-owner-token
+      try { sessionStorage.setItem(OWNER_TOKEN_KEY, t); } catch {}
+      writeOwnerEnabled();
+
+      try {
+        // ✅ server-verified unlock: if token invalid, API returns 401
+        await listSnapshots();
+
         setIsOwner(true);
-        writeOwnerEnabled();
-
-        try {
-          // token used for API header
-          sessionStorage.setItem(OWNER_TOKEN_KEY, t);
-        } catch {}
-
         setOwnerError("");
         setOwnerPromptOpen(false);
-      } else {
-        setOwnerError("Incorrect passcode");
+      } catch (e) {
+        // ❌ token invalid → rollback
+        try { sessionStorage.removeItem(OWNER_TOKEN_KEY); } catch {}
+        clearOwnerEnabled();
+        setIsOwner(false);
+
+        const msg = String(e?.message || e);
+        // you’ll likely see "Unauthorized" or "401"
+        setOwnerError(msg.includes("401") || msg.toLowerCase().includes("unauthorized")
+          ? "Incorrect passcode"
+          : msg
+        );
       }
     },
     [setIsOwner]
@@ -407,7 +416,15 @@ function App() {
     return {
       ...base,
       Analytics: <AdminAnalytics darkMode={darkMode} />,
-      Snapshots: <AdminSnapshots darkMode={darkMode} />,
+      Snapshots: (
+        <AdminSnapshots
+          darkMode={darkMode}
+          onRequireOwner={() => {
+            setOwnerError("");
+            setOwnerPromptOpen(true);
+          }}
+        />
+      ),
       Data: <AdminData darkMode={darkMode} />,
       Settings: <AdminSettings darkMode={darkMode} />,
     };
