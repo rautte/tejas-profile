@@ -24,7 +24,7 @@ import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } fr
 
 import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
 import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
-import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
+import { OWNER_SECRET, OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
 import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
@@ -266,21 +266,33 @@ function App() {
   }, []);
 
 
-  const submitOwnerPasscode = useCallback((token) => {
-    const t = (token || "").trim();
-    if (!t) return;
+  const submitOwnerPasscode = useCallback(
+    (token) => {
+      const t = (token || "").trim();
 
-    // Store token for API calls (session only)
-    try { sessionStorage.setItem(OWNER_TOKEN_KEY, t); } catch {}
+      // ✅ Fail closed if build didn't inject secret
+      if (!OWNER_SECRET || typeof OWNER_SECRET !== "string" || OWNER_SECRET.trim().length < 6) {
+        setOwnerError("Owner secret not configured.");
+        return;
+      }
 
-    // Enable owner mode (session only)
-    writeOwnerEnabled();
-    setIsOwner(true);
+      if (t === OWNER_SECRET.trim()) {
+        setIsOwner(true);
+        writeOwnerEnabled();
 
-    // Close modal and clear errors
-    setOwnerError("");
-    setOwnerPromptOpen(false);
-  }, []);
+        try {
+          // token used for API header
+          sessionStorage.setItem(OWNER_TOKEN_KEY, t);
+        } catch {}
+
+        setOwnerError("");
+        setOwnerPromptOpen(false);
+      } else {
+        setOwnerError("Incorrect passcode");
+      }
+    },
+    [setIsOwner]
+  );
 
 
   // ------------------------------
