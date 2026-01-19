@@ -6,10 +6,6 @@ on:
     types: [completed]
   workflow_dispatch:
 
-concurrency:
-  group: "release-main"
-  cancel-in-progress: true
-
 permissions:
   contents: read
   pages: write
@@ -41,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Ensure zip available
         shell: bash
@@ -51,7 +48,6 @@ jobs:
             sudo apt-get install -y zip
           fi
 
-      # ---- Version metadata
       - name: Compute version metadata
         id: meta
         shell: bash
@@ -67,7 +63,6 @@ jobs:
           echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
           echo "PROFILE_VERSION=$PROFILE_VERSION" >> $GITHUB_OUTPUT
 
-      # ---- Create allowlist repo zip (code-only)
       - name: Create repo code snapshot zip (allowlist)
         id: ziprepo
         shell: bash
@@ -95,14 +90,12 @@ jobs:
           echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
           echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
 
-      # ---- AWS OIDC
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
           aws-region: ${{ env.AWS_REGION }}
 
-      # ---- Upload repo zip to S3
       - name: Upload repo code snapshot to S3
         id: s3
         shell: bash
@@ -112,9 +105,7 @@ jobs:
           test -n "${REPO_BUCKET}" || (echo "REPO_BUCKET is empty. Set it in Actions Variables." && exit 1)
           aws s3 cp "${{ steps.ziprepo.outputs.ARTIFACT_PATH }}" "s3://${REPO_BUCKET}/${REPO_KEY}" --content-type "application/zip"
           echo "S3_KEY=$REPO_KEY" >> $GITHUB_OUTPUT
-          echo "REPO_BUCKET=${REPO_BUCKET}"
 
-      # ---- Node build
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -122,27 +113,19 @@ jobs:
 
       - run: npm ci
 
-      # CRA reads env at build time via REACT_APP_*
       - name: Write build env (.env)
         shell: bash
         run: |
           set -euo pipefail
-
           echo "REACT_APP_SNAPSHOTS_API=${{ vars.REACT_APP_SNAPSHOTS_API }}" >> .env
           echo "REACT_APP_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
-
           echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}" >> .env
           echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}" >> .env
           echo "REACT_APP_BUILD_TIME=${{ steps.meta.outputs.BUILD_TIME }}" >> .env
           echo "REACT_APP_OWNER_SECRET=${{ secrets.REACT_APP_OWNER_SECRET }}" >> .env
-
-          # IMPORTANT: your code reads REACT_APP_REPO (not REPO_URL)
           echo "REACT_APP_REPO=${REPO_URL}" >> .env
-
-          # from GitHub Actions runtime
           echo "REACT_APP_GIT_REF=${GITHUB_REF}" >> .env
           echo "REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}" >> .env
-
           echo "REACT_APP_REPO_ARTIFACT_KEY=${{ steps.s3.outputs.S3_KEY }}" >> .env
           echo "REACT_APP_REPO_ARTIFACT_SHA256=${{ steps.ziprepo.outputs.SHA256 }}" >> .env
 
@@ -164,7 +147,7 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-      
+
       - name: Configure AWS credentials (OIDC) for history write
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -181,7 +164,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           KEY="deploy/history.json"
           TMP_OLD="/tmp/deploy_history_old.json"
           TMP_NEW="/tmp/deploy_history_new.json"
@@ -191,25 +173,8 @@ jobs:
           DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
           SOURCE="gha"
 
-          # fetch old (if exists)
           aws s3 cp "s3://${SNAPSHOTS_BUCKET}/${KEY}" "${TMP_OLD}" >/dev/null 2>&1 || true
-
-          # ✅ IMPORTANT: jq --slurpfile requires the file to exist AND be valid JSON
-          if [ ! -s "${TMP_OLD}" ]; then
-            echo '{}' > "${TMP_OLD}"
-          fi
-
-          # if [ -s "${TMP_OLD}" ]; then
-          #   OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
-          #   OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
-          #   OLD_ACTIVE_AT="$(jq -r '.active.deployedAt // empty' "${TMP_OLD}")"
-          #   OLD_ACTIVE_SRC="$(jq -r '.active.source // empty' "${TMP_OLD}")"
-          # else
-          #   OLD_ACTIVE_SHA=""
-          #   OLD_ACTIVE_PV=""
-          #   OLD_ACTIVE_AT=""
-          #   OLD_ACTIVE_SRC=""
-          # fi
+          if [ ! -s "${TMP_OLD}" ]; then echo '{}' > "${TMP_OLD}"; fi
 
           OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
           OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
@@ -231,34 +196,12 @@ jobs:
               (if ($old|length>0 and ($old[0].timeline|type)=="array") then $old[0].timeline else [] end);
 
             {
-              active: {
-                gitSha: $gitSha,
-                profileVersionId: $pv,
-                deployedAt: $at,
-                source: $src
-              },
-              previous: (if ($prevSha|length)>0 then {
-                gitSha: $prevSha,
-                profileVersionId: $prevPv,
-                deployedAt: $prevAt,
-                source: $prevSrc
-              } else null end),
-              timeline: (
-                (
-                  [{ gitSha: $gitSha, profileVersionId: $pv, deployedAt: $at, source: $src }]
-                  + oldTimeline
-                )
-                | unique_by(.gitSha)
-                | .[0:25]
-              )
+              active: { gitSha: $gitSha, profileVersionId: $pv, deployedAt: $at, source: $src },
+              previous: (if ($prevSha|length)>0 then { gitSha: $prevSha, profileVersionId: $prevPv, deployedAt: $prevAt, source: $prevSrc } else null end),
+              timeline: ( ([{ gitSha: $gitSha, profileVersionId: $pv, deployedAt: $at, source: $src }] + oldTimeline) | unique_by(.gitSha) | .[0:25] )
             }
             ' > "${TMP_NEW}"
 
           aws s3 cp "${TMP_NEW}" "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
             --content-type "application/json" \
             --cache-control "no-store"
-
-
-
-
-
