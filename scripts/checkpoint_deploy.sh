@@ -105,7 +105,6 @@ fi
 # Append/refresh our managed keys
 cat >> "$TMP_FILE" <<EOF
 
-# ---- Auto-written by scripts/checkpoint_deploy.sh ----
 REACT_APP_PROFILE_VERSION=${PROFILE_VERSION}
 REACT_APP_GIT_SHA=${GIT_SHA}
 REACT_APP_BUILD_TIME=${BUILD_TIME}
