@@ -185,17 +185,27 @@ jobs:
           # fetch old (if exists)
           aws s3 cp "s3://${SNAPSHOTS_BUCKET}/${KEY}" "${TMP_OLD}" >/dev/null 2>&1 || true
 
-          if [ -s "${TMP_OLD}" ]; then
-            OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
-            OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
-            OLD_ACTIVE_AT="$(jq -r '.active.deployedAt // empty' "${TMP_OLD}")"
-            OLD_ACTIVE_SRC="$(jq -r '.active.source // empty' "${TMP_OLD}")"
-          else
-            OLD_ACTIVE_SHA=""
-            OLD_ACTIVE_PV=""
-            OLD_ACTIVE_AT=""
-            OLD_ACTIVE_SRC=""
+          # ✅ IMPORTANT: jq --slurpfile requires the file to exist AND be valid JSON
+          if [ ! -s "${TMP_OLD}" ]; then
+            echo '{}' > "${TMP_OLD}"
           fi
+
+          # if [ -s "${TMP_OLD}" ]; then
+          #   OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
+          #   OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
+          #   OLD_ACTIVE_AT="$(jq -r '.active.deployedAt // empty' "${TMP_OLD}")"
+          #   OLD_ACTIVE_SRC="$(jq -r '.active.source // empty' "${TMP_OLD}")"
+          # else
+          #   OLD_ACTIVE_SHA=""
+          #   OLD_ACTIVE_PV=""
+          #   OLD_ACTIVE_AT=""
+          #   OLD_ACTIVE_SRC=""
+          # fi
+
+          OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
+          OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
+          OLD_ACTIVE_AT="$(jq -r '.active.deployedAt // empty' "${TMP_OLD}")"
+          OLD_ACTIVE_SRC="$(jq -r '.active.source // empty' "${TMP_OLD}")"
 
           jq -n \
             --arg gitSha "${GIT_SHA}" \
