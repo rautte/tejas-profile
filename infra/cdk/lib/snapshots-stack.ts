@@ -155,6 +155,9 @@ export class SnapshotsStack extends cdk.Stack {
       );
 
       repoBucket.grantPut(githubRole, "profiles/*");
+      // Allow GitHub Actions to write deploy history into snapshots bucket
+      snapshotsBucket.grantReadWrite(githubRole, "deploy/history.json");
+      // or: snapshotsBucket.grantPut(githubRole, "deploy/history.json");
 
       githubRole.addToPrincipalPolicy(
         new iam.PolicyStatement({
