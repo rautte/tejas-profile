@@ -1,6 +1,7 @@
 // src/App.js
 // https://rautte.github.io/tejas-profile
 
+
 /**
  * CHECKPOINT (Mobile UI/UX):
  * Updating changes to section content for view on mobile UI/UX
