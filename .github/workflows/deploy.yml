@@ -16,6 +16,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      GIT_SHA: ${{ steps.meta.outputs.GIT_SHA }}
+      GIT_SHA_SHORT: ${{ steps.meta.outputs.GIT_SHA_SHORT }}
+      PROFILE_VERSION: ${{ steps.meta.outputs.PROFILE_VERSION }}
+      BUILD_TIME: ${{ steps.meta.outputs.BUILD_TIME }}
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -141,11 +146,99 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SNAPSHOTS_BUCKET: ${{ vars.SNAPSHOTS_BUCKET }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+      
+      - name: Configure AWS credentials (OIDC) for history write
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure jq
+        shell: bash
+        run: |
+          set -e
+          command -v jq >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y jq)
+
+      - name: Update deploy history (active + previous)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          KEY="deploy/history.json"
+          TMP_OLD="/tmp/deploy_history_old.json"
+          TMP_NEW="/tmp/deploy_history_new.json"
+
+          GIT_SHA="${{ needs.build.outputs.GIT_SHA }}"
+          PROFILE_VERSION="${{ needs.build.outputs.PROFILE_VERSION }}"
+          DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+          SOURCE="gha"
+
+          # fetch old (if exists)
+          aws s3 cp "s3://${SNAPSHOTS_BUCKET}/${KEY}" "${TMP_OLD}" >/dev/null 2>&1 || true
+
+          if [ -s "${TMP_OLD}" ]; then
+            OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
+            OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
+            OLD_ACTIVE_AT="$(jq -r '.active.deployedAt // empty' "${TMP_OLD}")"
+            OLD_ACTIVE_SRC="$(jq -r '.active.source // empty' "${TMP_OLD}")"
+          else
+            OLD_ACTIVE_SHA=""
+            OLD_ACTIVE_PV=""
+            OLD_ACTIVE_AT=""
+            OLD_ACTIVE_SRC=""
+          fi
+
+          jq -n \
+            --arg gitSha "${GIT_SHA}" \
+            --arg pv "${PROFILE_VERSION}" \
+            --arg at "${DEPLOYED_AT}" \
+            --arg src "${SOURCE}" \
+            --arg prevSha "${OLD_ACTIVE_SHA}" \
+            --arg prevPv "${OLD_ACTIVE_PV}" \
+            --arg prevAt "${OLD_ACTIVE_AT}" \
+            --arg prevSrc "${OLD_ACTIVE_SRC}" \
+            --slurpfile old "${TMP_OLD}" \
+            '
+            def oldTimeline:
+              (if ($old|length>0 and ($old[0].timeline|type)=="array") then $old[0].timeline else [] end);
+
+            {
+              active: {
+                gitSha: $gitSha,
+                profileVersionId: $pv,
+                deployedAt: $at,
+                source: $src
+              },
+              previous: (if ($prevSha|length)>0 then {
+                gitSha: $prevSha,
+                profileVersionId: $prevPv,
+                deployedAt: $prevAt,
+                source: $prevSrc
+              } else null end),
+              timeline: (
+                (
+                  [{ gitSha: $gitSha, profileVersionId: $pv, deployedAt: $at, source: $src }]
+                  + oldTimeline
+                )
+                | unique_by(.gitSha)
+                | .[0:25]
+              )
+            }
+            ' > "${TMP_NEW}"
+
+          aws s3 cp "${TMP_NEW}" "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
+            --content-type "application/json" \
+            --cache-control "no-store"
+
+
 
 

@@ -200,3 +200,11 @@ export async function triggerDeploy({
   return json; // { ok, message, runUrl? }
 }
 
+export async function getDeployHistory() {
+  const base = mustHaveApi();
+  const res = await fetch(`${base}/deploy/history`, { headers: headers() });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) throw new Error(json.error || "deploy history failed");
+  return json.history; // may be null
+}
+

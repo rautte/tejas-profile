@@ -2,7 +2,7 @@
 
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { HiOutlineEye } from "react-icons/hi";
+import { HiOutlineEye, HiOutlineClipboardCopy } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
 
 import SectionHeader from "../shared/SectionHeader";
@@ -16,6 +16,7 @@ import {
   restoreSnapshot,
   listTrashSnapshots,
   triggerDeploy,
+  getDeployHistory,
 } from "../../utils/snapshots/snapshotsApi";
 
 function SectionCard({ title, subtitle, action, children }) {
@@ -117,6 +118,10 @@ function extractDeployMetaFromSnapshotJson(snapJson) {
   };
 }
 
+function shortSha(sha) {
+  return sha ? String(sha).slice(0, 12) : "";
+}
+
 function ActionButton({ variant = "neutral", children, onClick, disabled, title }) {
   const base =
     "inline-flex items-center justify-center px-3 py-2 rounded-lg text-xs font-semibold border transition shadow-sm disabled:opacity-60 disabled:cursor-not-allowed";
@@ -143,6 +148,83 @@ function ActionButton({ variant = "neutral", children, onClick, disabled, title 
     >
       {children}
     </button>
+  );
+}
+
+async function copyToClipboard(text) {
+  const value = String(text || "");
+  if (!value) return false;
+
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    // fallback
+  }
+
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function CopyHoverCell({
+  value,
+  title,
+  className = "",
+  textClassName = "",
+  maxWidthClass = "",
+  showCopy = true,
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = useCallback(async (e) => {
+    e?.stopPropagation?.();
+    const ok = await copyToClipboard(value);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 900);
+  }, [value]);
+
+  return (
+    <div className={cx("relative group", className)}>
+      <div className={cx("pr-6", maxWidthClass)}>
+        <div className={cx("break-words", textClassName)} title={title || String(value || "")}>
+          {value || "—"}
+        </div>
+      </div>
+
+      {showCopy && value ? (
+        <button
+          type="button"
+          onClick={onCopy}
+          title={copied ? "Copied" : "Copy"}
+          className={cx(
+            "absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition",
+            "p-1 rounded-md border border-gray-200/70 dark:border-white/10",
+            "bg-white/80 dark:bg-[#0b0b12]/70",
+            "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+          )}
+        >
+          <HiOutlineClipboardCopy className="h-4 w-4" />
+        </button>
+      ) : null}
+
+      {copied ? (
+        <div className="absolute -top-5 right-1 text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+          Copied ✅
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -399,6 +481,13 @@ export default function AdminSnapshots() {
   const [deployKey, setDeployKey] = useState("");
   const [deployMeta, setDeployMeta] = useState(null);
 
+  // deploy history (truth source)
+  const [deployHistory, setDeployHistory] = useState(null);
+  const [historyErr, setHistoryErr] = useState("");
+
+  // cache snapshot->gitSha so we don't fetch N times
+  const [snapShaByKey, setSnapShaByKey] = useState(() => ({}));
+
   // selection
   const [selectedKeys, setSelectedKeys] = useState([]);
 
@@ -442,9 +531,20 @@ export default function AdminSnapshots() {
     }
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    setHistoryErr("");
+    try {
+      const h = await getDeployHistory();
+      setDeployHistory(h || null);
+    } catch (e) {
+      setDeployHistory(null);
+      setHistoryErr(String(e?.message || e));
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshTrash()]);
-  }, [refresh, refreshTrash]);
+    await Promise.all([refresh(), refreshTrash(), refreshHistory()]);
+  }, [refresh, refreshTrash, refreshHistory]);
 
   const doBulkDelete = useCallback(async () => {
     if (!selectedKeys.length) return;
@@ -504,7 +604,8 @@ export default function AdminSnapshots() {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    refreshHistory();
+  }, [refresh, refreshHistory]);
 
   useEffect(() => {
     if (showTrash) refreshTrash();
@@ -521,7 +622,51 @@ export default function AdminSnapshots() {
     });
   }, [items, trashItems, showTrash]);
 
+  const activeGitSha = deployHistory?.active?.gitSha || "";
+  const prevGitSha = deployHistory?.previous?.gitSha || "";
+
   const allKeysOnScreen = useMemo(() => rows.map((r) => r.key).filter(Boolean), [rows]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fillMissingShas() {
+        const keys = rows.map((r) => r.key).filter(Boolean);
+        const MAX = 40;
+        const missing = keys.filter((k) => !snapShaByKey[k]).slice(0, MAX);
+        if (!missing.length) return;
+
+        try {
+        const results = await Promise.all(
+            missing.map(async (k) => {
+            try {
+                const snap = await fetchSnapshotJson(k);
+                const meta = extractDeployMetaFromSnapshotJson(snap);
+                return [k, meta?.gitSha || ""];
+            } catch {
+                return [k, ""];
+            }
+            })
+        );
+
+        if (cancelled) return;
+
+        setSnapShaByKey((prev) => {
+            const next = { ...prev };
+            for (const [k, sha] of results) next[k] = sha;
+            return next;
+        });
+        } catch {
+        // ignore
+        }
+    }
+
+    fillMissingShas();
+    return () => {
+        cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]); // intentionally only rows
 
   const allSelectedOnScreen =
     allKeysOnScreen.length > 0 &&
@@ -753,6 +898,12 @@ export default function AdminSnapshots() {
           </div>
         ) : null}
 
+        {historyErr ? (
+          <div className="text-xs text-amber-700 dark:text-amber-300 whitespace-pre-wrap break-words">
+            ⚠️ Deploy history unavailable: {historyErr}
+          </div>
+        ) : null}
+
         <SectionCard
           title={showTrash ? "Archived snapshots" : "Saved snapshots"}
           subtitle={showTrash ? "Trash (recoverable)" : "Newest first"}
@@ -780,6 +931,7 @@ export default function AdminSnapshots() {
 
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
                         <th className="py-3 px-4 font-semibold">Filename</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
@@ -814,9 +966,53 @@ export default function AdminSnapshots() {
                         </td>
 
                         <td className="text-xs py-3 px-4">
-                          <div className="font-semibold text-gray-900 dark:text-gray-100">
-                            {it.filename}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <CopyHoverCell
+                                value={it.filename}
+                                title={it.filename}
+                                textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
+                                maxWidthClass="max-w-[360px]"
+                            />
+
+                            {/* badges */}
+                            {(() => {
+                              const sha = snapShaByKey[it.key] || "";
+                              const isActive = sha && activeGitSha && sha === activeGitSha;
+                              const isPrev = sha && prevGitSha && sha === prevGitSha;
+
+                              if (!isActive && !isPrev) return null;
+
+                              return (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {isActive ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                      ACTIVE
+                                    </span>
+                                  ) : null}
+                                  {isPrev ? (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-amber-500/30 bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                                      LAST USED
+                                    </span>
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
                           </div>
+
+                          {/* optional: show sha under filename (tiny) */}
+                          {snapShaByKey[it.key] ? (
+                            <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                              {shortSha(snapShaByKey[it.key])}
+                            </div>
+                          ) : null}
+                        </td>
+
+                        <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <CopyHoverCell
+                                value={shortSha(snapShaByKey[it.key] || "")}
+                                title={snapShaByKey[it.key] || ""}
+                                textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                            />
                         </td>
 
                         {/* <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
@@ -841,9 +1037,12 @@ export default function AdminSnapshots() {
 
                         <td className="py-3 px-4">
                           {/* <div className="text-[12px] text-gray-600 dark:text-gray-400 truncate max-w-[320px]"> */}
-                          <div className="text-[12px] text-gray-600 dark:text-gray-400">
-                            {it.key}
-                          </div>
+                          <CopyHoverCell
+                            value={it.key}
+                            title={it.key}
+                            textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                            maxWidthClass="max-w-[420px]"
+                          />
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap">

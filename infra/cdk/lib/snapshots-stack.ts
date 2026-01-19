@@ -82,6 +82,7 @@ export class SnapshotsStack extends cdk.Stack {
       environment: {
         SNAPSHOTS_BUCKET: snapshotsBucket.bucketName,
         REPO_BUCKET: repoBucket.bucketName,
+        DEPLOY_HISTORY_KEY: "deploy/history.json",
 
         OWNER_TOKEN: props.ownerToken,
 
@@ -106,6 +107,7 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     snapshotsBucket.grantReadWrite(fn, "snapshots/*");
     snapshotsBucket.grantReadWrite(fn, "trash/*");
+    // snapshotsBucket.grantRead(fn, "deploy/*");
 
     // Allow listing ONLY under snapshots/* and trash/*
     fn.addToRolePolicy(
@@ -114,7 +116,7 @@ export class SnapshotsStack extends cdk.Stack {
         resources: [snapshotsBucket.bucketArn],
         conditions: {
           StringLike: {
-            "s3:prefix": ["snapshots/*", "trash/*"],
+            "s3:prefix": ["snapshots/", "snapshots/*", "trash/", "trash/*"],
           },
         },
       })
@@ -124,7 +126,17 @@ export class SnapshotsStack extends cdk.Stack {
     fn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
-        resources: [snapshotsBucket.arnForObjects("*")],
+        resources: [
+            snapshotsBucket.arnForObjects("snapshots/*"),
+            snapshotsBucket.arnForObjects("trash/*"),
+        ],
+      })
+    );
+
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject", "s3:PutObject"],
+        resources: [snapshotsBucket.arnForObjects("deploy/history.json")],
       })
     );
 
@@ -179,21 +191,25 @@ export class SnapshotsStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });
+
     httpApi.addRoutes({
       path: "/snapshots/list",
       methods: [apigwv2.HttpMethod.GET],
       integration,
     });
+
     httpApi.addRoutes({
       path: "/snapshots/presign-get",
       methods: [apigwv2.HttpMethod.GET],
       integration,
     });
+
     httpApi.addRoutes({
       path: "/snapshots/delete",
       methods: [apigwv2.HttpMethod.POST],
       integration,
     });
+
     httpApi.addRoutes({
       path: "/snapshots/restore",
       methods: [apigwv2.HttpMethod.POST],
@@ -210,6 +226,12 @@ export class SnapshotsStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/deploy/trigger",
       methods: [apigwv2.HttpMethod.POST],
+      integration,
+    });
+
+    httpApi.addRoutes({
+      path: "/deploy/history",
+      methods: [apigwv2.HttpMethod.GET],
       integration,
     });
 

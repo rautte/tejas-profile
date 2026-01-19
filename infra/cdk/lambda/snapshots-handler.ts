@@ -33,6 +33,8 @@ const GITHUB_WORKFLOW_FILE = process.env.GITHUB_WORKFLOW_FILE || "redeploy.yml";
 const GITHUB_REF = process.env.GITHUB_REF || "main";
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ""; // PAT or GitHub App token (secret!)
 
+const DEPLOY_HISTORY_KEY = process.env.DEPLOY_HISTORY_KEY || "deploy/history.json";
+
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
@@ -193,6 +195,17 @@ function tryParseFromKey(key: string): ParsedMeta {
   }
 
   return { name, from, to, createdAt };
+}
+
+async function streamToString(body: any): Promise<string> {
+  if (!body) return "";
+  // AWS SDK v3 returns a Readable stream in Node
+  return await new Promise((resolve, reject) => {
+    const chunks: any[] = [];
+    body.on("data", (chunk: any) => chunks.push(chunk));
+    body.on("error", reject);
+    body.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+  });
 }
 
 export async function handler(event: Event) {
@@ -414,6 +427,37 @@ export async function handler(event: Event) {
 
     return json(200, { ok: true, fromKey, toKey }, corsOrigin);
   }
+
+    // -----------------------------
+    // GET /deploy/history (owner-only)
+    // reads s3://SNAPSHOTS_BUCKET/deploy/history.json
+    // -----------------------------
+    if (method === "GET" && path.endsWith("/deploy/history")) {
+    const key = DEPLOY_HISTORY_KEY;
+
+    try {
+        const out = await s3.send(
+        new GetObjectCommand({
+            Bucket: SNAPSHOTS_BUCKET,
+            Key: key,
+        })
+        );
+
+        const body = await streamToString(out.Body);
+        const history = body ? JSON.parse(body) : null;
+
+        return json(200, { ok: true, history }, corsOrigin);
+    } catch (e: any) {
+        const name = e?.name || "";
+        const msg = String(e?.message || e);
+
+        if (name === "NoSuchKey" || msg.includes("NoSuchKey") || msg.includes("NotFound")) {
+        return json(200, { ok: true, history: null }, corsOrigin);
+        }
+
+        return json(500, { ok: false, error: "Failed to read deploy history" }, corsOrigin);
+    }
+    }
 
   // -----------------------------
   // POST /deploy/trigger (owner-only)
