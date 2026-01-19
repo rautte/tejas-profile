@@ -558,11 +558,11 @@ export default function AdminSnapshots() {
     }
   }, []);
 
-  const askDelete = useCallback((key) => {
-    setDeleteKey(key);
-    setDeleteOpen(true);
-    setErr("");
-  }, []);
+//   const askDelete = useCallback((key) => {
+//     setDeleteKey(key);
+//     setDeleteOpen(true);
+//     setErr("");
+//   }, []);
 
   const doDelete = useCallback(async () => {
     if (!deleteKey) return;
@@ -644,11 +644,11 @@ export default function AdminSnapshots() {
     }
   }, [deployMeta, deployKey]);
 
-  const askRestore = useCallback((key) => {
-    setRestoreKey(key);
-    setRestoreOpen(true);
-    setErr("");
-  }, []);
+//   const askRestore = useCallback((key) => {
+//     setRestoreKey(key);
+//     setRestoreOpen(true);
+//     setErr("");
+//   }, []);
 
   const doRestore = useCallback(async () => {
     if (!restoreKey) return;
