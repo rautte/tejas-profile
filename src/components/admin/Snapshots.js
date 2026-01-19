@@ -294,10 +294,49 @@ function ConfirmModal({
   busy,
   extra,
 }) {
+
+  // ✅ hard-lock page scroll while modal is open
+  useEffect(() => {
+    if (!open) return;
+
+    const scrollY = window.scrollY;
+
+    const prev = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      left: document.body.style.left,
+      right: document.body.style.right,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+    };
+
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.width = "100%";
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.position = prev.position;
+      document.body.style.top = prev.top;
+      document.body.style.left = prev.left;
+      document.body.style.right = prev.right;
+      document.body.style.width = prev.width;
+      document.body.style.overflow = prev.overflow;
+
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[310] flex items-center justify-center px-4">
+    <div
+        className="fixed inset-0 z-[310] flex items-center justify-center px-4"
+        onWheelCapture={(e) => e.stopPropagation()}
+        onTouchMoveCapture={(e) => e.stopPropagation()}
+    >
       <button
         aria-label="Close"
         onClick={onClose}
@@ -360,6 +399,16 @@ export default function AdminSnapshots() {
   const [deployKey, setDeployKey] = useState("");
   const [deployMeta, setDeployMeta] = useState(null);
 
+  // selection
+  const [selectedKeys, setSelectedKeys] = useState([]);
+
+  // bulk modals
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);   // soft-delete bulk
+  const [bulkRestoreOpen, setBulkRestoreOpen] = useState(false); // restore bulk
+  const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);     // permanent delete bulk
+
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const selectedCount = selectedKeys.length;
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -367,6 +416,7 @@ export default function AdminSnapshots() {
     try {
       const res = await listSnapshots();
       setItems(Array.isArray(res) ? res : []);
+      setSelectedKeys([]);
     } catch (e) {
       setErr(String(e?.message || e));
     } finally {
@@ -374,18 +424,83 @@ export default function AdminSnapshots() {
     }
   }, []);
 
+  useEffect(() => {
+    setSelectedKeys([]);
+  }, [showTrash]);
+
   const refreshTrash = useCallback(async () => {
     setTrashLoading(true);
     setErr("");
     try {
       const res = await listTrashSnapshots();
       setTrashItems(Array.isArray(res) ? res : []);
+      setSelectedKeys([]);
     } catch (e) {
       setErr(String(e?.message || e));
     } finally {
       setTrashLoading(false);
     }
   }, []);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refresh(), refreshTrash()]);
+  }, [refresh, refreshTrash]);
+
+  const doBulkDelete = useCallback(async () => {
+    if (!selectedKeys.length) return;
+
+    setBulkBusy(true);
+    setErr("");
+
+    try {
+        await Promise.all(selectedKeys.map((k) => deleteSnapshot(k)));
+        setBulkDeleteOpen(false);
+        setSelectedKeys([]);
+        await refresh();
+    } catch (e) {
+        setErr(String(e?.message || e));
+    } finally {
+        setBulkBusy(false);
+    }
+  }, [selectedKeys, refresh]);
+
+  const doBulkRestore = useCallback(async () => {
+    if (!selectedKeys.length) return;
+
+    setBulkBusy(true);
+    setErr("");
+
+    try {
+        await Promise.all(selectedKeys.map((k) => restoreSnapshot(k)));
+        setBulkRestoreOpen(false);
+        setSelectedKeys([]);
+        await refresh();
+        await refreshTrash();
+        setShowTrash(false);
+    } catch (e) {
+        setErr(String(e?.message || e));
+    } finally {
+        setBulkBusy(false);
+    }
+  }, [selectedKeys, refresh, refreshTrash]);
+
+  const doBulkPurge = useCallback(async () => {
+    if (!selectedKeys.length) return;
+
+    setBulkBusy(true);
+    setErr("");
+
+    try {
+        // TODO: implement API call
+        // await Promise.all(selectedKeys.map((k) => purgeSnapshot(k)));
+
+        throw new Error("Permanent delete not implemented yet (need /snapshots/purge API).");
+    } catch (e) {
+        setErr(String(e?.message || e));
+    } finally {
+        setBulkBusy(false);
+    }
+  }, [selectedKeys]);
 
   useEffect(() => {
     refresh();
@@ -405,6 +520,26 @@ export default function AdminSnapshots() {
       };
     });
   }, [items, trashItems, showTrash]);
+
+  const allKeysOnScreen = useMemo(() => rows.map((r) => r.key).filter(Boolean), [rows]);
+
+  const allSelectedOnScreen =
+    allKeysOnScreen.length > 0 &&
+    allKeysOnScreen.every((k) => selectedKeys.includes(k));
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedKeys((prev) => {
+      if (allSelectedOnScreen) return [];
+      return allKeysOnScreen.slice(); // select all visible
+    });
+  }, [allKeysOnScreen, allSelectedOnScreen]);
+
+  const toggleRow = useCallback((key) => {
+    setSelectedKeys((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      return [...prev, key];
+    });
+  }, []);
 
   const openPreview = useCallback(async (key) => {
     setPreviewKey(key);
@@ -536,31 +671,71 @@ export default function AdminSnapshots() {
     }
   }, [restoreKey, refresh, refreshTrash]);
 
-  const headerRight = useMemo(() => {
-    return (
-      <div className="flex items-center gap-2">
-        <label className="inline-flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 select-none">
-          <input
-            type="checkbox"
-            className="h-4 w-4 accent-purple-600"
-            checked={showTrash}
-            onChange={(e) => setShowTrash(e.target.checked)}
-          />
-          Show archived (trash)
-        </label>
+  const headerRight = (
+    <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+            <label className="inline-flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 select-none">
+                <input
+                type="checkbox"
+                className="h-4 w-4 accent-purple-600"
+                checked={showTrash}
+                onChange={(e) => setShowTrash(e.target.checked)}
+                />
+                Show archived (trash)
+            </label>
 
-        <ActionButton onClick={refresh} title="Refresh list">
-          Refresh
-        </ActionButton>
+            <ActionButton
+                onClick={refreshAll}
+                title="Refresh snapshots + trash"
+            >
+                Refresh
+            </ActionButton>
 
-        {showTrash ? (
-          <ActionButton onClick={refreshTrash} title="Refresh trash">
-            Refresh trash
-          </ActionButton>
-        ) : null}
-      </div>
-    );
-  }, [refresh, refreshTrash, showTrash]);
+            {selectedCount > 0 ? (
+                <div className="flex items-center gap-2">
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                    Selected: <span className="font-semibold">{selectedCount}</span>
+                </div>
+
+                {!showTrash ? (
+                    <ActionButton
+                    variant="danger"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    title="Move selected snapshots to trash"
+                    >
+                    Move to trash
+                    </ActionButton>
+                ) : (
+                    <>
+                    <ActionButton
+                        variant="purple"
+                        onClick={() => setBulkRestoreOpen(true)}
+                        title="Restore selected snapshots"
+                    >
+                        Restore
+                    </ActionButton>
+
+                    <ActionButton
+                        variant="danger"
+                        onClick={() => setBulkPurgeOpen(true)}
+                        title="Permanently delete selected snapshots"
+                    >
+                        Delete forever
+                    </ActionButton>
+                    </>
+                )}
+
+                <ActionButton
+                    onClick={() => setSelectedKeys([])}
+                    title="Clear selection"
+                >
+                    Clear
+                </ActionButton>
+                </div>
+            ) : null}
+        </div>
+    </div>
+  );
 
   return (
     <section className="py-0 px-4 transition-colors">
@@ -593,24 +768,41 @@ export default function AdminSnapshots() {
                 <table className="min-w-[980px] w-full text-sm">
                   <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
-                      <th className="py-3 px-4 font-semibold">Filename</th>
-                      {/* <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th> */}
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Size</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
-                      <th className="py-3 px-4 font-semibold whitespace-nowrap">
-                        {showTrash ? "Restore" : "Delete"}
-                      </th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">
+                            <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-purple-600"
+                            checked={allSelectedOnScreen}
+                            onChange={toggleSelectAll}
+                            title="Select all"
+                            />
+                        </th>
+
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
+                        <th className="py-3 px-4 font-semibold">Filename</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Size</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {rows.map((it) => (
                       <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
+
+                        <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-purple-600"
+                                checked={selectedKeys.includes(it.key)}
+                                onChange={() => toggleRow(it.key)}
+                                title="Select"
+                            />
+                        </td>
+
                         <td className="text-xs py-3 px-4 whitespace-nowrap">
                           <ActionButton
                             variant="green"
@@ -665,25 +857,6 @@ export default function AdminSnapshots() {
                             </ActionButton>
                         </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap">
-                          {showTrash ? (
-                            <ActionButton
-                              variant="purple"
-                              onClick={() => askRestore(it.key)}
-                              title="Restore snapshot from trash"
-                            >
-                              Restore
-                            </ActionButton>
-                          ) : (
-                            <ActionButton
-                              variant="danger"
-                              onClick={() => askDelete(it.key)}
-                              title="Soft-delete (move to trash)"
-                            >
-                              Delete
-                            </ActionButton>
-                          )}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -726,6 +899,53 @@ export default function AdminSnapshots() {
             {deleteKey}
           </div>
         }
+      />
+
+      <ConfirmModal
+        open={bulkDeleteOpen}
+        title="Move selected snapshots to trash?"
+        body={`This will move ${selectedCount} snapshot(s) to Trash (recoverable).`}
+        confirmText="Move to trash"
+        confirmVariant="danger"
+        busy={bulkBusy}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={doBulkDelete}
+        extra={
+            <div className="max-h-[260px] overflow-auto pr-1">
+                <div className="text-xs text-gray-600 dark:text-gray-400 break-words space-y-2">
+                {selectedKeys.map((k) => (
+                    <div
+                    key={k}
+                    className="rounded-md bg-gray-50/70 dark:bg-white/5 border border-gray-200/60 dark:border-white/10 px-3 py-2"
+                    >
+                    {k}
+                    </div>
+                ))}
+                </div>
+            </div>
+        }
+      />
+
+      <ConfirmModal
+        open={bulkRestoreOpen}
+        title="Restore selected snapshots?"
+        body={`This will restore ${selectedCount} snapshot(s) from Trash.`}
+        confirmText="Restore"
+        confirmVariant="purple"
+        busy={bulkBusy}
+        onClose={() => setBulkRestoreOpen(false)}
+        onConfirm={doBulkRestore}
+      />
+
+      <ConfirmModal
+        open={bulkPurgeOpen}
+        title="Delete selected snapshots forever?"
+        body={`This will permanently delete ${selectedCount} snapshot(s). This cannot be undone.`}
+        confirmText="Delete forever"
+        confirmVariant="danger"
+        busy={bulkBusy}
+        onClose={() => setBulkPurgeOpen(false)}
+        onConfirm={doBulkPurge}
       />
 
       <ConfirmModal
