@@ -80,13 +80,15 @@ jobs:
       - name: CDK bootstrap (safe no-op if already)
         if: steps.changes.outputs.infra_changed == 'true'
         working-directory: infra/cdk
+        env:
+          GITHUB_DEPLOYER_ROLE_ARN: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
         run: npx cdk bootstrap aws://978416150779/us-east-1
 
       - name: CDK deploy (Snapshots + Assets)
         if: steps.changes.outputs.infra_changed == 'true'
         working-directory: infra/cdk
         env:
-          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+          OWNER_TOKEN: ${{ secrets.REACT_APP_OWNER_SECRET }}
           GITHUB_DEPLOYER_ROLE_ARN: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
         run: |
           npx cdk deploy TejasProfileSnapshotsStack AssetsCdnStack --require-approval never
