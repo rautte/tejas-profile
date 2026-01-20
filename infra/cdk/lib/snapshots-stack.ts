@@ -26,6 +26,8 @@ export class SnapshotsStack extends cdk.Stack {
     // const allowedOrigins = ["http://localhost:3000", "https://rautte.github.io"];
     const allowedOrigins = props.allowedOrigins;
 
+    const githubToken = process.env.GITHUB_TOKEN;
+
     // -----------------------------
     // 1) Snapshots bucket (JSON snapshots + trash)
     // -----------------------------
@@ -113,9 +115,9 @@ export class SnapshotsStack extends cdk.Stack {
         GITHUB_REPO: "rautte/tejas-profile",
         GITHUB_WORKFLOW_FILE: "redeploy.yml",
         GITHUB_REF: "main",
-        // ⚠️ Put a real secret here ONLY for quick test.
-        // Better: Secrets Manager. But this works right now.
-        GITHUB_TOKEN: process.env.GITHUB_TOKEN || "",
+
+        // ✅ ONLY set if present (prevents wiping prod)
+        ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
       },
     });
 
