@@ -31,13 +31,13 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     const snapshotsBucketName =
         props.stage === "prod"
-            ? "tejas-profile-PROD-SNAPSHOTS-978416150779"
-            : "tejas-profile-DEV-SNAPSHOTS-978416150779";
+            ? "tejas-profile-prod-snapshots-978416150779"
+            : "tejas-profile-dev-snapshots-978416150779";
 
-        const repoBucketName =
+    const repoBucketName =
         props.stage === "prod"
-            ? "tejas-profile-PROD-REPO-zips-978416150779"
-            : "tejas-profile-DEV-REPO-zips-978416150779";
+            ? "tejas-profile-prod-repo-zips-978416150779"
+            : "tejas-profile-dev-repo-zips-978416150779";
 
     const snapshotsBucket = new s3.Bucket(this, "SnapshotsBucket", {
         bucketName: snapshotsBucketName,
