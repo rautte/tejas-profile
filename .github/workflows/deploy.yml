@@ -29,9 +29,9 @@ jobs:
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
-      SNAPSHOTS_BUCKET: ${{ vars.SNAPSHOTS_BUCKET }}
-      REPO_BUCKET: ${{ vars.REPO_BUCKET }}
-      REPO_URL: ${{ vars.REPO_URL }}
+      SNAPSHOTS_BUCKET: ${{ secrets.SNAPSHOTS_BUCKET }}
+      REPO_BUCKET: ${{ secrets.REPO_BUCKET }}
+      REPO_URL: ${{ secrets.REPO_URL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -117,7 +117,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "REACT_APP_SNAPSHOTS_API=${{ vars.REACT_APP_SNAPSHOTS_API }}" >> .env
+          echo "REACT_APP_SNAPSHOTS_API=${{ secrets.REACT_APP_SNAPSHOTS_API }}" >> .env
+          echo "REACT_APP_CHECKPOINT_TAG=gha_${GITHUB_RUN_ID}" >> .env
           echo "REACT_APP_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
           echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}" >> .env
           echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}" >> .env
@@ -140,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
-      SNAPSHOTS_BUCKET: ${{ vars.SNAPSHOTS_BUCKET }}
+      SNAPSHOTS_BUCKET: ${{ secrets.SNAPSHOTS_BUCKET }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

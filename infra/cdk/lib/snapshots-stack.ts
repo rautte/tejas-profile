@@ -12,7 +12,9 @@ import * as apigwv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations"
 import * as iam from "aws-cdk-lib/aws-iam";
 
 type SnapshotsStackProps = cdk.StackProps & {
-  githubPagesOrigin: string; // kept for compatibility (not used directly now)
+  githubPagesOrigin?: string; // optional (legacy)
+  stage: "dev" | "prod";
+  allowedOrigins: string[];
   ownerToken: string;
   githubDeployerRoleArn?: string;
 };
@@ -21,12 +23,13 @@ export class SnapshotsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SnapshotsStackProps) {
     super(scope, id, props);
 
-    const allowedOrigins = ["http://localhost:3000", "https://rautte.github.io"];
+    // const allowedOrigins = ["http://localhost:3000", "https://rautte.github.io"];
+    const allowedOrigins = props.allowedOrigins;
 
     // -----------------------------
     // 1) Snapshots bucket (JSON snapshots + trash)
     // -----------------------------
-    const snapshotsBucket = new s3.Bucket(this, "TejasProfileSnapshotsBucket", {
+    const snapshotsBucket = new s3.Bucket(this, `TejasProfileSnapshotsBucket-${props.stage}`, {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -45,7 +48,7 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     // 2) Repo bucket (repo ZIP uploads under profiles/*)  ✅ OPTION 2
     // -----------------------------
-    const repoBucket = new s3.Bucket(this, "TejasProfileRepoZipsBucket", {
+    const repoBucket = new s3.Bucket(this, `TejasProfileRepoZipsBucket-${props.stage}`, {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -91,6 +94,7 @@ export class SnapshotsStack extends cdk.Stack {
         PROFILES_PREFIX: "profiles/",
 
         ALLOWED_ORIGINS: allowedOrigins.join(","),
+        STAGE: props.stage, // optional, but nice to have
 
         // GitHub redeploy trigger (owner-only)
         GITHUB_REPO: "rautte/tejas-profile",

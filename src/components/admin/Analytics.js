@@ -36,6 +36,11 @@ function msToHuman(ms) {
   return `${h}h`;
 }
 
+function nonEmptyOrUnknown(s) {
+  const v = String(s || "").trim();
+  return v || "unknown";
+}
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -651,9 +656,9 @@ export default function AdminAnalytics() {
         tagKey: Object.keys(tags || {})[0] || "",
         tagValue: Object.values(tags || {})[0] || "",
 
-        profileVersionId: pvNow?.id || "",
-        gitSha: pvNow?.gitSha || "",
-        checkpointTag: pvNow?.repo?.checkpointTag || "",
+        profileVersionId: nonEmptyOrUnknown(pvNow?.id),
+        gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
+        checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
         });
 
         // 2) Upload snapshot JSON to that presigned url

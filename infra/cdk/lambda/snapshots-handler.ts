@@ -259,12 +259,13 @@ export async function handler(event: Event) {
     const tagKey = safeKeyPart(payload.tagKey || "");
     const tagValue = safeKeyPart(payload.tagValue || "");
 
-    const profileVersionId = safeKeyPart(
-    payload.profileVersionId || payload.profileVersion || ""
-    );
+    const profileVersionIdRaw = String(payload.profileVersionId || payload.profileVersion || "").trim();
+    const gitShaRaw = String(payload.gitSha || "").trim();
+    const checkpointTagRaw = String(payload.checkpointTag || "").trim();
 
-    const gitSha = safeKeyPart(payload.gitSha || "");
-    const checkpointTag = safeKeyPart(payload.checkpointTag || "");
+    const profileVersionId = safeKeyPart(profileVersionIdRaw || "unknown");
+    const gitSha = safeKeyPart(gitShaRaw || "unknown");
+    const checkpointTag = safeKeyPart(checkpointTagRaw || "unknown");
 
     // ✅ metadata keys become x-amz-meta-* in S3
     const cmd = new PutObjectCommand({
@@ -349,9 +350,9 @@ export async function handler(event: Event) {
             category: m.category || "",
             tagKey: m.tagkey || "",
             tagValue: m.tagvalue || "",
-            profileVersionId: m.profileversionid || "",
-            gitSha: m.gitsha || "",
-            checkpointTag: m.checkpointtag || "",
+            profileVersionId: m.profileversionid || "unknown",
+            gitSha: m.gitsha || "unknown",
+            checkpointTag: m.checkpointtag || "unknown",
             },
         ] as const;
         } catch {

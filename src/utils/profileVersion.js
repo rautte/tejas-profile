@@ -1,25 +1,54 @@
 // src/utils/profileVersion.js
 
+function nonEmpty(s) {
+  const v = String(s || "").trim();
+  return v.length ? v : "";
+}
+
+function computeCheckpointTag(meta) {
+  // prefer explicit env
+  const explicit = nonEmpty(meta.checkpointTag);
+  if (explicit) return explicit;
+
+  // prefer GH run id if present
+  const runId = nonEmpty(meta.ghRunId);
+  if (runId && runId !== "unknown") return `run_${runId}`;
+
+  // fallback to profile version id if meaningful
+  const pv = nonEmpty(meta.id);
+  if (pv && pv !== "unknown") return pv;
+
+  // final fallback
+  return "unknown";
+}
+
+function nullIfEmptyOrUnknown(s) {
+  const v = String(s || "").trim();
+  if (!v || v.toLowerCase() === "unknown") return null;
+  return v;
+}
+
+// CRA build-time injection: these get replaced during `npm start` / `npm run build`
 // CRA build-time injection: these get replaced during `npm start` / `npm run build`
 const BUILD_META = {
-  id: process.env.REACT_APP_PROFILE_VERSION || "unknown",
-  gitSha: process.env.REACT_APP_GIT_SHA || null,
-  buildTime: process.env.REACT_APP_BUILD_TIME || null,
-  manifestKey: process.env.REACT_APP_PROFILE_MANIFEST_KEY || null,
+  id: nullIfEmptyOrUnknown(process.env.REACT_APP_PROFILE_VERSION) || "unknown",
+  gitSha: nullIfEmptyOrUnknown(process.env.REACT_APP_GIT_SHA),
+  buildTime: nullIfEmptyOrUnknown(process.env.REACT_APP_BUILD_TIME),
+  manifestKey: nullIfEmptyOrUnknown(process.env.REACT_APP_PROFILE_MANIFEST_KEY),
 
   // repo identity
-  repo: process.env.REACT_APP_REPO || null, // e.g. "rautte/tejas-profile"
-  repoUrl: process.env.REACT_APP_REPO_URL || null, // optional if you add later
-  repoRef: process.env.REACT_APP_REPO_REF || process.env.REACT_APP_GIT_REF || null,
+  repo: nullIfEmptyOrUnknown(process.env.REACT_APP_REPO), // e.g. "rautte/tejas-profile"
+  repoUrl: nullIfEmptyOrUnknown(process.env.REACT_APP_REPO_URL), // optional if you add later
+  repoRef: nullIfEmptyOrUnknown(process.env.REACT_APP_REPO_REF) || nullIfEmptyOrUnknown(process.env.REACT_APP_GIT_REF),
 
   // CI/build metadata (optional)
-  ghRunId: process.env.REACT_APP_GH_RUN_ID || null,
-  checkpointTag: process.env.REACT_APP_CHECKPOINT_TAG || null,
+  ghRunId: nullIfEmptyOrUnknown(process.env.REACT_APP_GH_RUN_ID),
+  checkpointTag: nullIfEmptyOrUnknown(process.env.REACT_APP_CHECKPOINT_TAG),
 
   // optional repo zip artifact metadata (future)
-  artifactUrl: process.env.REACT_APP_REPO_ARTIFACT_URL || null,
-  artifactKey: process.env.REACT_APP_REPO_ARTIFACT_KEY || null,
-  artifactSha256: process.env.REACT_APP_REPO_ARTIFACT_SHA256 || null,
+  artifactUrl: nullIfEmptyOrUnknown(process.env.REACT_APP_REPO_ARTIFACT_URL),
+  artifactKey: nullIfEmptyOrUnknown(process.env.REACT_APP_REPO_ARTIFACT_KEY),
+  artifactSha256: nullIfEmptyOrUnknown(process.env.REACT_APP_REPO_ARTIFACT_SHA256),
 };
 
 // Optional: expose for debugging
@@ -40,21 +69,22 @@ export function readBuildProfileVersion() {
 
   return {
     id: meta.id || "unknown",
-    gitSha: meta.gitSha || null,
-    buildTime: meta.buildTime || null,
+    gitSha: nullIfEmptyOrUnknown(meta.gitSha),
+    buildTime: nullIfEmptyOrUnknown(meta.buildTime),
     sections: meta.sections || null,
-    manifestKey: meta.manifestKey || null,
+    manifestKey: nullIfEmptyOrUnknown(meta.manifestKey),
 
     repo: {
       provider: "github",
-      repo: meta.repo || meta.repoUrl || null, // ✅ this is the important part
-      commit: meta.gitSha || null,
-      ref: meta.repoRef || null,
-      buildRunId: meta.ghRunId || null,
-      checkpointTag: meta.checkpointTag || null,
-      artifactUrl: meta.artifactUrl || null,
-      artifactKey: meta.artifactKey || null,
-      artifactSha256: meta.artifactSha256 || null,
+      repo: nullIfEmptyOrUnknown(meta.repo) || nullIfEmptyOrUnknown(meta.repoUrl), // ✅ this is the important part
+      commit: nullIfEmptyOrUnknown(meta.gitSha),
+      ref: nullIfEmptyOrUnknown(meta.repoRef),
+      buildRunId: nullIfEmptyOrUnknown(meta.ghRunId),
+      checkpointTag: computeCheckpointTag(meta),
+      artifactUrl: nullIfEmptyOrUnknown(meta.artifactUrl),
+      artifactKey: nullIfEmptyOrUnknown(meta.artifactKey),
+      artifactSha256: nullIfEmptyOrUnknown(meta.artifactSha256),
+
     },
   };
 }

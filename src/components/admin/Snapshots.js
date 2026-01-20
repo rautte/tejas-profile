@@ -1058,7 +1058,7 @@ export default function AdminSnapshots() {
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.meta?.checkpointTag || "—"}
+                            {it.meta?.checkpointTag || "unknown"}
                         </td>
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
