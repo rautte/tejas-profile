@@ -37,11 +37,25 @@ echo "------------------"
 echo ""
 
 # -----------------------------
-# Original script (unchanged behavior)
+# Load env (prod-first, fallback)
 # -----------------------------
-[ -f .env.local ] && set -a && . ./.env.local && set +a
+load_env_file() {
+  local f="$1"
+  if [[ -f "$f" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$f"
+    set +a
+    return 0
+  fi
+  return 1
+}
 
-DISTRIBUTION_ID="${CDN_DISTRIBUTION_ID:?CDN_DISTRIBUTION_ID not set in .env.local}"
+# Prefer prod env for CDN invalidation; fallback to dev
+load_env_file ".env.production.local" || true
+load_env_file ".env.local" || true
+
+DISTRIBUTION_ID="${CDN_DISTRIBUTION_ID:?CDN_DISTRIBUTION_ID not set (set it in .env.production.local or .env.local)}"
 PATTERNS="${CDN_INVALIDATE_PATHS:-/ships/sprites/*}"
 PROFILE="${AWS_PROFILE:-}"
 REGION="${AWS_REGION:-us-east-1}"
