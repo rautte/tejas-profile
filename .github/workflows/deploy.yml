@@ -206,3 +206,27 @@ jobs:
           aws s3 cp "${TMP_NEW}" "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
             --content-type "application/json" \
             --cache-control "no-store"
+
+  publish_ci_snapshot:
+    name: Publish CI Snapshot (prod)
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: github.ref_name == 'main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Publish snapshot to Snapshots API
+        env:
+          STAGE: prod
+          SNAPSHOTS_API: ${{ secrets.TEJAS_PROFILE_SNAPSHOTS_API_PROD }}
+          OWNER_TOKEN: ${{ secrets.TEJAS_PROFILE_OWNER_TOKEN_PROD }}
+
+          GIT_SHA: ${{ needs.build.outputs.GIT_SHA }}
+          PROFILE_VERSION: ${{ needs.build.outputs.PROFILE_VERSION }}
+          CHECKPOINT_TAG: gha_${{ github.run_id }}
+        run: node scripts/publish-ci-snapshot.mjs
