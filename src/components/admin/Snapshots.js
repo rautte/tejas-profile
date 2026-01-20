@@ -946,7 +946,7 @@ export default function AdminSnapshots() {
                         </th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Profile_Version_ID</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Dummy</th>
+                        {/* <th className="py-3 px-4 font-semibold whitespace-nowrap">Dummy</th> */}
                         <th className="py-3 px-4 font-semibold">Filename</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
@@ -994,10 +994,10 @@ export default function AdminSnapshots() {
                                 showCopy={Boolean(it.meta?.profileVersionId)}
                             />
                         </td>
-
+{/* 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                             {"—"}
-                        </td>
+                        </td> */}
 
                         <td className="text-xs py-3 px-4">
                           <div className="flex items-center gap-2 min-w-0">
