@@ -638,11 +638,22 @@ export default function AdminAnalytics() {
         const createdAt = snap?.createdAt || new Date().toISOString();
 
         // 1) Ask API for presigned PUT url + key
+        const pvNow = readBuildProfileVersion();
+
         const { key, url } = await presignPutSnapshot({
-          from,
-          to,
-          name: "analytics",
-          createdAt,
+        from,
+        to,
+        createdAt,                 // use the same createdAt you computed from snap
+        name: "analytics",         // optional, but explicit
+        category: "Analytics",     // matches your snapshot JSON category
+
+        // if you want ONE tag in metadata columns:
+        tagKey: Object.keys(tags || {})[0] || "",
+        tagValue: Object.values(tags || {})[0] || "",
+
+        profileVersionId: pvNow?.id || "",
+        gitSha: pvNow?.gitSha || "",
+        checkpointTag: pvNow?.repo?.checkpointTag || "",
         });
 
         // 2) Upload snapshot JSON to that presigned url

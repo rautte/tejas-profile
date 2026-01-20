@@ -43,19 +43,42 @@ function headers() {
 // -----------------------------
 // Snapshots (JSON)
 // -----------------------------
-export async function presignPutSnapshot({ from, to, name = "analytics", createdAt }) {
+export async function presignPutSnapshot({
+  from,
+  to,
+  name = "analytics",
+  createdAt,
+  category,
+  tagKey,
+  tagValue,
+  profileVersionId,
+  gitSha,
+  checkpointTag,
+}) {
   const base = mustHaveApi();
 
   const res = await fetch(`${base}/snapshots/presign-put`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ from, to, name, createdAt }),
+    body: JSON.stringify({
+      from,
+      to,
+      name,
+      createdAt,
+      category,
+      tagKey,
+      tagValue,
+      profileVersionId,
+      gitSha,
+      checkpointTag,
+    }),
   });
 
   const json = await res.json();
   if (!res.ok || !json.ok) throw new Error(json.error || "presign-put failed");
-  return json; // { key, url }
+  return json;
 }
+
 
 export async function uploadSnapshotToS3(url, snapshotObject) {
   const body = JSON.stringify(snapshotObject, null, 2);
