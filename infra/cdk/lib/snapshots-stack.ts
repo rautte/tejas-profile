@@ -159,6 +159,13 @@ export class SnapshotsStack extends cdk.Stack {
       })
     );
 
+    fn.addToRolePolicy(
+        new iam.PolicyStatement({
+            actions: ["s3:ListBucketVersions"],
+            resources: [snapshotsBucket.bucketArn],
+        })
+    );
+
     // ✅ Repo bucket permissions for Lambda (ONLY presign PUT under profiles/*)
     repoBucket.grantPut(fn, "profiles/*");
 
@@ -254,6 +261,12 @@ export class SnapshotsStack extends cdk.Stack {
     httpApi.addRoutes({
       path: "/deploy/history",
       methods: [apigwv2.HttpMethod.GET],
+      integration,
+    });
+
+    httpApi.addRoutes({
+      path: "/snapshots/purge",
+      methods: [apigwv2.HttpMethod.POST],
       integration,
     });
 

@@ -17,6 +17,7 @@ import {
   listTrashSnapshots,
   triggerDeploy,
   getDeployHistory,
+  purgeSnapshot,
 } from "../../utils/snapshots/snapshotsApi";
 
 function SectionCard({ title, subtitle, action, children }) {
@@ -588,16 +589,16 @@ export default function AdminSnapshots() {
     setErr("");
 
     try {
-        // TODO: implement API call
-        // await Promise.all(selectedKeys.map((k) => purgeSnapshot(k)));
-
-        throw new Error("Permanent delete not implemented yet (need /snapshots/purge API).");
+      await Promise.all(selectedKeys.map((k) => purgeSnapshot(k)));
+      setBulkPurgeOpen(false);
+      setSelectedKeys([]);
+      await refreshTrash();
     } catch (e) {
-        setErr(String(e?.message || e));
+      setErr(String(e?.message || e));
     } finally {
-        setBulkBusy(false);
+      setBulkBusy(false);
     }
-  }, [selectedKeys]);
+  }, [selectedKeys, refreshTrash]);
 
   useEffect(() => {
     refresh();

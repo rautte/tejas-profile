@@ -8,6 +8,8 @@ import {
   HeadObjectCommand, 
   CopyObjectCommand,
   DeleteObjectCommand,
+  ListObjectVersionsCommand,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -482,6 +484,65 @@ export async function handler(event: Event) {
     await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
     return json(200, { ok: true, fromKey, toKey }, corsOrigin);
+  }
+
+  // -----------------------------
+  // POST /snapshots/purge (PERMANENT DELETE)  (SNAPSHOTS BUCKET)
+  // - Only allowed for trash/*
+  // - Deletes ALL versions + delete markers (bucket is versioned)
+  // -----------------------------
+  if (method === "POST" && path.endsWith("/snapshots/purge")) {
+    let payload: any = {};
+    try {
+      payload = event.body ? JSON.parse(event.body) : {};
+    } catch {
+      return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+    }
+
+    const key = normalizeKey(String(payload.key || ""));
+    if (!key || !key.startsWith(TRASH_PREFIX)) {
+      return json(400, { ok: false, error: "Invalid key (must start with trash/)" }, corsOrigin);
+    }
+
+    // list all versions + delete markers for this exact key
+    const versionsOut = await s3.send(
+      new ListObjectVersionsCommand({
+        Bucket: SNAPSHOTS_BUCKET,
+        Prefix: key,
+      })
+    );
+
+    const versions = (versionsOut.Versions || [])
+      .filter((v) => v.Key === key && v.VersionId)
+      .map((v) => ({ Key: key, VersionId: v.VersionId! }));
+
+    const markers = (versionsOut.DeleteMarkers || [])
+      .filter((m) => m.Key === key && m.VersionId)
+      .map((m) => ({ Key: key, VersionId: m.VersionId! }));
+
+    const objects = [...versions, ...markers];
+
+    if (!objects.length) {
+      // already deleted
+      return json(200, { ok: true, key, deleted: 0 }, corsOrigin);
+    }
+
+    // delete in chunks (S3 limit: 1000)
+    let deleted = 0;
+    for (let i = 0; i < objects.length; i += 1000) {
+      const chunk = objects.slice(i, i + 1000);
+
+      await s3.send(
+        new DeleteObjectsCommand({
+          Bucket: SNAPSHOTS_BUCKET,
+          Delete: { Objects: chunk, Quiet: true },
+        })
+      );
+
+      deleted += chunk.length;
+    }
+
+    return json(200, { ok: true, key, deleted }, corsOrigin);
   }
 
     // -----------------------------

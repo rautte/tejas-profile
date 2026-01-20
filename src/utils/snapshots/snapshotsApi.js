@@ -231,3 +231,19 @@ export async function getDeployHistory() {
   return json.history; // may be null
 }
 
+export async function purgeSnapshot(key) {
+  const base = mustHaveApi();
+
+  const res = await fetch(`${base}/snapshots/purge`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ key }),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) throw new Error(json.error || "purge failed");
+  return json; // { ok:true, key, deleted }
+}
+
+
+
