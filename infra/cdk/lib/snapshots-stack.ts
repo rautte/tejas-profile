@@ -29,47 +29,60 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     // 1) Snapshots bucket (JSON snapshots + trash)
     // -----------------------------
-    const snapshotsBucket = new s3.Bucket(this, `TejasProfileSnapshotsBucket-${props.stage}`, {
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
-      versioned: true,
-      cors: [
-        {
-          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins,
-          allowedHeaders: ["*"],
-          exposedHeaders: ["ETag"],
-          maxAge: 3000,
-        },
-      ],
+    const snapshotsBucketName =
+        props.stage === "prod"
+            ? "tejas-profile-PROD-SNAPSHOTS-978416150779"
+            : "tejas-profile-DEV-SNAPSHOTS-978416150779";
+
+        const repoBucketName =
+        props.stage === "prod"
+            ? "tejas-profile-PROD-REPO-zips-978416150779"
+            : "tejas-profile-DEV-REPO-zips-978416150779";
+
+    const snapshotsBucket = new s3.Bucket(this, "SnapshotsBucket", {
+        bucketName: snapshotsBucketName,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        encryption: s3.BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        versioned: true,
+        cors: [
+            {
+            allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+            allowedOrigins: allowedOrigins,
+            allowedHeaders: ["*"],
+            exposedHeaders: ["ETag"],
+            maxAge: 3000,
+            },
+        ],
     });
 
     // -----------------------------
     // 2) Repo bucket (repo ZIP uploads under profiles/*)  ✅ OPTION 2
     // -----------------------------
-    const repoBucket = new s3.Bucket(this, `TejasProfileRepoZipsBucket-${props.stage}`, {
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
-      versioned: true,
-      cors: [
-        {
-          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins,
-          allowedHeaders: ["*"],
-          exposedHeaders: ["ETag"],
-          maxAge: 3000,
-        },
-      ],
-
-      // ✅ optional: enable later to control costs
-      // lifecycleRules: [
-      //   {
-      //     prefix: "profiles/",
-      //     expiration: cdk.Duration.days(90),
-      //   },
-      // ],
+    const repoBucket = new s3.Bucket(this, "RepoZipsBucket", {
+        bucketName: repoBucketName,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        encryption: s3.BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        versioned: true,
+        cors: [
+            {
+            allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+            allowedOrigins: allowedOrigins,
+            allowedHeaders: ["*"],
+            exposedHeaders: ["ETag"],
+            maxAge: 3000,
+            },
+        ],
+        // ✅ optional: enable later to control costs
+        // lifecycleRules: [
+        //   {
+        //     prefix: "profiles/",
+        //     expiration: cdk.Duration.days(90),
+        //   },
+        // ],
     });
 
     // -----------------------------
