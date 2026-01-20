@@ -40,14 +40,31 @@ echo ""
 # Original script (unchanged behavior)
 # -----------------------------
 
-# Load local env if present
-[ -f .env.local ] && set -a && . ./.env.local && set +a
+# -----------------------------
+# Load env (prod-first, fallback)
+# -----------------------------
+load_env_file() {
+  local f="$1"
+  if [[ -f "$f" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$f"
+    set +a
+    return 0
+  fi
+  return 1
+}
+
+# Prefer prod env for asset sync (so pre-commit doesn't depend on dev .env.local)
+load_env_file ".env.production.local" || true
+load_env_file ".env.local" || true
 
 ASSETS_DIR="${ASSETS_DIR:-src/assets/ships/sprites}"
-BUCKET="${ASSETS_BUCKET:?ASSETS_BUCKET not set (put it in .env.local)}"
+BUCKET="${ASSETS_BUCKET:?ASSETS_BUCKET not set (set it in .env.production.local or .env.local)}"
 PREFIX="${ASSETS_PREFIX:-ships/sprites/}"
 REGION="${AWS_REGION:-us-east-1}"
 PROFILE="${AWS_PROFILE:-}"
+
 
 export AWS_SDK_LOAD_CONFIG=1
 
