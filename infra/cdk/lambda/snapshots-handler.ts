@@ -462,69 +462,75 @@ export async function handler(event: Event) {
     return json(200, { ok: true, key, url }, corsOrigin);
   }
 
-    // -----------------------------
-    // POST /snapshots/remark  (SNAPSHOTS BUCKET)
-    // body: { key, remark }
-    // - updates ONLY metadata.remark by copying object onto itself
-    // - preserves existing metadata
-    // - disallow edits in trash/ (optional, but recommended)
-    // -----------------------------
-    if (method === "POST" && path.endsWith("/snapshots/remark")) {
+  // -----------------------------
+  // POST /snapshots/remark  (SNAPSHOTS BUCKET)
+  // body: { key, remark }
+  // - Updates x-amz-meta-remark while preserving existing metadata
+  // - Only allowed for snapshots/* (not trash/*)
+  // -----------------------------
+  if (method === "POST" && path.endsWith("/snapshots/remark")) {
     let payload: any = {};
     try {
-        payload = event.body ? JSON.parse(event.body) : {};
+      payload = event.body ? JSON.parse(event.body) : {};
     } catch {
-        return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+      return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
     }
 
     const key = normalizeKey(String(payload.key || ""));
-    if (!key) return json(400, { ok: false, error: "key required" }, corsOrigin);
+    const remarkRaw = String(payload.remark ?? "");
+    const remark = remarkRaw.trim().slice(0, 500); // keep it bounded
 
-    // ✅ Only allow editing in snapshots/, not trash/
-    if (!key.startsWith(SNAP_PREFIX)) {
-        return json(
-        400,
-        { ok: false, error: `Invalid key (must start with ${SNAP_PREFIX})` },
-        corsOrigin
-        );
+    if (!key || !key.startsWith(SNAP_PREFIX)) {
+      return json(400, { ok: false, error: "Invalid key (must start with snapshots/)" }, corsOrigin);
     }
 
-    const nextRemark = safeMetaValue(payload.remark || ""); // empty means "remove"
+    // (Optional) forbid remark edits in trash
+    if (key.startsWith(TRASH_PREFIX)) {
+      return json(400, { ok: false, error: "Remark is locked in trash. Restore first." }, corsOrigin);
+    }
 
-    // 1) HEAD to get current metadata + content-type
-    let head: any;
+    // 1) Read existing object metadata + important headers
+    let head;
     try {
-        head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
+      head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
     } catch (e: any) {
-        const msg = String(e?.message || e);
-        return json(404, { ok: false, error: "Snapshot not found", details: msg }, corsOrigin);
+      return json(404, { ok: false, error: "Snapshot not found" }, corsOrigin);
     }
 
-    const currentMeta = head.Metadata || {};
-    const merged: Record<string, string> = { ...currentMeta };
+    const existingMeta = head.Metadata || {};
 
-    // 2) Apply update
-    if (nextRemark) merged.remark = nextRemark;
-    else delete merged.remark;
+    // 2) Merge metadata (preserve everything, only update remark)
+    const nextMeta: Record<string, string> = { ...existingMeta };
 
-    // 3) CopyObject onto itself with MetadataDirective=REPLACE
-    // NOTE: CopySource should be URL-encoded. You already use encodeURIComponent(key) elsewhere.
+    if (remark) nextMeta.remark = remark;
+    else delete nextMeta.remark; // allow clearing
+
+    // 3) Copy object onto itself with REPLACE metadata
+    // IMPORTANT: when MetadataDirective=REPLACE, you should also pass back
+    // ContentType and other headers you care about preserving.
     await s3.send(
-        new CopyObjectCommand({
+      new CopyObjectCommand({
         Bucket: SNAPSHOTS_BUCKET,
         Key: key,
+
+        // CopySource must be URL-encoded; encoding key is fine (slashes become %2F)
         CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(key)}`,
 
         MetadataDirective: "REPLACE",
-        Metadata: merged,
+        Metadata: nextMeta,
 
-        // Preserve original content type (otherwise S3 may set default / break downloads)
+        // preserve common headers (optional but recommended)
         ContentType: head.ContentType || "application/json",
-        })
+        CacheControl: head.CacheControl,
+        ContentDisposition: head.ContentDisposition,
+        ContentEncoding: head.ContentEncoding,
+        ContentLanguage: head.ContentLanguage,
+        Expires: head.Expires,
+      })
     );
 
-    return json(200, { ok: true, key, remark: nextRemark }, corsOrigin);
-    }
+    return json(200, { ok: true, key, remark }, corsOrigin);
+  }
 
   // -----------------------------
   // POST /snapshots/delete (soft delete)  (SNAPSHOTS BUCKET)
