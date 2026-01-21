@@ -119,9 +119,9 @@ function extractDeployMetaFromSnapshotJson(snapJson) {
   };
 }
 
-function shortSha(sha) {
-  return sha ? String(sha).slice(0, 12) : "";
-}
+// function shortSha(sha) {
+//   return sha ? String(sha).slice(0, 12) : "";
+// }
 
 function ActionButton({ variant = "neutral", children, onClick, disabled, title }) {
   const base =
@@ -497,37 +497,43 @@ export default function AdminSnapshots() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const selectedCount = selectedKeys.length;
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setErr("");
-    try {
-      const res = await listSnapshots();
-      setItems(Array.isArray(res) ? res : []);
-      setSelectedKeys([]);
-    } catch (e) {
-      setErr(String(e?.message || e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    // tabs
+    const [activeTab, setActiveTab] = useState("profile"); // "profile" | "analytics"
+    const activeName = activeTab === "profile" ? "ci_deploy" : "analytics";
+    const isProfileTab = activeTab === "profile";
 
-  useEffect(() => {
-    setSelectedKeys([]);
-  }, [showTrash]);
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        setErr("");
+        try {
+        const res = await listSnapshots({ name: activeName });
+        setItems(Array.isArray(res) ? res : []);
+        setSelectedKeys([]);
+        } catch (e) {
+        setErr(String(e?.message || e));
+        } finally {
+        setLoading(false);
+        }
+    }, [activeName]);
 
-  const refreshTrash = useCallback(async () => {
-    setTrashLoading(true);
-    setErr("");
-    try {
-      const res = await listTrashSnapshots();
-      setTrashItems(Array.isArray(res) ? res : []);
-      setSelectedKeys([]);
-    } catch (e) {
-      setErr(String(e?.message || e));
-    } finally {
-      setTrashLoading(false);
-    }
-  }, []);
+    useEffect(() => {
+        setSelectedKeys([]);
+    }, [showTrash, activeTab]);
+
+    const refreshTrash = useCallback(async () => {
+        setTrashLoading(true);
+        setErr("");
+        try {
+        const res = await listTrashSnapshots({ name: activeName });
+        setTrashItems(Array.isArray(res) ? res : []);
+        setSelectedKeys([]);
+        } catch (e) {
+        setErr(String(e?.message || e));
+        } finally {
+        setTrashLoading(false);
+        }
+    }, [activeName]);
+
 
   const refreshHistory = useCallback(async () => {
     setHistoryErr("");
@@ -602,12 +608,17 @@ export default function AdminSnapshots() {
 
   useEffect(() => {
     refresh();
-    refreshHistory();
-  }, [refresh, refreshHistory]);
+    if (showTrash) {
+        refreshTrash();
+    } else {
+        setTrashItems([]); // optional: keeps UI consistent
+    }
+  }, [refresh, refreshTrash, showTrash]);
 
   useEffect(() => {
-    if (showTrash) refreshTrash();
-  }, [showTrash, refreshTrash]);
+    refreshHistory();
+  }, [refreshHistory]);
+
 
   const rows = useMemo(() => {
     const source = showTrash ? trashItems : items;
@@ -624,10 +635,16 @@ export default function AdminSnapshots() {
     });
   }, [items, trashItems, showTrash]);
 
+  const visibleRows = useMemo(() => rows || [], [rows]);
+
+
   const activeGitSha = deployHistory?.active?.gitSha || "";
   const prevGitSha = deployHistory?.previous?.gitSha || "";
 
-  const allKeysOnScreen = useMemo(() => rows.map((r) => r.key).filter(Boolean), [rows]);
+  const allKeysOnScreen = useMemo(
+    () => visibleRows.map((r) => r.key).filter(Boolean),
+    [visibleRows]
+  );
 
 //   useEffect(() => {
 //     let cancelled = false;
@@ -836,6 +853,36 @@ export default function AdminSnapshots() {
   const headerRight = (
     <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 p-1">
+                <button
+                    type="button"
+                    onClick={() => setActiveTab("profile")}
+                    className={cx(
+                    "px-3 py-1.5 rounded-full text-xs font-semibold transition",
+                    activeTab === "profile"
+                        ? "bg-purple-600 text-white shadow-sm"
+                        : "text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-white/15"
+                    )}
+                    title="Show Profile snapshots"
+                >
+                    Profile
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setActiveTab("analytics")}
+                    className={cx(
+                    "px-3 py-1.5 rounded-full text-xs font-semibold transition",
+                    activeTab === "analytics"
+                        ? "bg-purple-600 text-white shadow-sm"
+                        : "text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-white/15"
+                    )}
+                    title="Show Analytics snapshots"
+                >
+                    Analytics
+                </button>
+            </div>
+
             <label className="inline-flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 select-none">
                 <input
                 type="checkbox"
@@ -930,10 +977,10 @@ export default function AdminSnapshots() {
             <div className="text-sm text-gray-600 dark:text-gray-400">Loading…</div>
           ) : trashLoading && showTrash ? (
             <div className="text-sm text-gray-600 dark:text-gray-400">Loading trash…</div>
-          ) : rows.length ? (
+          ) : visibleRows.length ? (
             <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
               <div className="max-h-[520px] overflow-auto">
-                <table className="min-w-[1480px] w-full text-sm">
+                <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1480px]" : "min-w-[1320px]")}>
                   <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">
@@ -949,22 +996,38 @@ export default function AdminSnapshots() {
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Profile_Version_ID</th>
                         {/* <th className="py-3 px-4 font-semibold whitespace-nowrap">Dummy</th> */}
                         <th className="py-3 px-4 font-semibold">Filename</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
+
+                        {isProfileTab ? (
+                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
+                        ) : null}
+
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Key</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Value</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
+
+                        {isProfileTab ? (
+                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
+                        ) : null}
+
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Size</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
+
+                        {isProfileTab ? (
+                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Repo_Key</th>
+                            ) : (
+                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
+                        )}
+
+                        {isProfileTab ? (
+                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
+                        ) : null}
                     </tr>
                   </thead>
 
                   <tbody>
-                    {rows.map((it) => (
+                    {visibleRows.map((it) => (
                       <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap">
@@ -1010,28 +1073,30 @@ export default function AdminSnapshots() {
                             />
 
                             {/* badges */}
-                            {(() => {
-                              const sha = it.meta?.gitSha || "";
-                              const isActive = sha && activeGitSha && sha === activeGitSha;
-                              const isPrev = sha && prevGitSha && sha === prevGitSha;
+                            {isProfileTab ? (
+                                (() => {
+                                    const sha = it.meta?.gitSha || "";
+                                    const isActive = sha && activeGitSha && sha === activeGitSha;
+                                    const isPrev = sha && prevGitSha && sha === prevGitSha;
+                                    if (!isActive && !isPrev) return null;
 
-                              if (!isActive && !isPrev) return null;
+                                    return (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {isActive ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                            ACTIVE
+                                        </span>
+                                        ) : null}
+                                        {isPrev ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                            LAST USED
+                                        </span>
+                                        ) : null}
+                                    </div>
+                                    );
+                                })()
+                            ) : null}
 
-                              return (
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {isActive ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                                      ACTIVE
-                                    </span>
-                                  ) : null}
-                                  {isPrev ? (
-                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-amber-500/30 bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                                      LAST USED
-                                    </span>
-                                  ) : null}
-                                </div>
-                              );
-                            })()}
                           </div>
 
                           {/* optional: show sha under filename (tiny) */}
@@ -1042,13 +1107,17 @@ export default function AdminSnapshots() {
                           ) : null} */}
                         </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap">
-                            <CopyHoverCell
-                                value={shortSha(it.meta?.gitSha || "")}
-                                title={it.meta?.gitSha || ""}
-                                textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                            />
-                        </td>
+                        {isProfileTab ? (
+                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                                <CopyHoverCell
+                                    value={it.meta?.gitSha || ""}
+                                    title={it.meta?.gitSha || ""}
+                                    textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                                    className=""
+                                    showCopy={Boolean(it.meta?.gitSha)}
+                                />
+                            </td>
+                        ) : null}
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                             {it.meta?.category || "—"}
@@ -1062,9 +1131,11 @@ export default function AdminSnapshots() {
                             {it.meta?.tagValue || "—"}
                         </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.meta?.checkpointTag || "unknown"}
-                        </td>
+                        {isProfileTab ? (
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                                {it.meta?.checkpointTag || "—"}
+                            </td>
+                        ) : null}
 
                         <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                           {it.from}
@@ -1083,25 +1154,37 @@ export default function AdminSnapshots() {
                         </td>
 
                         <td className="py-3 px-4">
-                          {/* <div className="text-[12px] text-gray-600 dark:text-gray-400 truncate max-w-[320px]"> */}
-                          <CopyHoverCell
-                            value={it.key}
-                            title={it.key}
-                            textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                            maxWidthClass="max-w-[420px]"
-                          />
+                            {isProfileTab ? (
+                                <CopyHoverCell
+                                value={it.meta?.repoArtifactKey || ""}
+                                title={it.meta?.repoArtifactKey || ""}
+                                textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                                maxWidthClass="max-w-[420px]"
+                                showCopy={Boolean(it.meta?.repoArtifactKey)}
+                                />
+                            ) : (
+                                <CopyHoverCell
+                                value={it.key}
+                                title={it.key}
+                                textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                                maxWidthClass="max-w-[420px]"
+                                showCopy={Boolean(it.key)}
+                                />
+                            )}
                         </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap">
-                            <ActionButton
+                        {isProfileTab ? (
+                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                                <ActionButton
                                 variant="green"
                                 disabled={showTrash}
                                 onClick={() => askDeploy(it.key)}
                                 title={showTrash ? "Restore first, then deploy" : "Deploy this snapshot's version"}
-                            >
+                                >
                                 Deploy
-                            </ActionButton>
-                        </td>
+                                </ActionButton>
+                            </td>
+                        ) : null}
 
                       </tr>
                     ))}
@@ -1111,7 +1194,11 @@ export default function AdminSnapshots() {
             </div>
           ) : (
             <div className="text-sm text-gray-600 dark:text-gray-400">
-              {showTrash ? "Trash is empty." : "No snapshots yet. Publish one from Analytics."}
+                {showTrash
+                    ? "Trash is empty."
+                    : isProfileTab
+                    ? "No Profile snapshots yet. CI will create these after deploy."
+                    : "No Analytics snapshots yet. Publish one from Analytics."}
             </div>
           )}
         </SectionCard>

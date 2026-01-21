@@ -9,6 +9,9 @@ const GIT_SHA = process.env.GIT_SHA || "";
 const PROFILE_VERSION = process.env.PROFILE_VERSION || "unknown";
 const CHECKPOINT_TAG = process.env.CHECKPOINT_TAG || "unknown";
 
+const REPO_ARTIFACT_KEY = process.env.REPO_ARTIFACT_KEY || "";
+const REPO_ARTIFACT_SHA256 = process.env.REPO_ARTIFACT_SHA256 || "";
+
 function must(v, name) {
   if (!v) throw new Error(`${name} is required`);
   return v;
@@ -17,6 +20,11 @@ function must(v, name) {
 async function main() {
   must(SNAPSHOTS_API, "SNAPSHOTS_API");
   must(OWNER_TOKEN, "OWNER_TOKEN");
+  must(GIT_SHA, "GIT_SHA");
+  must(PROFILE_VERSION, "PROFILE_VERSION");
+  must(CHECKPOINT_TAG, "CHECKPOINT_TAG");
+  must(REPO_ARTIFACT_KEY, "REPO_ARTIFACT_KEY");
+  must(REPO_ARTIFACT_SHA256, "REPO_ARTIFACT_SHA256");
 
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const createdAt = new Date().toISOString();
@@ -28,13 +36,15 @@ async function main() {
     to: today,
     createdAt,
 
-    category: "ci",
+    category: "Profile",
     tagKey: "stage",
     tagValue: STAGE,
 
     profileVersionId: PROFILE_VERSION,
     gitSha: GIT_SHA,
     checkpointTag: CHECKPOINT_TAG,
+    repoArtifactKey: REPO_ARTIFACT_KEY,
+    repoArtifactSha256: REPO_ARTIFACT_SHA256,
   };
 
   console.log("[ci-snapshot] presign payload:", presignPayload);
@@ -71,6 +81,10 @@ async function main() {
         provider: "github",
         repo: "rautte/tejas-profile",
         checkpointTag: CHECKPOINT_TAG,
+
+        // ✅ helpful for preview
+        artifactKey: REPO_ARTIFACT_KEY,
+        artifactSha256: REPO_ARTIFACT_SHA256,
       },
     },
   };

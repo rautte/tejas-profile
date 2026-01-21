@@ -265,23 +265,41 @@ export async function handler(event: Event) {
     const gitShaRaw = String(payload.gitSha || "").trim();
     const checkpointTagRaw = String(payload.checkpointTag || "").trim();
 
-    const profileVersionId = safeKeyPart(profileVersionIdRaw || "unknown");
-    const gitSha = safeKeyPart(gitShaRaw || "unknown");
-    const checkpointTag = safeKeyPart(checkpointTagRaw || "unknown");
+    const profileVersionId = safeKeyPart(profileVersionIdRaw || "unknown"); // keep unknown fallback
+    const gitSha = safeKeyPart(gitShaRaw || ""); // analytics should be empty, not "unknown"
+    const checkpointTag = safeKeyPart(checkpointTagRaw || ""); // same
+
+
+    // ✅ NEW: repo artifact metadata (Profile tab)
+    const repoArtifactKeyRaw = String(payload.repoArtifactKey || "").trim();
+    const repoArtifactSha256Raw = String(payload.repoArtifactSha256 || "").trim();
+
+    const repoArtifactKey = safeKeyPart(repoArtifactKeyRaw || "");
+    const repoArtifactSha256 = safeKeyPart(repoArtifactSha256Raw || "");
 
     // ✅ metadata keys become x-amz-meta-* in S3
+    const metadata: Record<string, string> = {};
+
+    if (category) metadata.category = category;
+    if (tagKey) metadata.tagkey = tagKey;
+    if (tagValue) metadata.tagvalue = tagValue;
+
+    // Keep profileVersionId always present (analytics also uses it)
+    if (profileVersionId) metadata.profileversionid = profileVersionId;
+
+    // Profile tab only fields (CI sets these)
+    if (gitSha) metadata.gitsha = gitSha;
+    if (checkpointTag) metadata.checkpointtag = checkpointTag;
+
+    // ✅ NEW: Repo artifact metadata (Profile tab)
+    if (repoArtifactKey) metadata.repoartifactkey = repoArtifactKey;
+    if (repoArtifactSha256) metadata.repoartifactsha256 = repoArtifactSha256;
+
     const cmd = new PutObjectCommand({
-    Bucket: SNAPSHOTS_BUCKET,
-    Key: key,
-    ContentType: "application/json",
-    Metadata: {
-        category,
-        tagkey: tagKey,
-        tagvalue: tagValue,
-        profileversionid: profileVersionId,
-        gitsha: gitSha,
-        checkpointtag: checkpointTag,
-    },
+      Bucket: SNAPSHOTS_BUCKET,
+      Key: key,
+      ContentType: "application/json",
+      Metadata: metadata,
     });
 
     const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
@@ -325,7 +343,11 @@ export async function handler(event: Event) {
   // -----------------------------
   if (method === "GET" && path.endsWith("/snapshots/list")) {
     const scope = (event.queryStringParameters?.scope || "").toLowerCase();
-    const prefix = scope === "trash" ? TRASH_PREFIX : SNAP_PREFIX;
+    const name = safeKeyPart((event.queryStringParameters?.name || "").trim()); // ci_deploy | analytics
+    const basePrefix = scope === "trash" ? TRASH_PREFIX : SNAP_PREFIX;
+
+    const prefix = name ? `${basePrefix}${name}/` : basePrefix;
+
 
     const cmd = new ListObjectsV2Command({
       Bucket: SNAPSHOTS_BUCKET,
@@ -353,8 +375,10 @@ export async function handler(event: Event) {
             tagKey: m.tagkey || "",
             tagValue: m.tagvalue || "",
             profileVersionId: m.profileversionid || "unknown",
-            gitSha: m.gitsha || "unknown",
-            checkpointTag: m.checkpointtag || "unknown",
+            gitSha: m.gitsha || "",
+            checkpointTag: m.checkpointtag || "",
+            repoArtifactKey: m.repoartifactkey || "",
+            repoArtifactSha256: m.repoartifactsha256 || "",
             },
         ] as const;
         } catch {

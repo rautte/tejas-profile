@@ -54,6 +54,8 @@ export async function presignPutSnapshot({
   profileVersionId,
   gitSha,
   checkpointTag,
+  repoArtifactKey,
+  repoArtifactSha256,
 }) {
   const base = mustHaveApi();
 
@@ -71,6 +73,8 @@ export async function presignPutSnapshot({
       profileVersionId,
       gitSha,
       checkpointTag,
+      repoArtifactKey,
+      repoArtifactSha256,
     }),
   });
 
@@ -90,23 +94,38 @@ export async function uploadSnapshotToS3(url, snapshotObject) {
   if (!res.ok) throw new Error("Upload failed");
 }
 
-export async function listSnapshots() {
+export async function listSnapshots({ name } = {}) {
   const base = mustHaveApi();
 
-  const res = await fetch(`${base}/snapshots/list`, { headers: headers() });
+  const qs = new URLSearchParams();
+  if (name) qs.set("name", name);
+
+  const url = qs.toString()
+    ? `${base}/snapshots/list?${qs.toString()}`
+    : `${base}/snapshots/list`;
+
+  const res = await fetch(url, { headers: headers() });
   const json = await res.json();
   if (!res.ok || !json.ok) throw new Error(json.error || "list failed");
-  return json.items; // [{ key, filename, createdAt, ... }]
+  return json.items;
 }
 
-export async function listTrashSnapshots() {
+
+export async function listTrashSnapshots({ name } = {}) {
   const base = mustHaveApi();
 
-  const res = await fetch(`${base}/snapshots/list?scope=trash`, { headers: headers() });
+  const qs = new URLSearchParams({ scope: "trash" });
+  if (name) qs.set("name", name);
+
+  const res = await fetch(`${base}/snapshots/list?${qs.toString()}`, {
+    headers: headers(),
+  });
+
   const json = await res.json();
   if (!res.ok || !json.ok) throw new Error(json.error || "list trash failed");
   return json.items;
 }
+
 
 export async function presignGetSnapshot(key) {
   const base = mustHaveApi();

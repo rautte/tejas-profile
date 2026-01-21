@@ -26,6 +26,8 @@ jobs:
       GIT_SHA_SHORT: ${{ steps.meta.outputs.GIT_SHA_SHORT }}
       PROFILE_VERSION: ${{ steps.meta.outputs.PROFILE_VERSION }}
       BUILD_TIME: ${{ steps.meta.outputs.BUILD_TIME }}
+      REPO_ARTIFACT_KEY: ${{ steps.s3.outputs.S3_KEY }}
+      REPO_ARTIFACT_SHA256: ${{ steps.ziprepo.outputs.SHA256 }}
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -209,7 +211,7 @@ jobs:
 
   publish_ci_snapshot:
     name: Publish CI Snapshot (prod)
-    needs: [deploy]
+    needs: [build, deploy]
     runs-on: ubuntu-latest
     if: github.ref_name == 'main'
 
@@ -229,4 +231,7 @@ jobs:
           GIT_SHA: ${{ needs.build.outputs.GIT_SHA }}
           PROFILE_VERSION: ${{ needs.build.outputs.PROFILE_VERSION }}
           CHECKPOINT_TAG: gha_${{ github.run_id }}
+
+          REPO_ARTIFACT_KEY: ${{ needs.build.outputs.REPO_ARTIFACT_KEY }}
+          REPO_ARTIFACT_SHA256: ${{ needs.build.outputs.REPO_ARTIFACT_SHA256 }}
         run: node scripts/publish-ci-snapshot.mjs
