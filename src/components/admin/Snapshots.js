@@ -1097,7 +1097,7 @@ export default function AdminSnapshots() {
                                         </span>
                                         ) : null}
                                         {isPrev ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-yellow-700 dark:text-yellow-300">
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
                                             LAST USED
                                         </span>
                                         ) : null}
