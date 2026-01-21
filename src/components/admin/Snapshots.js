@@ -2,7 +2,7 @@
 
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { HiOutlineEye, HiOutlineClipboardCopy } from "react-icons/hi";
+import { HiOutlineEye, HiPencilAlt, HiOutlineClipboardCopy } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
 import { HiStar } from "react-icons/hi2";
 
@@ -1154,7 +1154,7 @@ export default function AdminSnapshots() {
           ) : visibleRows.length ? (
             <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
               <div className="max-h-[520px] overflow-auto">
-                <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1480px]" : "min-w-[1320px]")}>
+                <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1640px]" : "min-w-[1480px]")}>
                   <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
                     <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">
@@ -1194,7 +1194,7 @@ export default function AdminSnapshots() {
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
                         )}
 
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Remark</th>
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap w-[520px]">Remark</th>
 
                         {isProfileTab ? (
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
@@ -1364,9 +1364,9 @@ export default function AdminSnapshots() {
                             )}
                             </td>
 
-                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                            <td className="text-xs py-3 px-4 w-[520px] align-top">
                                 {remarkEditKey === it.key ? (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-start justify-between gap-3">
                                     <input
                                         value={remarkDraft}
                                         onChange={(e) => setRemarkDraft(e.target.value)}
@@ -1389,24 +1389,43 @@ export default function AdminSnapshots() {
                                     </ActionButton>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center gap-2">
-                                    <div
-                                        className="max-w-[240px] truncate text-gray-700 dark:text-gray-300"
+                                    <div className="relative group">
+                                        {/* Remark text (full width, stable) */}
+                                        <div
+                                        className={cx(
+                                            "break-words whitespace-normal text-gray-700 dark:text-gray-300",
+                                            !showTrash ? "pr-10" : "" // reserve a tiny space so hover button doesn't cover last chars
+                                        )}
                                         title={it.meta?.remark || ""}
-                                    >
-                                        {it.meta?.remark ? it.meta.remark : "—"}
-                                    </div>
-
-                                    {!showTrash ? (
-                                        <ActionButton
-                                        onClick={(e) => { e?.stopPropagation?.(); startEditRemark(it.key, it.meta?.remark || ""); }}
-                                        title="Edit remark"
                                         >
-                                        Edit
-                                        </ActionButton>
-                                    ) : (
-                                        <span className="text-[11px] text-gray-400">Locked</span>
-                                    )}
+                                        {it.meta?.remark ? it.meta.remark : "—"}
+                                        </div>
+
+                                        {/* Hover Edit button */}
+                                        {!showTrash ? (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                            e?.stopPropagation?.();
+                                            startEditRemark(it.key, it.meta?.remark || "");
+                                            }}
+                                            title="Edit remark"
+                                            className={cx(
+                                            "absolute top-1 right-1",
+                                            "opacity-0 group-hover:opacity-100 transition",
+                                            "inline-flex items-center gap-1.5",
+                                            "px-2 py-1 rounded-md border shadow-sm",
+                                            "dark:border-gray-200/70 border-white/10",
+                                            "dark:bg-white/85 bg-[#0b0b12]/80 backdrop-blur",
+                                            "dark:text-gray-700 text-gray-200 dark:hover:text-gray-900 hover:text-white"
+                                            )}
+                                        >
+                                            <HiPencilAlt className="h-3.5 w-3.5" />
+                                            <span className="text-[11px] font-semibold leading-none">Edit</span>
+                                        </button>
+                                        ) : (
+                                        <span className="absolute top-1 right-1 text-[11px] text-gray-400">Locked</span>
+                                        )}
                                     </div>
                                 )}
                             </td>
