@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { HiOutlineEye, HiOutlineClipboardCopy } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
+import { HiStar } from "react-icons/hi2";
 
 import SectionHeader from "../shared/SectionHeader";
 import { cx } from "../../utils/cx";
@@ -453,60 +454,103 @@ function ConfirmModal({
 }
 
 export default function AdminSnapshots() {
-  const [items, setItems] = useState([]);
-  const [trashItems, setTrashItems] = useState([]);
+    const [items, setItems] = useState([]);
+    const [trashItems, setTrashItems] = useState([]);
 
-  const [loading, setLoading] = useState(true);
-  const [trashLoading, setTrashLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [trashLoading, setTrashLoading] = useState(false);
 
-  const [err, setErr] = useState("");
+    const [err, setErr] = useState("");
 
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewKey, setPreviewKey] = useState("");
-  const [previewJson, setPreviewJson] = useState(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewErr, setPreviewErr] = useState("");
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [previewKey, setPreviewKey] = useState("");
+    const [previewJson, setPreviewJson] = useState(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewErr, setPreviewErr] = useState("");
 
-  const [showTrash, setShowTrash] = useState(false);
+    const [showTrash, setShowTrash] = useState(false);
 
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteKey, setDeleteKey] = useState("");
-  const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [deleteKey, setDeleteKey] = useState("");
+    const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const [restoreOpen, setRestoreOpen] = useState(false);
-  const [restoreKey, setRestoreKey] = useState("");
-  const [restoreBusy, setRestoreBusy] = useState(false);
+    const [restoreOpen, setRestoreOpen] = useState(false);
+    const [restoreKey, setRestoreKey] = useState("");
+    const [restoreBusy, setRestoreBusy] = useState(false);
 
-  const [deployOpen, setDeployOpen] = useState(false);
-  const [deployBusy, setDeployBusy] = useState(false);
-  const [deployErr, setDeployErr] = useState("");
-  const [deployKey, setDeployKey] = useState("");
-  const [deployMeta, setDeployMeta] = useState(null);
+    const [deployOpen, setDeployOpen] = useState(false);
+    const [deployBusy, setDeployBusy] = useState(false);
+    const [deployErr, setDeployErr] = useState("");
+    const [deployKey, setDeployKey] = useState("");
+    const [deployMeta, setDeployMeta] = useState(null);
 
-  const [sort, setSort] = useState({
-    key: "createdAt",
-    dir: "desc",
-  });
+    const [sort, setSort] = useState({
+        key: "createdAt",
+        dir: "desc",
+    });
 
-  // deploy history (truth source)
-  const [deployHistory, setDeployHistory] = useState(null);
-  const [historyErr, setHistoryErr] = useState("");
+    // favorites (key -> true)
+    const [favorites, setFavorites] = useState(() => {
+        try {
+            const raw = localStorage.getItem("admin_snapshots_favorites_v1");
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch {
+            return {};
+        }
+        });
 
-  // selection
-  const [selectedKeys, setSelectedKeys] = useState([]);
+        useEffect(() => {
+        try {
+            localStorage.setItem("admin_snapshots_favorites_v1", JSON.stringify(favorites));
+        } catch {
+            // ignore
+        }
+    }, [favorites]);
 
-  // bulk modals
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);   // soft-delete bulk
-  const [bulkRestoreOpen, setBulkRestoreOpen] = useState(false); // restore bulk
-  const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);     // permanent delete bulk
+    // deploy history (truth source)
+    const [deployHistory, setDeployHistory] = useState(null);
+    const [historyErr, setHistoryErr] = useState("");
 
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const selectedCount = selectedKeys.length;
+    // selection
+    const [selectedKeys, setSelectedKeys] = useState([]);
+
+    // bulk modals
+    const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);   // soft-delete bulk
+    const [bulkRestoreOpen, setBulkRestoreOpen] = useState(false); // restore bulk
+    const [bulkPurgeOpen, setBulkPurgeOpen] = useState(false);     // permanent delete bulk
+
+    const [bulkBusy, setBulkBusy] = useState(false);
+    const selectedCount = selectedKeys.length;
 
     // tabs
     const [activeTab, setActiveTab] = useState("profile"); // "profile" | "analytics"
     const activeName = activeTab === "profile" ? "ci_deploy" : "analytics";
     const isProfileTab = activeTab === "profile";
+
+    const addFavoritesForSelected = useCallback(() => {
+        if (!selectedKeys.length) return;
+
+        setFavorites((prev) => {
+            const next = { ...(prev || {}) };
+            selectedKeys.forEach((k) => {
+            if (k) next[k] = true;
+            });
+            return next;
+        });
+    }, [selectedKeys]);
+
+    const removeFavoritesForSelected = useCallback(() => {
+        if (!selectedKeys.length) return;
+
+        setFavorites((prev) => {
+            const next = { ...(prev || {}) };
+            selectedKeys.forEach((k) => {
+            if (k) delete next[k];
+            });
+            return next;
+        });
+    }, [selectedKeys]);
 
     const refresh = useCallback(async () => {
         setLoading(true);
@@ -540,144 +584,152 @@ export default function AdminSnapshots() {
         }
     }, [activeName]);
 
-
-  const refreshHistory = useCallback(async () => {
-    setHistoryErr("");
-    try {
-      const h = await getDeployHistory();
-      setDeployHistory(h || null);
-    } catch (e) {
-      setDeployHistory(null);
-      setHistoryErr(String(e?.message || e));
-    }
-  }, []);
-
-  const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshTrash(), refreshHistory()]);
-  }, [refresh, refreshTrash, refreshHistory]);
-
-  const doBulkDelete = useCallback(async () => {
-    if (!selectedKeys.length) return;
-
-    setBulkBusy(true);
-    setErr("");
-
-    try {
-        await Promise.all(selectedKeys.map((k) => deleteSnapshot(k)));
-        setBulkDeleteOpen(false);
-        setSelectedKeys([]);
-        await refresh();
-    } catch (e) {
-        setErr(String(e?.message || e));
-    } finally {
-        setBulkBusy(false);
-    }
-  }, [selectedKeys, refresh]);
-
-  const doBulkRestore = useCallback(async () => {
-    if (!selectedKeys.length) return;
-
-    setBulkBusy(true);
-    setErr("");
-
-    try {
-        await Promise.all(selectedKeys.map((k) => restoreSnapshot(k)));
-        setBulkRestoreOpen(false);
-        setSelectedKeys([]);
-        await refresh();
-        await refreshTrash();
-        setShowTrash(false);
-    } catch (e) {
-        setErr(String(e?.message || e));
-    } finally {
-        setBulkBusy(false);
-    }
-  }, [selectedKeys, refresh, refreshTrash]);
-
-  const doBulkPurge = useCallback(async () => {
-    if (!selectedKeys.length) return;
-
-    setBulkBusy(true);
-    setErr("");
-
-    try {
-      await Promise.all(selectedKeys.map((k) => purgeSnapshot(k)));
-      setBulkPurgeOpen(false);
-      setSelectedKeys([]);
-      await refreshTrash();
-    } catch (e) {
-      setErr(String(e?.message || e));
-    } finally {
-      setBulkBusy(false);
-    }
-  }, [selectedKeys, refreshTrash]);
-
-  useEffect(() => {
-    refresh();
-    if (showTrash) {
-        refreshTrash();
-    } else {
-        setTrashItems([]); // optional: keeps UI consistent
-    }
-  }, [refresh, refreshTrash, showTrash]);
-
-  useEffect(() => {
-    refreshHistory();
-  }, [refreshHistory]);
-
-
-  const rows = useMemo(() => {
-    const source = showTrash ? trashItems : items;
-    return (source || []).map((it) => {
-        const meta = parseMetaFromKey(it.key || "");
-        return {
-        ...it,
-        filename: it.filename || meta.filename,
-        from: it.from || meta.from,
-        to: it.to || meta.to,
-        createdAt: it.createdAt || meta.createdAt,          // label (display)
-        createdAtIso: it.createdAtIso || meta.createdAtIso, // ✅ sortable
-        };
-    });
-  }, [items, trashItems, showTrash]);
-
-  const visibleRows = useMemo(() => {
-    const sorted = [...(rows || [])];
-
-    sorted.sort((a, b) => {
-        let av;
-        let bv;
-
-        switch (sort.key) {
-        case "from":
-            // YYYY-MM-DD sorts lexicographically correctly
-            av = a.from === "—" ? "" : a.from;
-            bv = b.from === "—" ? "" : b.from;
-            return comparePrimitive(av, bv, sort.dir);
-
-        case "to":
-            av = a.to === "—" ? "" : a.to;
-            bv = b.to === "—" ? "" : b.to;
-            return comparePrimitive(av, bv, sort.dir);
-
-        case "createdAt":
-            // ✅ use createdAtIso for real chronology
-            av = toTime(a.createdAtIso);
-            bv = toTime(b.createdAtIso);
-            return comparePrimitive(av, bv, sort.dir);
-
-        case "size":
-            av = Number(a.size || 0);
-            bv = Number(b.size || 0);
-            return comparePrimitive(av, bv, sort.dir);
-
-        default:
-            return 0;
+    const refreshHistory = useCallback(async () => {
+        setHistoryErr("");
+        try {
+        const h = await getDeployHistory();
+        setDeployHistory(h || null);
+        } catch (e) {
+        setDeployHistory(null);
+        setHistoryErr(String(e?.message || e));
         }
-    });
+    }, []);
 
-    return sorted;
-  }, [rows, sort]);
+    const refreshAll = useCallback(async () => {
+        await Promise.all([refresh(), refreshTrash(), refreshHistory()]);
+    }, [refresh, refreshTrash, refreshHistory]);
+
+    const doBulkDelete = useCallback(async () => {
+        if (!selectedKeys.length) return;
+
+        setBulkBusy(true);
+        setErr("");
+
+        try {
+            await Promise.all(selectedKeys.map((k) => deleteSnapshot(k)));
+            setBulkDeleteOpen(false);
+            setSelectedKeys([]);
+            await refresh();
+        } catch (e) {
+            setErr(String(e?.message || e));
+        } finally {
+            setBulkBusy(false);
+        }
+    }, [selectedKeys, refresh]);
+
+    const doBulkRestore = useCallback(async () => {
+        if (!selectedKeys.length) return;
+
+        setBulkBusy(true);
+        setErr("");
+
+        try {
+            await Promise.all(selectedKeys.map((k) => restoreSnapshot(k)));
+            setBulkRestoreOpen(false);
+            setSelectedKeys([]);
+            await refresh();
+            await refreshTrash();
+            setShowTrash(false);
+        } catch (e) {
+            setErr(String(e?.message || e));
+        } finally {
+            setBulkBusy(false);
+        }
+    }, [selectedKeys, refresh, refreshTrash]);
+
+    const doBulkPurge = useCallback(async () => {
+        if (!selectedKeys.length) return;
+
+        setBulkBusy(true);
+        setErr("");
+
+        try {
+        await Promise.all(selectedKeys.map((k) => purgeSnapshot(k)));
+        setBulkPurgeOpen(false);
+        setSelectedKeys([]);
+        await refreshTrash();
+        } catch (e) {
+        setErr(String(e?.message || e));
+        } finally {
+        setBulkBusy(false);
+        }
+    }, [selectedKeys, refreshTrash]);
+
+    useEffect(() => {
+        refresh();
+        if (showTrash) {
+            refreshTrash();
+        } else {
+            setTrashItems([]); // optional: keeps UI consistent
+        }
+    }, [refresh, refreshTrash, showTrash]);
+
+    useEffect(() => {
+        refreshHistory();
+    }, [refreshHistory]);
+
+    const anySelectedFavorited = useMemo(() => {
+        if (!selectedKeys.length) return false;
+        return selectedKeys.some((k) => Boolean(favorites?.[k]));
+    }, [selectedKeys, favorites]);
+
+    const anySelectedNotFavorited = useMemo(() => {
+        if (!selectedKeys.length) return false;
+        return selectedKeys.some((k) => !favorites?.[k]);
+    }, [selectedKeys, favorites]);
+
+    const rows = useMemo(() => {
+        const source = showTrash ? trashItems : items;
+        return (source || []).map((it) => {
+            const meta = parseMetaFromKey(it.key || "");
+            return {
+            ...it,
+            filename: it.filename || meta.filename,
+            from: it.from || meta.from,
+            to: it.to || meta.to,
+            createdAt: it.createdAt || meta.createdAt,          // label (display)
+            createdAtIso: it.createdAtIso || meta.createdAtIso, // ✅ sortable
+            };
+        });
+    }, [items, trashItems, showTrash]);
+
+    const visibleRows = useMemo(() => {
+        const sorted = [...(rows || [])];
+
+        sorted.sort((a, b) => {
+            let av;
+            let bv;
+
+            switch (sort.key) {
+            case "from":
+                // YYYY-MM-DD sorts lexicographically correctly
+                av = a.from === "—" ? "" : a.from;
+                bv = b.from === "—" ? "" : b.from;
+                return comparePrimitive(av, bv, sort.dir);
+
+            case "to":
+                av = a.to === "—" ? "" : a.to;
+                bv = b.to === "—" ? "" : b.to;
+                return comparePrimitive(av, bv, sort.dir);
+
+            case "createdAt":
+                // ✅ use createdAtIso for real chronology
+                av = toTime(a.createdAtIso);
+                bv = toTime(b.createdAtIso);
+                return comparePrimitive(av, bv, sort.dir);
+
+            case "size":
+                av = Number(a.size || 0);
+                bv = Number(b.size || 0);
+                return comparePrimitive(av, bv, sort.dir);
+
+            default:
+                return 0;
+            }
+        });
+
+        return sorted;
+    }, [rows, sort]);
 
 
   const activeGitSha = deployHistory?.active?.gitSha || "";
@@ -912,6 +964,30 @@ export default function AdminSnapshots() {
                     Selected: <span className="font-semibold">{selectedCount}</span>
                 </div>
 
+                {/* Add Favorite — only if at least one selected row is NOT a favorite */}
+                {anySelectedNotFavorited ? (
+                    <ActionButton
+                        variant="neutral"
+                        onClick={addFavoritesForSelected}
+                        disabled={showTrash}
+                        title={showTrash ? "Favorites disabled in Trash" : "Mark selected rows as favorite"}
+                    >
+                        Add Favorite
+                    </ActionButton>
+                    ) : null}
+
+                    {/* Remove Favorite — only if at least one selected row IS a favorite */}
+                    {anySelectedFavorited ? (
+                    <ActionButton
+                        variant="neutral"
+                        onClick={removeFavoritesForSelected}
+                        disabled={showTrash}
+                        title={showTrash ? "Favorites disabled in Trash" : "Unmark selected rows as favorite"}
+                    >
+                        Remove Favorite
+                    </ActionButton>
+                ) : null}
+
                 {!showTrash ? (
                     <ActionButton
                     variant="danger"
@@ -1110,12 +1186,21 @@ export default function AdminSnapshots() {
                             </td>
 
                             <td className="text-xs py-3 px-4 whitespace-nowrap">
-                            <CopyHoverCell
-                                value={it.meta?.profileVersionId || ""}
-                                title={it.meta?.profileVersionId || ""}
-                                textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                                showCopy={Boolean(it.meta?.profileVersionId)}
-                            />
+                                <div className="inline-flex items-center gap-2">
+                                    <CopyHoverCell
+                                    value={it.meta?.profileVersionId || ""}
+                                    title={it.meta?.profileVersionId || ""}
+                                    textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                                    showCopy={Boolean(it.meta?.profileVersionId)}
+                                    />
+
+                                    {favorites?.[it.key] ? (
+                                    <HiStar
+                                        className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]"
+                                        title="Favorite"
+                                    />
+                                    ) : null}
+                                </div>
                             </td>
 
                             {/*
