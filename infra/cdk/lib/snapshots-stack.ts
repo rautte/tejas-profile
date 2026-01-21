@@ -270,6 +270,12 @@ export class SnapshotsStack extends cdk.Stack {
       integration,
     });
 
+    httpApi.addRoutes({
+        path: "/snapshots/remark",
+        methods: [apigwv2.HttpMethod.POST],
+        integration,
+    });
+
     new cdk.CfnOutput(this, "SnapshotsApiUrl", { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, "SnapshotsBucketName", { value: snapshotsBucket.bucketName });
     new cdk.CfnOutput(this, "RepoBucketName", { value: repoBucket.bucketName });
