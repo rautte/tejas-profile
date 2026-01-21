@@ -75,13 +75,14 @@ function parseMetaFromKey(key) {
     ? createdAtRaw.replace(/_/g, ":").replace(/:Z$/, "Z")
     : "";
 
-  const createdAt =
+  const createdAtLabel =
     createdAtIso && !Number.isNaN(Date.parse(createdAtIso))
       ? new Date(createdAtIso).toLocaleString()
       : "—";
 
-  return { filename, from, to, createdAt };
+  return { filename, from, to, createdAt: createdAtLabel, createdAtIso };
 }
+
 
 function extractDeployMetaFromSnapshotJson(snapJson) {
   if (!snapJson || typeof snapJson !== "object") return null;
@@ -482,6 +483,11 @@ export default function AdminSnapshots() {
   const [deployKey, setDeployKey] = useState("");
   const [deployMeta, setDeployMeta] = useState(null);
 
+  const [sort, setSort] = useState({
+    key: "createdAt",
+    dir: "desc",
+  });
+
   // deploy history (truth source)
   const [deployHistory, setDeployHistory] = useState(null);
   const [historyErr, setHistoryErr] = useState("");
@@ -626,16 +632,52 @@ export default function AdminSnapshots() {
         const meta = parseMetaFromKey(it.key || "");
         return {
         ...it,
-        // ✅ only fill if missing
         filename: it.filename || meta.filename,
         from: it.from || meta.from,
         to: it.to || meta.to,
-        createdAt: it.createdAt || meta.createdAt,
+        createdAt: it.createdAt || meta.createdAt,          // label (display)
+        createdAtIso: it.createdAtIso || meta.createdAtIso, // ✅ sortable
         };
     });
   }, [items, trashItems, showTrash]);
 
-  const visibleRows = useMemo(() => rows || [], [rows]);
+  const visibleRows = useMemo(() => {
+    const sorted = [...(rows || [])];
+
+    sorted.sort((a, b) => {
+        let av;
+        let bv;
+
+        switch (sort.key) {
+        case "from":
+            // YYYY-MM-DD sorts lexicographically correctly
+            av = a.from === "—" ? "" : a.from;
+            bv = b.from === "—" ? "" : b.from;
+            return comparePrimitive(av, bv, sort.dir);
+
+        case "to":
+            av = a.to === "—" ? "" : a.to;
+            bv = b.to === "—" ? "" : b.to;
+            return comparePrimitive(av, bv, sort.dir);
+
+        case "createdAt":
+            // ✅ use createdAtIso for real chronology
+            av = toTime(a.createdAtIso);
+            bv = toTime(b.createdAtIso);
+            return comparePrimitive(av, bv, sort.dir);
+
+        case "size":
+            av = Number(a.size || 0);
+            bv = Number(b.size || 0);
+            return comparePrimitive(av, bv, sort.dir);
+
+        default:
+            return 0;
+        }
+    });
+
+    return sorted;
+  }, [rows, sort]);
 
 
   const activeGitSha = deployHistory?.active?.gitSha || "";
@@ -645,47 +687,6 @@ export default function AdminSnapshots() {
     () => visibleRows.map((r) => r.key).filter(Boolean),
     [visibleRows]
   );
-
-//   useEffect(() => {
-//     let cancelled = false;
-
-//     async function fillMissingShas() {
-//         const keys = rows.map((r) => r.key).filter(Boolean);
-//         const MAX = 40;
-//         const missing = keys.filter((k) => !snapShaByKey[k]).slice(0, MAX);
-//         if (!missing.length) return;
-
-//         try {
-//         const results = await Promise.all(
-//             missing.map(async (k) => {
-//             try {
-//                 const snap = await fetchSnapshotJson(k);
-//                 const meta = extractDeployMetaFromSnapshotJson(snap);
-//                 return [k, meta?.gitSha || ""];
-//             } catch {
-//                 return [k, ""];
-//             }
-//             })
-//         );
-
-//         if (cancelled) return;
-
-//         setSnapShaByKey((prev) => {
-//             const next = { ...prev };
-//             for (const [k, sha] of results) next[k] = sha;
-//             return next;
-//         });
-//         } catch {
-//         // ignore
-//         }
-//     }
-
-//     fillMissingShas();
-//     return () => {
-//         cancelled = true;
-//     };
-//   // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, [rows]); // intentionally only rows
 
   const allSelectedOnScreen =
     allKeysOnScreen.length > 0 &&
@@ -951,6 +952,52 @@ export default function AdminSnapshots() {
     </div>
   );
 
+  function toTime(v) {
+    if (!v) return 0;
+    const t = Date.parse(String(v));
+    return Number.isNaN(t) ? 0 : t;
+  }
+
+  function comparePrimitive(a, b, dir) {
+    const A = a ?? "";
+    const B = b ?? "";
+    if (A === B) return 0;
+
+    // numbers first
+    if (typeof A === "number" && typeof B === "number") {
+        return dir === "asc" ? A - B : B - A;
+    }
+
+    return dir === "asc"
+        ? String(A).localeCompare(String(B))
+        : String(B).localeCompare(String(A));
+  }
+
+  function SortableTh({ label, sortKey, sort, setSort, className = "" }) {
+    const active = sort.key === sortKey;
+    const arrow = active ? (sort.dir === "asc" ? "↑" : "↓") : "↕";
+
+    return (
+        <th
+        className={cx(
+            "py-3 px-4 font-semibold whitespace-nowrap cursor-pointer select-none",
+            className
+        )}
+        title="Click to sort"
+        onClick={() =>
+            setSort((prev) => ({
+            key: sortKey,
+            dir: prev.key === sortKey && prev.dir === "desc" ? "asc" : "desc",
+            }))
+        }
+        >
+        <div className="flex items-center gap-1">
+            {label} <span className="opacity-70">{arrow}</span>
+        </div>
+        </th>
+    );
+  }
+
   return (
     <section className="py-0 px-4 transition-colors">
       <SectionHeader icon={FaRegSave} title="Snapshots" />
@@ -1018,10 +1065,10 @@ export default function AdminSnapshots() {
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
                         ) : null}
 
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">From_Date</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">To_Date</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Created_At</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Size</th>
+                        <SortableTh label="From_Date" sortKey="from" sort={sort} setSort={setSort} />
+                        <SortableTh label="To_Date" sortKey="to" sort={sort} setSort={setSort} />
+                        <SortableTh label="Created_At" sortKey="createdAt" sort={sort} setSort={setSort} />
+                        <SortableTh label="Size" sortKey="size" sort={sort} setSort={setSort} />
 
                         {isProfileTab ? (
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Repo_Key</th>
@@ -1036,10 +1083,13 @@ export default function AdminSnapshots() {
                   </thead>
 
                   <tbody>
-                    {visibleRows.map((it) => (
-                      <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
+                    {visibleRows.map((it) => {
+                        const sha = it.meta?.gitSha || "";
+                        const isActiveRow = Boolean(sha && activeGitSha && sha === activeGitSha);
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap">
+                        return (
+                        <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap">
                             <input
                                 type="checkbox"
                                 className="h-4 w-4 accent-purple-600"
@@ -1047,122 +1097,125 @@ export default function AdminSnapshots() {
                                 onChange={() => toggleRow(it.key)}
                                 title="Select"
                             />
-                        </td>
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap">
-                          <ActionButton
-                            variant="green"
-                            onClick={() => openPreview(it.key)}
-                            title="Open preview"
-                          >
-                            <HiOutlineEye className="text-base" />
-                          </ActionButton>
-                        </td>
+                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <ActionButton
+                                variant="green"
+                                onClick={() => openPreview(it.key)}
+                                title="Open preview"
+                            >
+                                <HiOutlineEye className="text-base" />
+                            </ActionButton>
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap">
                             <CopyHoverCell
                                 value={it.meta?.profileVersionId || ""}
                                 title={it.meta?.profileVersionId || ""}
                                 textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
                                 showCopy={Boolean(it.meta?.profileVersionId)}
                             />
-                        </td>
-{/* 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {"—"}
-                        </td> */}
+                            </td>
 
-                        <td className="text-xs py-3 px-4">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CopyHoverCell
+                            {/*
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {"—"}
+                            </td>
+                            */}
+
+                            <td className="text-xs py-3 px-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <CopyHoverCell
                                 value={it.filename}
                                 title={it.filename}
                                 textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
                                 // maxWidthClass="max-w-[360px]"
-                            />
+                                />
 
-                            {/* badges */}
-                            {isProfileTab ? (
-                                (() => {
-                                    const sha = it.meta?.gitSha || "";
-                                    const isActive = sha && activeGitSha && sha === activeGitSha;
-                                    const isPrev = sha && prevGitSha && sha === prevGitSha;
+                                {/* badges */}
+                                {isProfileTab
+                                ? (() => {
+                                    const sha2 = it.meta?.gitSha || "";
+                                    const isActive = sha2 && activeGitSha && sha2 === activeGitSha;
+                                    const isPrev = sha2 && prevGitSha && sha2 === prevGitSha;
                                     if (!isActive && !isPrev) return null;
 
                                     return (
-                                    <div className="flex items-center gap-1 shrink-0">
+                                        <div className="flex items-center gap-1 shrink-0">
                                         {isActive ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
                                             ACTIVE
-                                        </span>
+                                            </span>
                                         ) : null}
                                         {isPrev ? (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
                                             LAST USED
-                                        </span>
+                                            </span>
                                         ) : null}
-                                    </div>
+                                        </div>
                                     );
-                                })()
-                            ) : null}
-
-                          </div>
-
-                          {/* optional: show sha under filename (tiny) */}
-                          {/* {snapShaByKey[it.key] ? (
-                            <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                              {shortSha(snapShaByKey[it.key])}
+                                    })()
+                                : null}
                             </div>
-                          ) : null} */}
-                        </td>
 
-                        {isProfileTab ? (
+                            {/* optional: show sha under filename (tiny) */}
+                            {/*
+                            {snapShaByKey[it.key] ? (
+                                <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                                {shortSha(snapShaByKey[it.key])}
+                                </div>
+                            ) : null}
+                            */}
+                            </td>
+
+                            {isProfileTab ? (
                             <td className="text-xs py-3 px-4 whitespace-nowrap">
                                 <CopyHoverCell
-                                    value={it.meta?.gitSha || ""}
-                                    title={it.meta?.gitSha || ""}
-                                    textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                                    className=""
-                                    showCopy={Boolean(it.meta?.gitSha)}
+                                value={it.meta?.gitSha || ""}
+                                title={it.meta?.gitSha || ""}
+                                textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                                className=""
+                                showCopy={Boolean(it.meta?.gitSha)}
                                 />
                             </td>
-                        ) : null}
+                            ) : null}
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                             {it.meta?.category || "—"}
-                        </td>
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                             {it.meta?.tagKey || "—"}
-                        </td>
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                             {it.meta?.tagValue || "—"}
-                        </td>
+                            </td>
 
-                        {isProfileTab ? (
+                            {isProfileTab ? (
                             <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                                 {it.meta?.checkpointTag || "—"}
                             </td>
-                        ) : null}
+                            ) : null}
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                          {it.from}
-                        </td>
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.from}
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                          {it.to}
-                        </td>
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.to}
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                          {it.createdAt}
-                        </td>
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {it.createdAt}
+                            </td>
 
-                        <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                          {prettyKB(it.size)}
-                        </td>
+                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                            {prettyKB(it.size)}
+                            </td>
 
-                        <td className="py-3 px-4">
+                            <td className="py-3 px-4">
                             {isProfileTab ? (
                                 <CopyHoverCell
                                 value={it.meta?.repoArtifactKey || ""}
@@ -1180,23 +1233,29 @@ export default function AdminSnapshots() {
                                 showCopy={Boolean(it.key)}
                                 />
                             )}
-                        </td>
+                            </td>
 
-                        {isProfileTab ? (
+                            {isProfileTab ? (
                             <td className="text-xs py-3 px-4 whitespace-nowrap">
                                 <ActionButton
                                 variant="green"
-                                disabled={showTrash}
+                                disabled={showTrash || isActiveRow}
                                 onClick={() => askDeploy(it.key)}
-                                title={showTrash ? "Restore first, then deploy" : "Deploy this snapshot's version"}
+                                title={
+                                    showTrash
+                                    ? "Restore first, then deploy"
+                                    : isActiveRow
+                                    ? "Already active — deploy disabled"
+                                    : "Deploy this snapshot's version"
+                                }
                                 >
-                                Deploy
+                                {isActiveRow ? "Active" : "Deploy"}
                                 </ActionButton>
                             </td>
-                        ) : null}
-
-                      </tr>
-                    ))}
+                            ) : null}
+                        </tr>
+                        );
+                    })}
                   </tbody>
                 </table>
               </div>
