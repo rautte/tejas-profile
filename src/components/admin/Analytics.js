@@ -323,12 +323,14 @@ function PublishOptionsModal({
   const [tagKey, setTagKey] = useState(defaultTagKey);
   const [tagValue, setTagValue] = useState(defaultTagValue);
   const [geoHint, setGeoHint] = useState(defaultGeoHint);
+  const [remark, setRemark] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setTagKey(defaultTagKey);
     setTagValue(defaultTagValue);
     setGeoHint(defaultGeoHint);
+    setRemark("");
   }, [open, defaultTagKey, defaultTagValue, defaultGeoHint]);
 
   if (!open) return null;
@@ -348,6 +350,20 @@ function PublishOptionsModal({
           </div>
           <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
             Add a tag and/or geo hint before publishing the snapshot.
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Remark (optional)
+            </div>
+            <input
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                placeholder="e.g. hero copy experiment, Jan 2026"
+                className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+            />
+            <div className="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
+                This will appear in Admin → Snapshots and can be edited later.
+            </div>
           </div>
         </div>
 
@@ -429,7 +445,7 @@ function PublishOptionsModal({
                 hint: safeTagValue(geoHint) || undefined,
               };
 
-              onConfirm({ tags, geo });
+              onConfirm({ tags, geo, remark: safeTagValue(remark) || "" });
             }}
             disabled={busy}
             className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 transition shadow-sm disabled:opacity-60"
@@ -447,6 +463,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
   const [tagKey, setTagKey] = useState("");
   const [tagValue, setTagValue] = useState("");
   const [geoHint, setGeoHint] = useState("");
+  const [remark, setRemark] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -454,6 +471,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
       setTagKey("");
       setTagValue("");
       setGeoHint("");
+      setRemark("");
     }
   }, [open, defaultChecked]);
 
@@ -523,6 +541,15 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
                 className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
                 disabled={busy}
               />
+
+              <input
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                placeholder="remark (optional)"
+                className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                disabled={busy}
+              />
+
             </div>
           ) : null}
         </div>
@@ -549,7 +576,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
                 hint: safeTagValue(geoHint) || undefined,
               };
 
-              onConfirm({ saveSnapshot, tags, geo });
+              onConfirm({ saveSnapshot, tags, geo, remark: safeTagValue(remark) || "" });
             }}
             disabled={busy}
             className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm disabled:opacity-60"
@@ -623,7 +650,7 @@ export default function AdminAnalytics() {
   const recentSessions = useMemo(() => computeRecentSessions(events, 20), [events]);
 
   const publishSnapshotToS3 = useCallback(
-    async ({ tags = {}, geo = null } = {}) => {
+    async ({ tags = {}, geo = null, remark = "" } = {}) => {
       setPublishErr("");
       setPublishOk("");
       setPublishing(true);
@@ -660,6 +687,8 @@ export default function AdminAnalytics() {
         profileVersionId: nonEmptyOrUnknown(pvNow?.id),
         gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
         checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
+
+        remark: String(remark || "").trim(),
         });
 
         // 2) Upload snapshot JSON to that presigned url
@@ -952,9 +981,9 @@ export default function AdminAnalytics() {
         onClose={() => setPublishOptionsOpen(false)}
         busy={publishing}
         profileVersion={pv}
-        onConfirm={async ({ tags, geo }) => {
+        onConfirm={async ({ tags, geo, remark }) => {
             setPublishOptionsOpen(false);
-            await publishSnapshotToS3({ tags, geo });
+            await publishSnapshotToS3({ tags, geo, remark });
         }}
       />
 
@@ -963,13 +992,13 @@ export default function AdminAnalytics() {
         open={resetOpen}
         busy={publishing}
         onClose={() => setResetOpen(false)}
-        onConfirm={async ({ saveSnapshot, tags, geo }) => {
-          if (saveSnapshot) {
-            await publishSnapshotToS3({ tags, geo });
-          }
-          resetAnalytics();
-          setEvents(getAllEvents());
-          setResetOpen(false);
+        onConfirm={async ({ saveSnapshot, tags, geo, remark }) => {
+            if (saveSnapshot) {
+                await publishSnapshotToS3({ tags, geo, remark });
+            }
+            resetAnalytics();
+            setEvents(getAllEvents());
+            setResetOpen(false);
         }}
       />
     </section>

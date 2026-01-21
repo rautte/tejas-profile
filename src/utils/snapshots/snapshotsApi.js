@@ -56,6 +56,7 @@ export async function presignPutSnapshot({
   checkpointTag,
   repoArtifactKey,
   repoArtifactSha256,
+  remark,
 }) {
   const base = mustHaveApi();
 
@@ -75,6 +76,7 @@ export async function presignPutSnapshot({
       checkpointTag,
       repoArtifactKey,
       repoArtifactSha256,
+      remark,
     }),
   });
 
@@ -83,6 +85,19 @@ export async function presignPutSnapshot({
   return json;
 }
 
+export async function updateSnapshotRemark({ key, remark }) {
+  const base = mustHaveApi();
+
+  const res = await fetch(`${base}/snapshots/remark`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ key, remark }),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) throw new Error(json.error || "update remark failed");
+  return json;
+}
 
 export async function uploadSnapshotToS3(url, snapshotObject) {
   const body = JSON.stringify(snapshotObject, null, 2);

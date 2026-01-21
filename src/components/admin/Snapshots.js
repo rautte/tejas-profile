@@ -19,6 +19,7 @@ import {
   triggerDeploy,
   getDeployHistory,
   purgeSnapshot,
+  updateSnapshotRemark,
 } from "../../utils/snapshots/snapshotsApi";
 
 function SectionCard({ title, subtitle, action, children }) {
@@ -484,6 +485,10 @@ export default function AdminSnapshots() {
     const [deployKey, setDeployKey] = useState("");
     const [deployMeta, setDeployMeta] = useState(null);
 
+    const [remarkEditKey, setRemarkEditKey] = useState("");
+    const [remarkDraft, setRemarkDraft] = useState("");
+    const [remarkBusy, setRemarkBusy] = useState(false);
+
     const [sort, setSort] = useState({
         key: "createdAt",
         dir: "desc",
@@ -527,6 +532,16 @@ export default function AdminSnapshots() {
     const [activeTab, setActiveTab] = useState("profile"); // "profile" | "analytics"
     const activeName = activeTab === "profile" ? "ci_deploy" : "analytics";
     const isProfileTab = activeTab === "profile";
+
+    const startEditRemark = useCallback((key, current) => {
+        setRemarkEditKey(key);
+        setRemarkDraft(String(current || ""));
+    }, []);
+
+    const cancelEditRemark = useCallback(() => {
+        setRemarkEditKey("");
+        setRemarkDraft("");
+    }, []);
 
     const addFavoritesForSelected = useCallback(() => {
         if (!selectedKeys.length) return;
@@ -616,6 +631,33 @@ export default function AdminSnapshots() {
             setBulkBusy(false);
         }
     }, [selectedKeys, refresh]);
+
+    const saveEditRemark = useCallback(async () => {
+        if (!remarkEditKey) return;
+
+        setRemarkBusy(true);
+        setErr("");
+
+        try {
+            await updateSnapshotRemark({
+            key: remarkEditKey,
+            remark: String(remarkDraft || "").trim(),
+            });
+
+            if (showTrash) {
+            await refreshTrash();
+            } else {
+            await refresh();
+            }
+
+            setRemarkEditKey("");
+            setRemarkDraft("");
+        } catch (e) {
+            setErr(String(e?.message || e));
+        } finally {
+            setRemarkBusy(false);
+        }
+    }, [remarkEditKey, remarkDraft, showTrash, refresh, refreshTrash]);
 
     const doBulkRestore = useCallback(async () => {
         if (!selectedKeys.length) return;
@@ -1152,6 +1194,8 @@ export default function AdminSnapshots() {
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
                         )}
 
+                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Remark</th>
+
                         {isProfileTab ? (
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
                         ) : null}
@@ -1165,7 +1209,7 @@ export default function AdminSnapshots() {
 
                         return (
                         <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
-                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                             <input
                                 type="checkbox"
                                 className="h-4 w-4 accent-purple-600"
@@ -1175,7 +1219,7 @@ export default function AdminSnapshots() {
                             />
                             </td>
 
-                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                             <ActionButton
                                 variant="green"
                                 onClick={() => openPreview(it.key)}
@@ -1185,7 +1229,7 @@ export default function AdminSnapshots() {
                             </ActionButton>
                             </td>
 
-                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                                 <div className="inline-flex items-center gap-2">
                                     <CopyHoverCell
                                     value={it.meta?.profileVersionId || ""}
@@ -1255,7 +1299,7 @@ export default function AdminSnapshots() {
                             </td>
 
                             {isProfileTab ? (
-                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                                 <CopyHoverCell
                                 value={it.meta?.gitSha || ""}
                                 title={it.meta?.gitSha || ""}
@@ -1320,8 +1364,55 @@ export default function AdminSnapshots() {
                             )}
                             </td>
 
+                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                                {remarkEditKey === it.key ? (
+                                    <div className="flex items-center gap-2">
+                                    <input
+                                        value={remarkDraft}
+                                        onChange={(e) => setRemarkDraft(e.target.value)}
+                                        disabled={remarkBusy}
+                                        placeholder="Add remark…"
+                                        className={cx(
+                                        "h-9 w-[260px] rounded-lg border px-3 text-xs outline-none",
+                                        "border-gray-200/70 dark:border-white/10",
+                                        "bg-white/80 dark:bg-white/10",
+                                        "text-gray-900 dark:text-gray-100",
+                                        "placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                                        )}
+                                    />
+
+                                    <ActionButton variant="green" onClick={saveEditRemark} disabled={remarkBusy}>
+                                        Save
+                                    </ActionButton>
+                                    <ActionButton onClick={cancelEditRemark} disabled={remarkBusy}>
+                                        Cancel
+                                    </ActionButton>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                    <div
+                                        className="max-w-[240px] truncate text-gray-700 dark:text-gray-300"
+                                        title={it.meta?.remark || ""}
+                                    >
+                                        {it.meta?.remark ? it.meta.remark : "—"}
+                                    </div>
+
+                                    {!showTrash ? (
+                                        <ActionButton
+                                        onClick={(e) => { e?.stopPropagation?.(); startEditRemark(it.key, it.meta?.remark || ""); }}
+                                        title="Edit remark"
+                                        >
+                                        Edit
+                                        </ActionButton>
+                                    ) : (
+                                        <span className="text-[11px] text-gray-400">Locked</span>
+                                    )}
+                                    </div>
+                                )}
+                            </td>
+
                             {isProfileTab ? (
-                            <td className="text-xs py-3 px-4 whitespace-nowrap">
+                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                                 <ActionButton
                                 variant="green"
                                 disabled={showTrash || isActiveRow}

@@ -139,6 +139,15 @@ function safeS3Key(s: string) {
     .slice(0, 900);                // metadata value limit safety (keep below 2KB total)
 }
 
+function safeMetaValue(s: any, maxLen = 180) {
+  // Keep it human readable; remove control chars; keep ASCII-ish to avoid header weirdness.
+  return String(s || "")
+    .trim()
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[^\x20-\x7E]+/g, "") // strip non-printable / non-ascii
+    .slice(0, maxLen);
+}
+
 function ensurePrefix(key: string, prefix: string) {
   return key.startsWith(prefix);
 }
@@ -278,6 +287,9 @@ export async function handler(event: Event) {
     const gitSha = safeKeyPart(gitShaRaw || ""); // analytics should be empty, not "unknown"
     const checkpointTag = safeKeyPart(checkpointTagRaw || ""); // same
 
+    const remarkRaw = payload.remark;
+    const remark = safeMetaValue(remarkRaw || "");
+
 
     // ✅ NEW: repo artifact metadata (Profile tab)
     const repoArtifactKeyRaw = String(payload.repoArtifactKey || "").trim();
@@ -303,6 +315,8 @@ export async function handler(event: Event) {
     // ✅ NEW: Repo artifact metadata (Profile tab)
     if (repoArtifactKey) metadata.repoartifactkey = repoArtifactKey;
     if (repoArtifactSha256) metadata.repoartifactsha256 = repoArtifactSha256;
+
+    if (remark) metadata.remark = remark;
 
     const cmd = new PutObjectCommand({
       Bucket: SNAPSHOTS_BUCKET,
@@ -388,6 +402,7 @@ export async function handler(event: Event) {
             checkpointTag: m.checkpointtag || "",
             repoArtifactKey: m.repoartifactkey || "",
             repoArtifactSha256: m.repoartifactsha256 || "",
+            remark: m.remark || "",
             },
         ] as const;
         } catch {
@@ -446,6 +461,70 @@ export async function handler(event: Event) {
     const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
     return json(200, { ok: true, key, url }, corsOrigin);
   }
+
+    // -----------------------------
+    // POST /snapshots/remark  (SNAPSHOTS BUCKET)
+    // body: { key, remark }
+    // - updates ONLY metadata.remark by copying object onto itself
+    // - preserves existing metadata
+    // - disallow edits in trash/ (optional, but recommended)
+    // -----------------------------
+    if (method === "POST" && path.endsWith("/snapshots/remark")) {
+    let payload: any = {};
+    try {
+        payload = event.body ? JSON.parse(event.body) : {};
+    } catch {
+        return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+    }
+
+    const key = normalizeKey(String(payload.key || ""));
+    if (!key) return json(400, { ok: false, error: "key required" }, corsOrigin);
+
+    // ✅ Only allow editing in snapshots/, not trash/
+    if (!key.startsWith(SNAP_PREFIX)) {
+        return json(
+        400,
+        { ok: false, error: `Invalid key (must start with ${SNAP_PREFIX})` },
+        corsOrigin
+        );
+    }
+
+    const nextRemark = safeMetaValue(payload.remark || ""); // empty means "remove"
+
+    // 1) HEAD to get current metadata + content-type
+    let head: any;
+    try {
+        head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
+    } catch (e: any) {
+        const msg = String(e?.message || e);
+        return json(404, { ok: false, error: "Snapshot not found", details: msg }, corsOrigin);
+    }
+
+    const currentMeta = head.Metadata || {};
+    const merged: Record<string, string> = { ...currentMeta };
+
+    // 2) Apply update
+    if (nextRemark) merged.remark = nextRemark;
+    else delete merged.remark;
+
+    // 3) CopyObject onto itself with MetadataDirective=REPLACE
+    // NOTE: CopySource should be URL-encoded. You already use encodeURIComponent(key) elsewhere.
+    await s3.send(
+        new CopyObjectCommand({
+        Bucket: SNAPSHOTS_BUCKET,
+        Key: key,
+        CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(key)}`,
+
+        MetadataDirective: "REPLACE",
+        Metadata: merged,
+
+        // Preserve original content type (otherwise S3 may set default / break downloads)
+        ContentType: head.ContentType || "application/json",
+        })
+    );
+
+    return json(200, { ok: true, key, remark: nextRemark }, corsOrigin);
+    }
 
   // -----------------------------
   // POST /snapshots/delete (soft delete)  (SNAPSHOTS BUCKET)
