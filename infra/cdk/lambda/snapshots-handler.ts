@@ -130,6 +130,15 @@ function safeKeyPart(s: string) {
   return (s || "").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 120);
 }
 
+function safeS3Key(s: string) {
+  // keep slashes for paths; sanitize other weird characters safely
+  return (s || "")
+    .trim()
+    .replace(/^\/+/, "")            // no leading slash
+    .replace(/[^a-zA-Z0-9\/._-]+/g, "_")  // allow /
+    .slice(0, 900);                // metadata value limit safety (keep below 2KB total)
+}
+
 function ensurePrefix(key: string, prefix: string) {
   return key.startsWith(prefix);
 }
@@ -274,7 +283,7 @@ export async function handler(event: Event) {
     const repoArtifactKeyRaw = String(payload.repoArtifactKey || "").trim();
     const repoArtifactSha256Raw = String(payload.repoArtifactSha256 || "").trim();
 
-    const repoArtifactKey = safeKeyPart(repoArtifactKeyRaw || "");
+    const repoArtifactKey = safeS3Key(repoArtifactKeyRaw || "");
     const repoArtifactSha256 = safeKeyPart(repoArtifactSha256Raw || "");
 
     // ✅ metadata keys become x-amz-meta-* in S3

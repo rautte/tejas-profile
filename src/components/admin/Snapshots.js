@@ -850,38 +850,43 @@ export default function AdminSnapshots() {
     }
   }, [restoreKey, refresh, refreshTrash]);
 
+  const tabsRow = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="inline-flex rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab("profile")}
+          className={cx(
+            "px-3 py-1.5 rounded-full text-xs font-semibold transition",
+            activeTab === "profile"
+              ? "bg-purple-600 text-white shadow-sm"
+              : "text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-white/15"
+          )}
+          title="Show Profile snapshots"
+        >
+          Profile
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("analytics")}
+          className={cx(
+            "px-3 py-1.5 rounded-full text-xs font-semibold transition",
+            activeTab === "analytics"
+              ? "bg-purple-600 text-white shadow-sm"
+              : "text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-white/15"
+          )}
+          title="Show Analytics snapshots"
+        >
+          Analytics
+        </button>
+      </div>
+    </div>
+  );
+
   const headerRight = (
     <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-            <div className="inline-flex rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 p-1">
-                <button
-                    type="button"
-                    onClick={() => setActiveTab("profile")}
-                    className={cx(
-                    "px-3 py-1.5 rounded-full text-xs font-semibold transition",
-                    activeTab === "profile"
-                        ? "bg-purple-600 text-white shadow-sm"
-                        : "text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-white/15"
-                    )}
-                    title="Show Profile snapshots"
-                >
-                    Profile
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => setActiveTab("analytics")}
-                    className={cx(
-                    "px-3 py-1.5 rounded-full text-xs font-semibold transition",
-                    activeTab === "analytics"
-                        ? "bg-purple-600 text-white shadow-sm"
-                        : "text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-white/15"
-                    )}
-                    title="Show Analytics snapshots"
-                >
-                    Analytics
-                </button>
-            </div>
 
             <label className="inline-flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 select-none">
                 <input
@@ -973,6 +978,10 @@ export default function AdminSnapshots() {
           subtitle={showTrash ? "Trash (recoverable)" : "Newest first"}
           action={headerRight}
         >
+          <div className="mb-4">
+            {tabsRow}
+          </div>
+
           {loading && !showTrash ? (
             <div className="text-sm text-gray-600 dark:text-gray-400">Loading…</div>
           ) : trashLoading && showTrash ? (
