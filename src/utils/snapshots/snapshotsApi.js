@@ -87,13 +87,37 @@ export async function presignPutSnapshot({
   return json;
 }
 
-export async function commitSnapshotMeta({ key, meta }) {
+export async function commitSnapshotMeta({
+  key,
+  category,
+  tagKey,
+  tagValue,
+  profileVersionId,
+  gitSha,
+  checkpointTag,
+  repoArtifactKey,
+  repoArtifactSha256,
+  remark,
+  geoHint,
+}) {
   const base = mustHaveApi();
 
   const res = await fetch(`${base}/snapshots/commit-meta`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ key, meta }),
+    body: JSON.stringify({
+      key,
+      category,
+      tagKey,
+      tagValue,
+      profileVersionId,
+      gitSha,
+      checkpointTag,
+      repoArtifactKey,
+      repoArtifactSha256,
+      remark,
+      geoHint,
+    }),
   });
 
   const json = await res.json().catch(() => ({}));
