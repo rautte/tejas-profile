@@ -214,9 +214,9 @@ function CopyHoverCell({
           title={copied ? "Copied" : "Copy"}
           className={cx(
             "absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition",
-            "p-1 rounded-md border border-gray-200/70 dark:border-white/10",
-            "bg-white/80 dark:bg-[#0b0b12]/70",
-            "text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+            "p-1 rounded-md border dark:border-gray-200/70 border-white/10",
+            "dark:bg-white/80 bg-[#0b0b12]/70",
+            "dark:text-gray-600 text-gray-300 dark:hover:text-gray-900 hover:text-white"
           )}
         >
           <HiOutlineClipboardCopy className="h-4 w-4" />
