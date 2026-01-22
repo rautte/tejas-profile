@@ -1122,7 +1122,7 @@ export default function AdminSnapshots() {
 
       <div className="px-6 space-y-6">
         <p className="mt-10 text-gray-600 dark:text-gray-400 max-w-3xl">
-          Owner-only snapshot archive stored privately in S3. Preview, download, and soft-delete
+          Owner-only snapshot archive stored privately in S3. Preview, download, and delete
           (recoverable via Trash).
         </p>
 

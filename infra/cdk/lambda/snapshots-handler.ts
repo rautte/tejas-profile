@@ -243,6 +243,42 @@ async function streamToString(body: any): Promise<string> {
   });
 }
 
+function extractMetaFromSnapshotJson(doc: any) {
+  // Works for both Analytics + Profile snapshot shapes
+  const category = String(doc?.category || "").trim();
+
+  // tags: { key: value } (we store first pair for columns)
+  const tagsObj = doc?.tags && typeof doc.tags === "object" ? doc.tags : null;
+  const tagKey = tagsObj ? String(Object.keys(tagsObj)[0] || "").trim() : "";
+  const tagValue = tagsObj ? String(tagsObj[tagKey] || "").trim() : "";
+
+  const pv = doc?.profileVersion || {};
+  const profileVersionId = String(pv?.id || "").trim();
+
+  const gitSha =
+    String(pv?.gitSha || "").trim() ||
+    String(pv?.repo?.commit || "").trim() ||
+    String(pv?.repo?.gitSha || "").trim();
+
+  const checkpointTag =
+    String(pv?.repo?.checkpointTag || "").trim() ||
+    String(doc?.checkpointTag || "").trim();
+
+  const geoHint =
+    String(doc?.geo?.hint || "").trim() ||
+    String(doc?.geoHint || "").trim();
+
+  return {
+    category,
+    tagKey,
+    tagValue,
+    profileVersionId,
+    gitSha,
+    checkpointTag,
+    geoHint,
+  };
+}
+
 export async function handler(event: Event) {
   const path = event.rawPath || event.requestContext?.http?.path || "";
   const method = (event.requestContext?.http?.method || "").toUpperCase();
@@ -543,33 +579,83 @@ export async function handler(event: Event) {
     const contents = (res.Contents || []).filter((o) => o.Key && o.Key.endsWith(".json"));
 
     // ✅ fetch per-object metadata (headObject)
+    const MAX_JSON_BYTES_FOR_FALLBACK = 250_000; // safe guard
+
     const metaPairs = await Promise.all(
-    contents.map(async (o) => {
-        const key = o.Key!;
-        try {
-        const head = await s3.send(
-            new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key })
-        );
-        const m = head.Metadata || {};
-        return [
-            key,
-            {
+        contents.map(async (o) => {
+            const key = o.Key!;
+            let head: any = null;
+
+            // 1) HEAD metadata first (fast path)
+            try {
+            head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
+            } catch {
+            return [key, null] as const;
+            }
+
+            const m = head?.Metadata || {};
+
+            // Build meta from headers first
+            const metaFromHead = {
             category: m.category || "",
             tagKey: m.tagkey || "",
             tagValue: m.tagvalue || "",
             geoHint: m.geohint || "",
-            profileVersionId: m.profileversionid || "unknown",
+            profileVersionId: m.profileversionid || "",
             gitSha: m.gitsha || "",
             checkpointTag: m.checkpointtag || "",
             repoArtifactKey: m.repoartifactkey || "",
             repoArtifactSha256: m.repoartifactsha256 || "",
             remark: m.remark || "",
-            },
-        ] as const;
-        } catch {
-        return [key, null] as const;
-        }
-    })
+            };
+
+            // 2) If important fields missing, fallback to JSON parse (backward compatible)
+            const missingImportant =
+            !metaFromHead.profileVersionId ||
+            metaFromHead.profileVersionId === "unknown" ||
+            !metaFromHead.gitSha ||
+            !metaFromHead.category ||
+            !metaFromHead.checkpointTag;
+
+            const size = o.Size ?? 0;
+
+            if (missingImportant && size > 0 && size <= MAX_JSON_BYTES_FOR_FALLBACK) {
+            try {
+                const out = await s3.send(
+                new GetObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key })
+                );
+                const body = await streamToString(out.Body);
+                const doc = body ? JSON.parse(body) : null;
+
+                if (doc) {
+                const derived = extractMetaFromSnapshotJson(doc);
+
+                return [
+                    key,
+                    {
+                    ...metaFromHead,
+
+                    // only fill gaps, don’t overwrite good metadata
+                    category: metaFromHead.category || derived.category || "",
+                    tagKey: metaFromHead.tagKey || derived.tagKey || "",
+                    tagValue: metaFromHead.tagValue || derived.tagValue || "",
+                    geoHint: metaFromHead.geoHint || derived.geoHint || "",
+                    profileVersionId:
+                        metaFromHead.profileVersionId && metaFromHead.profileVersionId !== "unknown"
+                        ? metaFromHead.profileVersionId
+                        : derived.profileVersionId || metaFromHead.profileVersionId || "",
+                    gitSha: metaFromHead.gitSha || derived.gitSha || "",
+                    checkpointTag: metaFromHead.checkpointTag || derived.checkpointTag || "",
+                    },
+                ] as const;
+                }
+            } catch {
+                // ignore fallback failure; use head meta
+            }
+            }
+
+            return [key, metaFromHead] as const;
+        })
     );
 
     const metaByKey = new Map(metaPairs);
