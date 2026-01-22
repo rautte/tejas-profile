@@ -96,9 +96,13 @@ async function main() {
 
   const putRes = await fetch(url, {
     method: "PUT",
-    headers: putHeaders,
+    headers: {
+        ...(requiredHeaders || {}),
+        "content-type": "application/json",
+    },
     body: JSON.stringify(snapshotBody, null, 2),
   });
+
 
   if (!putRes.ok) {
     const t = await putRes.text().catch(() => "");
