@@ -86,22 +86,20 @@ async function main() {
     },
   };
 
-  const { url, key, requiredHeaders } = presignJson;
-  if (!url || !key) throw new Error("presign-put did not return url/key");
+    const { url, key, requiredHeaders } = presignJson;
 
-  const putHeaders = {
+    if (!url || !key) throw new Error("presign-put did not return url/key");
+
+    // ✅ MUST send the exact signed headers
+    const putHeaders = {
     ...(requiredHeaders || {}),
-    "content-type": "application/json",
-  };
+    };
 
-  const putRes = await fetch(url, {
+    const putRes = await fetch(url, {
     method: "PUT",
-    headers: {
-        ...(requiredHeaders || {}),
-        "content-type": "application/json",
-    },
+    headers: putHeaders,
     body: JSON.stringify(snapshotBody, null, 2),
-  });
+    });
 
 
   if (!putRes.ok) {

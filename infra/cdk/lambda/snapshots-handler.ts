@@ -360,92 +360,61 @@ export async function handler(event: Event) {
     const key = `${SNAP_PREFIX}${name}/from_${from}_to_${to}/${name}__${from}__${to}__${createdAt}.json`;
 
     // ✅ extract deploy/meta fields (safe + optional)
-    const category = safeKeyPart(
-        payload.category ||
-        payload.name ||                         // some publishers treat name as category-ish
-        payload.snapshotCategory ||
-        ""
-    );
-
+    const category = safeKeyPart(payload.category || "");
     const tagKey = safeKeyPart(payload.tagKey || "");
     const tagValue = safeKeyPart(payload.tagValue || "");
 
-    const profileVersionIdRaw = String(
-        payload.profileVersionId ||
-        payload.profileVersionIdRaw ||
-        payload.profileVersion?.id ||          // ✅ supports object payload: { profileVersion: { id } }
-        payload.profileVersionIdFromClient ||
-        payload.profileVersion ||              // supports legacy string
-        ""
-    ).trim();
+    const profileVersionIdRaw = String(payload.profileVersionId || payload.profileVersion || "").trim();
+    const gitShaRaw = String(payload.gitSha || "").trim();
+    const checkpointTagRaw = String(payload.checkpointTag || "").trim();
 
-    const gitShaRaw = String(
-        payload.gitSha ||
-        payload.profileVersion?.gitSha ||
-        payload.profileVersion?.repo?.commit ||
-        payload.profileVersion?.repo?.gitSha ||
-        ""
-    ).trim();
+    const profileVersionId = safeKeyPart(profileVersionIdRaw || "unknown");
+    const gitSha = safeKeyPart(gitShaRaw || "");
+    const checkpointTag = safeKeyPart(checkpointTagRaw || "");
 
-    const checkpointTagRaw = String(
-        payload.checkpointTag ||
-        payload.profileVersion?.repo?.checkpointTag ||
-        ""
-    ).trim();
+    // ✅ repo artifact metadata (Profile tab)
+    const repoArtifactKey = safeS3Key(String(payload.repoArtifactKey || "").trim());
+    const repoArtifactSha256 = safeKeyPart(String(payload.repoArtifactSha256 || "").trim());
 
-    const profileVersionId = safeKeyPart(profileVersionIdRaw || "unknown"); // keep unknown fallback
-    const gitSha = safeKeyPart(gitShaRaw || ""); // analytics should be empty, not "unknown"
-    const checkpointTag = safeKeyPart(checkpointTagRaw || ""); // same
+    const geoHint = safeMetaValue(String(payload.geoHint || "").trim(), 180);
+    const remark = safeMetaValue(String(payload.remark || "").trim(), 180);
 
-    const remarkRaw = payload.remark;
-    const remark = safeMetaValue(remarkRaw || "");
-
-
-    // ✅ NEW: repo artifact metadata (Profile tab)
-    const repoArtifactKeyRaw = String(payload.repoArtifactKey || "").trim();
-    const repoArtifactSha256Raw = String(payload.repoArtifactSha256 || "").trim();
-
-    const repoArtifactKey = safeS3Key(repoArtifactKeyRaw || "");
-    const repoArtifactSha256 = safeKeyPart(repoArtifactSha256Raw || "");
-
-    const geoHintRaw = String(payload.geoHint || "").trim();
-    const geoHint = safeMetaValue(geoHintRaw || "", 180);
-
-    // ✅ metadata keys become x-amz-meta-* in S3
+    // ✅ build metadata ONLY with non-empty values
     const metadata: Record<string, string> = {};
 
     if (category) metadata.category = category;
     if (tagKey) metadata.tagkey = tagKey;
     if (tagValue) metadata.tagvalue = tagValue;
 
-    // Keep profileVersionId always present (analytics also uses it)
     if (profileVersionId) metadata.profileversionid = profileVersionId;
-
-    // Profile tab only fields (CI sets these)
     if (gitSha) metadata.gitsha = gitSha;
     if (checkpointTag) metadata.checkpointtag = checkpointTag;
 
-    // ✅ NEW: Repo artifact metadata (Profile tab)
     if (repoArtifactKey) metadata.repoartifactkey = repoArtifactKey;
     if (repoArtifactSha256) metadata.repoartifactsha256 = repoArtifactSha256;
 
     if (geoHint) metadata.geohint = geoHint;
-
     if (remark) metadata.remark = remark;
 
-    // Presign ONLY the JSON upload.
-    // DO NOT include Metadata here — browser PUT with x-amz-meta-* causes "HeadersNotSigned".
     const cmd = new PutObjectCommand({
-        Bucket: SNAPSHOTS_BUCKET,
-        Key: key,
-        ContentType: "application/json",
-        // ❌ DO NOT set Metadata here for presigned PUT
+    Bucket: SNAPSHOTS_BUCKET,
+    Key: key,
+    ContentType: "application/json",
+    Metadata: metadata,
     });
 
     const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
 
-    // Only require content-type (optional, but keep consistent)
-    return json(200, { ok: true, key, url }, corsOrigin);
+    // ✅ REQUIRED HEADERS that MUST be sent by the client
+    const requiredHeaders: Record<string, string> = {
+    "content-type": "application/json",
+    };
+    for (const [k, v] of Object.entries(metadata)) {
+    requiredHeaders[`x-amz-meta-${k.toLowerCase()}`] = v;
+    }
+
+    return json(200, { ok: true, key, url, requiredHeaders }, corsOrigin);
+
   }
 
     // -----------------------------
