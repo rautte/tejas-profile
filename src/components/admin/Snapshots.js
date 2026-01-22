@@ -1179,6 +1179,10 @@ export default function AdminSnapshots() {
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Key</th>
                         <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Value</th>
 
+                        {!isProfileTab ? (
+                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Geo_Hint</th>
+                        ) : null}
+
                         {isProfileTab ? (
                             <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
                         ) : null}
@@ -1321,6 +1325,12 @@ export default function AdminSnapshots() {
                             <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
                             {it.meta?.tagValue || "—"}
                             </td>
+
+                            {!isProfileTab ? (
+                                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                                    {it.meta?.geoHint || "—"}
+                                </td>
+                            ) : null}
 
                             {isProfileTab ? (
                             <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">

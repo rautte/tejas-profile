@@ -21,6 +21,7 @@ import {
 import {
   presignPutSnapshot,
   uploadSnapshotToS3,
+  commitSnapshotMeta,
 } from "../../utils/snapshots/snapshotsApi";
 
 
@@ -323,6 +324,8 @@ function PublishOptionsModal({
   const [tagKey, setTagKey] = useState(defaultTagKey);
   const [tagValue, setTagValue] = useState(defaultTagValue);
   const [geoHint, setGeoHint] = useState(defaultGeoHint);
+  const geoHintTrimmed = String(geoHint || "").trim();
+  const canPublish = Boolean(geoHintTrimmed);
   const [remark, setRemark] = useState("");
 
   useEffect(() => {
@@ -346,10 +349,10 @@ function PublishOptionsModal({
       <div className="relative w-full max-w-md rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200/70 dark:border-white/10">
           <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            Publish options (optional)
+            Publish options
           </div>
           <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Add a tag and/or geo hint before publishing the snapshot.
+            Geo hint is required for Analytics snapshots. Tag is optional.
           </div>
           <div>
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
@@ -395,7 +398,7 @@ function PublishOptionsModal({
 
           <div>
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-              Geo hint (optional)
+                Geo hint <span className="text-red-600 dark:text-red-400">*</span>
             </div>
             <input
               value={geoHint}
@@ -403,6 +406,11 @@ function PublishOptionsModal({
               placeholder="e.g. Seattle, US"
               className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
             />
+            {!String(geoHint || "").trim() ? (
+                <div className="mt-1 text-[12px] text-red-600 dark:text-red-400">
+                    Geo hint is required to publish an Analytics snapshot.
+                </div>
+            ) : null}
             <div className="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
               Real city/country should be added server-side later. This is just a manual hint.
             </div>
@@ -418,6 +426,7 @@ function PublishOptionsModal({
               <div>gitSha: {profileVersion?.gitSha ? String(profileVersion.gitSha).slice(0,10) + "…" : "—"}</div>
               <div>timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}</div>
               <div>locale: {typeof navigator !== "undefined" ? navigator.language : "—"}</div>
+              <div>geo.hint: {geoHintTrimmed || "—"}</div>
             </div>
           </div>
         </div>
@@ -435,19 +444,23 @@ function PublishOptionsModal({
           <button
             type="button"
             onClick={() => {
-              const k = safeTagKey(tagKey);
-              const v = safeTagValue(tagValue);
+                const k = safeTagKey(tagKey);
+                const v = safeTagValue(tagValue);
 
-              const tags = k && v ? { [k]: v } : {};
-              const geo = {
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                locale: typeof navigator !== "undefined" ? navigator.language : undefined,
-                hint: safeTagValue(geoHint) || undefined,
-              };
+                // ✅ define tags properly (optional)
+                const tags = k && v ? { [k]: v } : {};
 
-              onConfirm({ tags, geo, remark: safeTagValue(remark) || "" });
+                // ✅ geo hint is REQUIRED here
+                const hint = safeTagValue(geoHintTrimmed);
+                const geo = {
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+                    hint, // always present
+                };
+
+                onConfirm({ tags, geo, remark: safeTagValue(remark) || "" });
             }}
-            disabled={busy}
+            disabled={busy || !canPublish}
             className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 transition shadow-sm disabled:opacity-60"
           >
             {busy ? "Publishing…" : "Publish"}
@@ -534,13 +547,23 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
                 />
               </div>
 
-              <input
-                value={geoHint}
-                onChange={(e) => setGeoHint(e.target.value)}
-                placeholder="geo hint (e.g. Seattle, US)"
-                className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
-                disabled={busy}
-              />
+              <div>
+                <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                    Geo hint <span className="text-red-600 dark:text-red-400">*</span>
+                </div>
+                <input
+                    value={geoHint}
+                    onChange={(e) => setGeoHint(e.target.value)}
+                    placeholder="e.g. Seattle, US"
+                    className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                    disabled={busy}
+                />
+                {!String(geoHint || "").trim() ? (
+                    <div className="mt-1 text-[12px] text-red-600 dark:text-red-400">
+                    Geo hint is required to publish an Analytics snapshot.
+                    </div>
+                ) : null}
+              </div>
 
               <input
                 value={remark}
@@ -570,10 +593,15 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
               const k = safeTagKey(tagKey);
               const v = safeTagValue(tagValue);
               const tags = k && v ? { [k]: v } : {};
+              const geoHintTrimmed = String(geoHint || "").trim();
+                if (!geoHintTrimmed) {
+                // keep modal open; show inline error (already shown)
+                return;
+              }
               const geo = {
                 timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                 locale: typeof navigator !== "undefined" ? navigator.language : undefined,
-                hint: safeTagValue(geoHint) || undefined,
+                hint: safeTagValue(geoHintTrimmed), // ✅ guaranteed
               };
 
               onConfirm({ saveSnapshot, tags, geo, remark: safeTagValue(remark) || "" });
@@ -656,6 +684,12 @@ export default function AdminAnalytics() {
       setPublishing(true);
 
       try {
+        // ✅ Analytics requires geo hint (must be present in S3 metadata too)
+        const geoHint = String(geo?.hint || "").trim();
+        if (!geoHint) {
+          throw new Error("Geo hint is required to publish an Analytics snapshot.");
+        }
+
         // Build snapshot at publish-time so it captures tags/geo/profileVersion accurately
         const snap = buildAnalyticsSnapshot({
           events,
@@ -674,27 +708,40 @@ export default function AdminAnalytics() {
         const pvNow = readBuildProfileVersion();
 
         const { key, url } = await presignPutSnapshot({
-        from,
-        to,
-        createdAt,                 // use the same createdAt you computed from snap
-        name: "analytics",         // optional, but explicit
-        category: "Analytics",     // matches your snapshot JSON category
-
-        // if you want ONE tag in metadata columns:
-        tagKey: Object.keys(tags || {})[0] || "",
-        tagValue: Object.values(tags || {})[0] || "",
-
-        profileVersionId: nonEmptyOrUnknown(pvNow?.id),
-        gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
-        checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
-
-        remark: String(remark || "").trim(),
+            from,
+            to,
+            createdAt,
+            name: "analytics",
+            category: "Analytics",
+            tagKey: Object.keys(tags || {})[0] || "",
+            tagValue: Object.values(tags || {})[0] || "",
+            profileVersionId: nonEmptyOrUnknown(pvNow?.id),
+            gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
+            checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
+            remark: String(remark || "").trim(),
+            geoHint: String(geo?.hint || "").trim(),
         });
 
-        // 2) Upload snapshot JSON to that presigned url
+        // 1) Upload JSON first (no meta headers)
         await uploadSnapshotToS3(url, snap);
 
+        // 2) Commit metadata server-side (writes x-amz-meta-geohint etc)
+        await commitSnapshotMeta({
+            key,
+            meta: {
+                category: "Analytics",
+                tagKey: Object.keys(tags || {})[0] || "",
+                tagValue: Object.values(tags || {})[0] || "",
+                profileVersionId: nonEmptyOrUnknown(pvNow?.id),
+                gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
+                checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
+                remark: String(remark || "").trim(),
+                geoHint: String(geo?.hint || "").trim(),
+            },
+        });
+
         setPublishOk(`Published ✅ ${key.split("/").slice(-1)[0]}`);
+
       } catch (e) {
         setPublishErr(String(e?.message || e));
       } finally {

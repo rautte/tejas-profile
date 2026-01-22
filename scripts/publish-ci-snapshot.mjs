@@ -65,9 +65,6 @@ async function main() {
     );
   }
 
-  const { url, key } = presignJson;
-  if (!url || !key) throw new Error("presign-put did not return url/key");
-
   // The JSON content stored in S3 (previewable in UI)
   const snapshotBody = {
     kind: "ci_deploy_snapshot",
@@ -89,9 +86,17 @@ async function main() {
     },
   };
 
+  const { url, key, requiredHeaders } = presignJson;
+  if (!url || !key) throw new Error("presign-put did not return url/key");
+
+  const putHeaders = {
+    ...(requiredHeaders || {}),
+    "content-type": "application/json",
+  };
+
   const putRes = await fetch(url, {
     method: "PUT",
-    headers: { "content-type": "application/json" },
+    headers: putHeaders,
     body: JSON.stringify(snapshotBody, null, 2),
   });
 

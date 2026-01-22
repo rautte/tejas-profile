@@ -6,20 +6,19 @@ function nonEmpty(s) {
 }
 
 function computeCheckpointTag(meta) {
-  // prefer explicit env
   const explicit = nonEmpty(meta.checkpointTag);
-  if (explicit) return explicit;
+  if (explicit && explicit !== "unknown") return explicit;
 
-  // prefer GH run id if present
   const runId = nonEmpty(meta.ghRunId);
   if (runId && runId !== "unknown") return `run_${runId}`;
 
-  // fallback to profile version id if meaningful
+  const sha = nonEmpty(meta.gitSha);
+  if (sha && sha !== "unknown") return `sha_${sha.slice(0, 7)}`;
+
   const pv = nonEmpty(meta.id);
   if (pv && pv !== "unknown") return pv;
 
-  // final fallback
-  return "unknown";
+  return "local";
 }
 
 function nullIfEmptyOrUnknown(s) {

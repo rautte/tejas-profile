@@ -44,12 +44,30 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .filter(Boolean);
 
 // -----------------------------
+// helpers: git sha + basic checks
+// -----------------------------
+function requireNonEmpty(value: any, field: string) {
+  const v = String(value || "").trim();
+  if (!v) return { ok: false as const, status: 400, msg: `${field} required` };
+  return { ok: true as const, value: v };
+}
+
+function isLikelyGitSha(s: string) {
+  return /^[a-f0-9]{7,40}$/i.test(s || "");
+}
+
+// -----------------------------
 // helpers: headers / cors / auth
 // -----------------------------
 function getHeader(headers: Record<string, string> | undefined, key: string) {
   if (!headers) return "";
   const k = Object.keys(headers).find((h) => h.toLowerCase() === key.toLowerCase());
   return k ? headers[k] : "";
+}
+
+function encodeCopySource(bucket: string, key: string) {
+  // encode each path segment but keep '/'
+  return `${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 function pickCorsOrigin(headers: Record<string, string> | undefined) {
@@ -92,10 +110,6 @@ function requireGithubConfig() {
   if (!GITHUB_WORKFLOW_FILE) return { ok: false, status: 500, msg: "GITHUB_WORKFLOW_FILE not configured" };
   if (!GITHUB_TOKEN) return { ok: false, status: 500, msg: "GITHUB_TOKEN not configured" };
   return { ok: true as const };
-}
-
-function isLikelyGitSha(s: string) {
-  return /^[a-f0-9]{7,40}$/i.test(s || "");
 }
 
 async function dispatchGithubWorkflow(inputs: Record<string, string>) {
@@ -298,6 +312,9 @@ export async function handler(event: Event) {
     const repoArtifactKey = safeS3Key(repoArtifactKeyRaw || "");
     const repoArtifactSha256 = safeKeyPart(repoArtifactSha256Raw || "");
 
+    const geoHintRaw = String(payload.geoHint || "").trim();
+    const geoHint = safeMetaValue(geoHintRaw || "", 180);
+
     // ✅ metadata keys become x-amz-meta-* in S3
     const metadata: Record<string, string> = {};
 
@@ -316,18 +333,113 @@ export async function handler(event: Event) {
     if (repoArtifactKey) metadata.repoartifactkey = repoArtifactKey;
     if (repoArtifactSha256) metadata.repoartifactsha256 = repoArtifactSha256;
 
+    if (geoHint) metadata.geohint = geoHint;
+
     if (remark) metadata.remark = remark;
 
+    // Presign ONLY the JSON upload.
+    // DO NOT include Metadata here — browser PUT with x-amz-meta-* causes "HeadersNotSigned".
     const cmd = new PutObjectCommand({
-      Bucket: SNAPSHOTS_BUCKET,
-      Key: key,
-      ContentType: "application/json",
-      Metadata: metadata,
+        Bucket: SNAPSHOTS_BUCKET,
+        Key: key,
+        ContentType: "application/json",
+        // ❌ DO NOT set Metadata here for presigned PUT
     });
 
     const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+
+    // Only require content-type (optional, but keep consistent)
     return json(200, { ok: true, key, url }, corsOrigin);
   }
+
+    // -----------------------------
+    // POST /snapshots/commit-meta  (SNAPSHOTS BUCKET)
+    // body: { key, meta: { ... } }
+    // - Sets x-amz-meta-* server-side (avoids presigned header signing problems)
+    // - Only allowed for snapshots/* (not trash/*)
+    // -----------------------------
+    if (method === "POST" && path.endsWith("/snapshots/commit-meta")) {
+        let payload: any = {};
+        try {
+            payload = event.body ? JSON.parse(event.body) : {};
+        } catch {
+            return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
+        }
+
+        const key = normalizeKey(String(payload.key || ""));
+        const metaIn = payload.meta || {};
+
+        if (!key) return json(400, { ok: false, error: "key required" }, corsOrigin);
+        if (key.startsWith(TRASH_PREFIX)) {
+            return json(400, { ok: false, error: "Cannot commit meta in trash. Restore first." }, corsOrigin);
+        }
+        if (!key.startsWith(SNAP_PREFIX)) {
+            return json(400, { ok: false, error: "Invalid key (must start with snapshots/)" }, corsOrigin);
+        }
+
+        // Read existing object headers
+        let head;
+        try {
+            head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
+        } catch {
+            return json(404, { ok: false, error: "Snapshot not found" }, corsOrigin);
+        }
+
+        // Existing meta
+        const existingMeta = head.Metadata || {};
+        const nextMeta: Record<string, string> = { ...existingMeta };
+
+        // Sanitize + apply allowed fields
+        const category = safeKeyPart(metaIn.category || "");
+        const tagKey = safeKeyPart(metaIn.tagKey || "");
+        const tagValue = safeKeyPart(metaIn.tagValue || "");
+        const profileVersionId = safeKeyPart(metaIn.profileVersionId || "unknown");
+        const gitSha = safeKeyPart(metaIn.gitSha || "");
+        const checkpointTag = safeKeyPart(metaIn.checkpointTag || "");
+        const geoHint = safeMetaValue(metaIn.geoHint || "", 180);
+        const remark = safeMetaValue(metaIn.remark || "", 500);
+
+        const repoArtifactKey = safeS3Key(metaIn.repoArtifactKey || "");
+        const repoArtifactSha256 = safeKeyPart(metaIn.repoArtifactSha256 || "");
+
+        if (category) nextMeta.category = category;
+        if (tagKey) nextMeta.tagkey = tagKey;
+        if (tagValue) nextMeta.tagvalue = tagValue;
+
+        if (profileVersionId) nextMeta.profileversionid = profileVersionId;
+
+        if (gitSha) nextMeta.gitsha = gitSha;
+        if (checkpointTag) nextMeta.checkpointtag = checkpointTag;
+
+        if (repoArtifactKey) nextMeta.repoartifactkey = repoArtifactKey;
+        if (repoArtifactSha256) nextMeta.repoartifactsha256 = repoArtifactSha256;
+
+        if (geoHint) nextMeta.geohint = geoHint;
+        else delete nextMeta.geohint;
+
+        if (remark) nextMeta.remark = remark;
+        else delete nextMeta.remark;
+
+        // Copy object onto itself, replacing metadata
+        await s3.send(
+            new CopyObjectCommand({
+            Bucket: SNAPSHOTS_BUCKET,
+            Key: key,
+            CopySource: encodeCopySource(SNAPSHOTS_BUCKET, key),
+            MetadataDirective: "REPLACE",
+            Metadata: nextMeta,
+            ContentType: head.ContentType || "application/json",
+            CacheControl: head.CacheControl,
+            ContentDisposition: head.ContentDisposition,
+            ContentEncoding: head.ContentEncoding,
+            ContentLanguage: head.ContentLanguage,
+            Expires: head.Expires,
+            })
+        );
+
+        return json(200, { ok: true, key, meta: nextMeta }, corsOrigin);
+    }
+
 
   // -----------------------------
   // POST /repo/presign-put  (REPO BUCKET)
@@ -340,25 +452,48 @@ export async function handler(event: Event) {
       return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
     }
 
-    const profileVersion = safeKeyPart(payload.profileVersion || "unknown");
-    if (!profileVersion || profileVersion === "unknown") {
+    // ✅ profileVersion is required (no "unknown" allowed)
+    const pv = requireNonEmpty(payload.profileVersion, "profileVersion");
+    if (!pv.ok) return json(pv.status, { ok: false, error: pv.msg }, corsOrigin);
+
+    const profileVersion = safeKeyPart(pv.value);
+    if (!profileVersion || profileVersion.toLowerCase() === "unknown") {
       return json(400, { ok: false, error: "profileVersion required" }, corsOrigin);
     }
 
-    const checkpointTag = safeKeyPart(payload.checkpointTag || "unknown");
-    const gitSha = safeKeyPart(payload.gitSha || "unknown");
-    const gitShaShort = gitSha ? gitSha.slice(0, 7) : "unknown";
+    // ✅ checkpointTag required (prevents "unknown__..." collisions)
+    const ct = requireNonEmpty(payload.checkpointTag, "checkpointTag");
+    if (!ct.ok) return json(ct.status, { ok: false, error: ct.msg }, corsOrigin);
+    const checkpointTag = safeKeyPart(ct.value);
+    if (!checkpointTag || checkpointTag.toLowerCase() === "unknown") {
+      return json(400, { ok: false, error: "checkpointTag required" }, corsOrigin);
+    }
+
+    // ✅ gitSha required + validate
+    const gs = requireNonEmpty(payload.gitSha, "gitSha");
+    if (!gs.ok) return json(gs.status, { ok: false, error: gs.msg }, corsOrigin);
+
+    const gitShaRaw = gs.value;
+    if (!isLikelyGitSha(gitShaRaw)) {
+      return json(400, { ok: false, error: "gitSha is required (7-40 hex chars)" }, corsOrigin);
+    }
+
+    const gitSha = safeKeyPart(gitShaRaw);
+    const gitShaShort = gitSha.slice(0, 7);
 
     const key = `${PROFILES_PREFIX}${profileVersion}/repo/${checkpointTag}__${gitShaShort}.zip`;
+
+    // ✅ FORCE content-type (avoid presign/header mismatch)
+    const contentType = "application/zip";
 
     const cmd = new PutObjectCommand({
       Bucket: REPO_BUCKET,
       Key: key,
-      ContentType: payload.contentType || "application/zip",
+      ContentType: contentType,
     });
 
     const url = await getSignedUrl(s3, cmd, { expiresIn: 600 }); // 10 min
-    return json(200, { ok: true, bucket: REPO_BUCKET, key, url }, corsOrigin);
+    return json(200, { ok: true, bucket: REPO_BUCKET, key, url, contentType }, corsOrigin);
   }
 
   // -----------------------------
@@ -397,6 +532,7 @@ export async function handler(event: Event) {
             category: m.category || "",
             tagKey: m.tagkey || "",
             tagValue: m.tagvalue || "",
+            geoHint: m.geohint || "",
             profileVersionId: m.profileversionid || "unknown",
             gitSha: m.gitsha || "",
             checkpointTag: m.checkpointtag || "",
@@ -478,48 +614,39 @@ export async function handler(event: Event) {
 
     const key = normalizeKey(String(payload.key || ""));
     const remarkRaw = String(payload.remark ?? "");
-    const remark = remarkRaw.trim().slice(0, 500); // keep it bounded
+    const remark = remarkRaw.trim().slice(0, 500);
 
-    if (!key || !key.startsWith(SNAP_PREFIX)) {
-      return json(400, { ok: false, error: "Invalid key (must start with snapshots/)" }, corsOrigin);
+    // ✅ Explicitly block trash, explicitly allow snapshots
+    if (!key) {
+      return json(400, { ok: false, error: "key required" }, corsOrigin);
     }
-
-    // (Optional) forbid remark edits in trash
     if (key.startsWith(TRASH_PREFIX)) {
       return json(400, { ok: false, error: "Remark is locked in trash. Restore first." }, corsOrigin);
     }
+    if (!key.startsWith(SNAP_PREFIX)) {
+      return json(400, { ok: false, error: "Invalid key (must start with snapshots/)" }, corsOrigin);
+    }
 
-    // 1) Read existing object metadata + important headers
     let head;
     try {
       head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
-    } catch (e: any) {
+    } catch {
       return json(404, { ok: false, error: "Snapshot not found" }, corsOrigin);
     }
 
     const existingMeta = head.Metadata || {};
-
-    // 2) Merge metadata (preserve everything, only update remark)
     const nextMeta: Record<string, string> = { ...existingMeta };
 
     if (remark) nextMeta.remark = remark;
-    else delete nextMeta.remark; // allow clearing
+    else delete nextMeta.remark;
 
-    // 3) Copy object onto itself with REPLACE metadata
-    // IMPORTANT: when MetadataDirective=REPLACE, you should also pass back
-    // ContentType and other headers you care about preserving.
     await s3.send(
       new CopyObjectCommand({
         Bucket: SNAPSHOTS_BUCKET,
         Key: key,
-
-        // CopySource must be URL-encoded; encoding key is fine (slashes become %2F)
-        CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(key)}`,
-
+        CopySource: encodeCopySource(SNAPSHOTS_BUCKET, key),
         MetadataDirective: "REPLACE",
         Metadata: nextMeta,
-
-        // preserve common headers (optional but recommended)
         ContentType: head.ContentType || "application/json",
         CacheControl: head.CacheControl,
         ContentDisposition: head.ContentDisposition,
@@ -556,7 +683,7 @@ export async function handler(event: Event) {
     await s3.send(
       new CopyObjectCommand({
         Bucket: SNAPSHOTS_BUCKET,
-        CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(fromKey)}`,
+        CopySource: encodeCopySource(SNAPSHOTS_BUCKET, fromKey),
         Key: toKey,
         ContentType: "application/json",
         MetadataDirective: "COPY",
@@ -592,9 +719,9 @@ export async function handler(event: Event) {
     await s3.send(
       new CopyObjectCommand({
         Bucket: SNAPSHOTS_BUCKET,
-        CopySource: `${SNAPSHOTS_BUCKET}/${encodeURIComponent(fromKey)}`,
+        CopySource: encodeCopySource(SNAPSHOTS_BUCKET, fromKey),
         Key: toKey,
-        ContentType: "application/json",
+        // ContentType: "application/json",
         MetadataDirective: "COPY",
       })
     );

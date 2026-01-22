@@ -57,6 +57,7 @@ export async function presignPutSnapshot({
   repoArtifactKey,
   repoArtifactSha256,
   remark,
+  geoHint,
 }) {
   const base = mustHaveApi();
 
@@ -77,11 +78,26 @@ export async function presignPutSnapshot({
       repoArtifactKey,
       repoArtifactSha256,
       remark,
+      geoHint,
     }),
   });
 
   const json = await res.json();
   if (!res.ok || !json.ok) throw new Error(json.error || "presign-put failed");
+  return json;
+}
+
+export async function commitSnapshotMeta({ key, meta }) {
+  const base = mustHaveApi();
+
+  const res = await fetch(`${base}/snapshots/commit-meta`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ key, meta }),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) throw new Error(json.error || "commit-meta failed");
   return json;
 }
 
@@ -101,13 +117,21 @@ export async function updateSnapshotRemark({ key, remark }) {
 
 export async function uploadSnapshotToS3(url, snapshotObject) {
   const body = JSON.stringify(snapshotObject, null, 2);
+
   const res = await fetch(url, {
     method: "PUT",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+    },
     body,
   });
-  if (!res.ok) throw new Error("Upload failed");
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Upload failed (${res.status}) ${t || ""}`.trim());
+  }
 }
+
 
 export async function listSnapshots({ name } = {}) {
   const base = mustHaveApi();
@@ -196,30 +220,31 @@ export async function restoreSnapshot(key) {
 // Lambda route: POST /repo/presign-put
 // body: { profileVersion, checkpointTag, gitSha, contentType? }
 // returns: { key, url }
+
 export async function presignPutRepoZip({
   profileVersion,
   checkpointTag,
   gitSha,
-  contentType = "application/zip",
+  // contentType removed on purpose (backend enforces zip)
 }) {
   const base = mustHaveApi();
 
   const res = await fetch(`${base}/repo/presign-put`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ profileVersion, checkpointTag, gitSha, contentType }),
+    body: JSON.stringify({ profileVersion, checkpointTag, gitSha }),
   });
 
   const json = await res.json();
   if (!res.ok || !json.ok) throw new Error(json.error || "repo presign-put failed");
-  return json; // { key, url }
+  return json; // { key, url, contentType }
 }
 
-// Upload file/blob to presigned S3 url (NO custom headers)
-export async function uploadRepoZipToS3(url, fileOrBlob) {
+// Upload file/blob to presigned S3 url
+export async function uploadRepoZipToS3(url, fileOrBlob, contentType = "application/zip") {
   const res = await fetch(url, {
     method: "PUT",
-    headers: { "content-type": "application/zip" },
+    headers: { "content-type": contentType },
     body: fileOrBlob,
   });
   if (!res.ok) throw new Error(`Repo zip upload failed: ${res.status}`);
