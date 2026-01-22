@@ -244,25 +244,57 @@ async function streamToString(body: any): Promise<string> {
 }
 
 function extractMetaFromSnapshotJson(doc: any) {
-  // Works for both Analytics + Profile snapshot shapes
-  const category = String(doc?.category || "").trim();
+  const category =
+    String(doc?.category || "").trim() ||
+    // common fallback for profile snapshots
+    (String(doc?.schema || "").toLowerCase().includes("profile") ? "Profile" : "");
 
-  // tags: { key: value } (we store first pair for columns)
+  // tags can be:
+  // 1) tags: { k: v }
+  // 2) tagKey/tagValue
+  // 3) tag: { key, value }
+  let tagKey = "";
+  let tagValue = "";
+
   const tagsObj = doc?.tags && typeof doc.tags === "object" ? doc.tags : null;
-  const tagKey = tagsObj ? String(Object.keys(tagsObj)[0] || "").trim() : "";
-  const tagValue = tagsObj ? String(tagsObj[tagKey] || "").trim() : "";
+  if (tagsObj && Object.keys(tagsObj).length) {
+    tagKey = String(Object.keys(tagsObj)[0] || "").trim();
+    tagValue = String(tagsObj[tagKey] || "").trim();
+  } else if (doc?.tagKey || doc?.tagValue) {
+    tagKey = String(doc?.tagKey || "").trim();
+    tagValue = String(doc?.tagValue || "").trim();
+  } else if (doc?.tag?.key || doc?.tag?.value) {
+    tagKey = String(doc?.tag?.key || "").trim();
+    tagValue = String(doc?.tag?.value || "").trim();
+  }
 
   const pv = doc?.profileVersion || {};
   const profileVersionId = String(pv?.id || "").trim();
 
+  const repo = pv?.repo || {};
   const gitSha =
     String(pv?.gitSha || "").trim() ||
-    String(pv?.repo?.commit || "").trim() ||
-    String(pv?.repo?.gitSha || "").trim();
+    String(repo?.commit || "").trim() ||
+    String(doc?.gitSha || "").trim();
 
   const checkpointTag =
-    String(pv?.repo?.checkpointTag || "").trim() ||
+    String(repo?.checkpointTag || "").trim() ||
     String(doc?.checkpointTag || "").trim();
+
+  // Repo artifact key can exist in multiple places depending on your producer:
+  // - profileVersion.repo.artifactKey  (most likely for Profile snapshots)
+  // - profileVersion.repo.artifact.key (alternate)
+  // - repoArtifactKey (your analytics/meta naming)
+  const repoArtifactKey =
+    String(repo?.artifactKey || "").trim() ||
+    String(repo?.artifact?.key || "").trim() ||
+    String(doc?.repoArtifactKey || "").trim() ||
+    String(doc?.repo?.artifactKey || "").trim();
+
+  const repoArtifactSha256 =
+    String(repo?.artifactSha256 || "").trim() ||
+    String(repo?.artifact?.sha256 || "").trim() ||
+    String(doc?.repoArtifactSha256 || "").trim();
 
   const geoHint =
     String(doc?.geo?.hint || "").trim() ||
@@ -275,9 +307,12 @@ function extractMetaFromSnapshotJson(doc: any) {
     profileVersionId,
     gitSha,
     checkpointTag,
+    repoArtifactKey,
+    repoArtifactSha256,
     geoHint,
   };
 }
+
 
 export async function handler(event: Event) {
   const path = event.rawPath || event.requestContext?.http?.path || "";
@@ -611,11 +646,13 @@ export async function handler(event: Event) {
 
             // 2) If important fields missing, fallback to JSON parse (backward compatible)
             const missingImportant =
-            !metaFromHead.profileVersionId ||
-            metaFromHead.profileVersionId === "unknown" ||
-            !metaFromHead.gitSha ||
-            !metaFromHead.category ||
-            !metaFromHead.checkpointTag;
+                !metaFromHead.profileVersionId ||
+                metaFromHead.profileVersionId === "unknown" ||
+                !metaFromHead.gitSha ||
+                !metaFromHead.category ||
+                !metaFromHead.checkpointTag ||
+                (!metaFromHead.tagKey && !metaFromHead.tagValue) ||
+                !metaFromHead.repoArtifactKey;
 
             const size = o.Size ?? 0;
 
@@ -646,6 +683,8 @@ export async function handler(event: Event) {
                         : derived.profileVersionId || metaFromHead.profileVersionId || "",
                     gitSha: metaFromHead.gitSha || derived.gitSha || "",
                     checkpointTag: metaFromHead.checkpointTag || derived.checkpointTag || "",
+                    repoArtifactKey: metaFromHead.repoArtifactKey || derived.repoArtifactKey || "",
+                    repoArtifactSha256: metaFromHead.repoArtifactSha256 || derived.repoArtifactSha256 || "",
                     },
                 ] as const;
                 }
