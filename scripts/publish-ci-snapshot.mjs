@@ -86,28 +86,57 @@ async function main() {
     },
   };
 
-    const { url, key, requiredHeaders } = presignJson;
+  const { url, key } = presignJson;
+  if (!url || !key) throw new Error("presign-put did not return url/key");
 
-    if (!url || !key) throw new Error("presign-put did not return url/key");
-
-    // ✅ MUST send the exact signed headers
-    const putHeaders = {
-    ...(requiredHeaders || {}),
-    };
-
-    const putRes = await fetch(url, {
+  // ✅ 1) Upload JSON WITHOUT x-amz-meta headers (avoid “HeadersNotSigned”)
+  const putRes = await fetch(url, {
     method: "PUT",
-    headers: putHeaders,
+    headers: {
+      "content-type": "application/json",
+    },
     body: JSON.stringify(snapshotBody, null, 2),
-    });
-
+  });
 
   if (!putRes.ok) {
     const t = await putRes.text().catch(() => "");
     throw new Error(`S3 upload failed (${putRes.status}): ${t}`);
   }
 
+  // ✅ 2) Stamp metadata server-side (this populates table columns)
+  const commitRes = await fetch(`${SNAPSHOTS_API}/snapshots/commit-meta`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-owner-token": OWNER_TOKEN,
+    },
+    body: JSON.stringify({
+      key,
+      meta: {
+        category: "Profile",
+        tagkey: "stage",
+        tagvalue: STAGE,
+
+        profileversionid: PROFILE_VERSION,
+        gitsha: GIT_SHA,
+        checkpointtag: CHECKPOINT_TAG,
+
+        repoartifactkey: REPO_ARTIFACT_KEY,
+        repoartifactsha256: REPO_ARTIFACT_SHA256,
+      },
+    }),
+  });
+
+  const commitJson = await commitRes.json().catch(() => ({}));
+  if (!commitRes.ok || !commitJson.ok) {
+    throw new Error(
+      `commit-meta failed (${commitRes.status}): ${commitJson.error || JSON.stringify(commitJson)}`
+    );
+  }
+
   console.log(`[ci-snapshot] ✅ uploaded snapshot: ${key}`);
+  console.log(`[ci-snapshot] ✅ committed metadata`);
+
 }
 
 main().catch((e) => {
