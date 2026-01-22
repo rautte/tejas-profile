@@ -289,13 +289,38 @@ export async function handler(event: Event) {
     const key = `${SNAP_PREFIX}${name}/from_${from}_to_${to}/${name}__${from}__${to}__${createdAt}.json`;
 
     // ✅ extract deploy/meta fields (safe + optional)
-    const category = safeKeyPart(payload.category || "");
+    const category = safeKeyPart(
+        payload.category ||
+        payload.name ||                         // some publishers treat name as category-ish
+        payload.snapshotCategory ||
+        ""
+    );
+
     const tagKey = safeKeyPart(payload.tagKey || "");
     const tagValue = safeKeyPart(payload.tagValue || "");
 
-    const profileVersionIdRaw = String(payload.profileVersionId || payload.profileVersion || "").trim();
-    const gitShaRaw = String(payload.gitSha || "").trim();
-    const checkpointTagRaw = String(payload.checkpointTag || "").trim();
+    const profileVersionIdRaw = String(
+        payload.profileVersionId ||
+        payload.profileVersionIdRaw ||
+        payload.profileVersion?.id ||          // ✅ supports object payload: { profileVersion: { id } }
+        payload.profileVersionIdFromClient ||
+        payload.profileVersion ||              // supports legacy string
+        ""
+    ).trim();
+
+    const gitShaRaw = String(
+        payload.gitSha ||
+        payload.profileVersion?.gitSha ||
+        payload.profileVersion?.repo?.commit ||
+        payload.profileVersion?.repo?.gitSha ||
+        ""
+    ).trim();
+
+    const checkpointTagRaw = String(
+        payload.checkpointTag ||
+        payload.profileVersion?.repo?.checkpointTag ||
+        ""
+    ).trim();
 
     const profileVersionId = safeKeyPart(profileVersionIdRaw || "unknown"); // keep unknown fallback
     const gitSha = safeKeyPart(gitShaRaw || ""); // analytics should be empty, not "unknown"
