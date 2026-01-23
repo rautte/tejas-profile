@@ -1,7 +1,9 @@
 // scripts/publish-ci-snapshot.mjs
 // Publishes a minimal "CI deploy snapshot" so it appears in Admin → Snapshots UI
 
-import { SECTION_ORDER } from "../src/data/App";
+// ✅ Node ESM does NOT support directory imports.
+// Must import the concrete file (index.js) explicitly.
+import { SECTION_ORDER } from "../src/data/App/index.js";
 
 const SNAPSHOTS_API = (process.env.SNAPSHOTS_API || "").replace(/\/$/, "");
 const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
@@ -19,13 +21,9 @@ const CATEGORY = "Profile";
 
 const BUILD_TIME = process.env.BUILD_TIME || ""; // optional
 const MANIFEST_KEY = process.env.PROFILE_MANIFEST_KEY || ""; // optional
-const GIT_REF = process.env.GIT_REF || process.env.GITHUB_REF || ""; // optional (e.g. refs/heads/main)
+const GIT_REF = process.env.GIT_REF || process.env.GITHUB_REF || ""; // optional
 const GH_RUN_ID = process.env.GH_RUN_ID || process.env.GITHUB_RUN_ID || ""; // optional
 const REPO_URL = process.env.REPO_URL || "https://github.com/rautte/tejas-profile";
-
-// optional: pass sections as JSON array string OR comma-separated
-// const PROFILE_SECTIONS = process.env.PROFILE_SECTIONS || "";
-
 
 function must(v, name) {
   if (!v) throw new Error(`${name} is required`);
@@ -37,26 +35,6 @@ function nullIfEmptyOrUnknown(v) {
   if (!s || s.toLowerCase() === "unknown") return null;
   return s;
 }
-
-function parseSections(raw) {
-  const s = String(raw || "").trim();
-  if (!s) return null;
-
-  // JSON array support
-  if (s.startsWith("[")) {
-    try {
-      const arr = JSON.parse(s);
-      return Array.isArray(arr) ? arr : null;
-    } catch {
-      // fall through
-    }
-  }
-
-  // comma-separated support
-  const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
-  return parts.length ? parts : null;
-}
-
 
 async function main() {
   must(SNAPSHOTS_API, "SNAPSHOTS_API");
@@ -106,8 +84,9 @@ async function main() {
     );
   }
 
-    // The JSON content stored in S3 (previewable in UI)
-    const snapshotBody = {
+  // The JSON content stored in S3 (previewable in UI)
+  // ✅ Updated to match your desired Profile snapshot preview shape
+  const snapshotBody = {
     kind: "ci_deploy_snapshot",
     stage: STAGE,
     category: CATEGORY,
@@ -116,37 +95,17 @@ async function main() {
     note: "Auto-created after successful Build & Deploy (Pages).",
     profileVersion: {
       id: PROFILE_VERSION,
-
-      // prefer provided sections, otherwise default to your canonical list
-      sections:
-        SECTION_ORDER || [
-          "About Me",
-          "Experience",
-          "Skills",
-          "Education",
-          "Resume",
-          "Projects",
-          "Code Lab",
-          "Fun Zone",
-          "Timeline",
-          "Analytics",
-          "Snapshots",
-          "Data",
-          "Settings",
-        ],
-
+      sections: SECTION_ORDER, // ✅ single source of truth from src/data/App/index.js
       manifestKey: nullIfEmptyOrUnknown(MANIFEST_KEY),
       gitSha: nullIfEmptyOrUnknown(GIT_SHA),
       buildTime: nullIfEmptyOrUnknown(BUILD_TIME),
-
       repo: {
         provider: "github",
-        repo: REPO_URL, // matches your desired shape
+        repo: REPO_URL, // ✅ matches desired shape
         commit: nullIfEmptyOrUnknown(GIT_SHA),
         ref: nullIfEmptyOrUnknown(GIT_REF),
         buildRunId: nullIfEmptyOrUnknown(GH_RUN_ID),
         checkpointTag: nullIfEmptyOrUnknown(CHECKPOINT_TAG),
-
         artifactUrl: null,
         artifactKey: nullIfEmptyOrUnknown(REPO_ARTIFACT_KEY),
         artifactSha256: nullIfEmptyOrUnknown(REPO_ARTIFACT_SHA256),
@@ -204,7 +163,6 @@ async function main() {
 
   console.log(`[ci-snapshot] ✅ uploaded snapshot: ${key}`);
   console.log(`[ci-snapshot] ✅ committed metadata`);
-
 }
 
 main().catch((e) => {
