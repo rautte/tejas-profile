@@ -70,6 +70,7 @@ import {
   FaCog,
   // FaRegFolderOpen,
   FaRegSave,
+  FaLock,
 } from "react-icons/fa";
 
 
@@ -458,6 +459,7 @@ function App() {
   const hiringManagerQuickLookBody = SIDEBAR_GROUPS.hiringManager;
   const moreAboutMe = SIDEBAR_GROUPS.explore;
   const adminOnly = SIDEBAR_GROUPS.admin ?? [];
+  const adminPinnedItems = isOwner ? ADMIN_LABELS.filter((l) => LABELS.includes(l)) : [];
 
   // ------------------------------
   // Step 2: per-section scroll memory (session-only)
@@ -1025,20 +1027,30 @@ function App() {
   const PINNED = SIDEBAR_GROUPS.pinned;
   const recruiterQuickLookBody = recruiterQuickLook.filter((i) => !PINNED.includes(i));
 
-  const Group = ({ title, items, titleClassName = "" }) => (
+  const Group = ({ title, items, titleClassName = "", headerRight = null }) => (
     <div className="space-y-3">
       {!sidebarCollapsed && (
-        <div className={`px-3 pt-3 pb-1 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 ${titleClassName}`}>
-          {title}
+        <div
+          className={`px-3 pt-3 pb-1 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 ${titleClassName}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span>{title}</span>
+
+            {headerRight ? (
+              <span className="shrink-0 text-gray-400 dark:text-gray-500">
+                {headerRight}
+              </span>
+            ) : null}
+          </div>
         </div>
       )}
+
       <ul className={`space-y-0.5 ${sidebarCollapsed ? "px-1" : "px-0"}`}>
-        {items
-          .map((label) => (
-            <li key={label} className="relative group">
-              <NavButton label={label} active={selectedSection === label} onClick={() => goTo(label)} />
-            </li>
-          ))}
+        {items.map((label) => (
+          <li key={label} className="relative group">
+            <NavButton label={label} active={selectedSection === label} onClick={() => goTo(label)} />
+          </li>
+        ))}
       </ul>
     </div>
   );
@@ -1238,30 +1250,56 @@ function App() {
                 </li>
               </ul>
 
-              {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto no-scrollbar pt-4">
-            <div className="space-y-4">
-              <Group title="Recruiter" items={recruiterQuickLookBody} titleClassName="text-[11px] md:text-[11px]" />
-
-              {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
-
-              <Group title="Hiring Manager" items={hiringManagerQuickLookBody} titleClassName="text-[11px] md:text-[11px]" />
-
-              {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
-
-              <Group title="Explore" items={moreAboutMe} titleClassName="text-[11px] md:text-[11px]" />
-
-              {isOwner && adminOnly.length > 0 && (
-                <>
-                  {!sidebarCollapsed && <div className="h-px bg-gray-200 dark:bg-gray-700 mx-2" />}
-                  <Group title="Admin" items={adminOnly} titleClassName="text-[11px] md:text-[11px]" />
-                </>
+              {!sidebarCollapsed && (
+                <div className="mx-2 h-[2px] bg-gradient-to-r from-transparent via-gray-200/80 to-transparent dark:via-white/10" />
               )}
             </div>
           </div>
+
+          {/* MIDDLE: scrollable */}
+          <div className="relative flex-1 overflow-hidden">
+            <div
+              className="
+                h-full overflow-y-auto no-scrollbar pt-4
+                [mask-image:linear-gradient(to_bottom,transparent,black_24px,black_calc(100%-24px),transparent)]
+                [mask-size:100%_100%]
+                [mask-repeat:no-repeat]
+              "
+              style={{
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, transparent, black 24px, black calc(100% - 24px), transparent)",
+                WebkitMaskSize: "100% 100%",
+                WebkitMaskRepeat: "no-repeat",
+              }}
+            >
+              <div className="space-y-4">
+                <Group title="Recruiter" items={recruiterQuickLookBody} titleClassName="text-[11px] md:text-[11px]" />
+
+                {!sidebarCollapsed && <div className="h-px bg-gray-200/70 dark:bg-white/10 mx-2" />}
+
+                <Group title="Hiring Manager" items={hiringManagerQuickLookBody} titleClassName="text-[11px] md:text-[11px]" />
+
+                {!sidebarCollapsed && <div className="h-px bg-gray-200/70 dark:bg-white/10 mx-2" />}
+
+                <Group title="Explore" items={moreAboutMe} titleClassName="text-[11px] md:text-[11px]" />
+              </div>
+            </div>
+          </div>
+
+          {/* BOTTOM: pinned Admin (OWNER ONLY) */}
+          {isOwner && adminPinnedItems.length > 0 && (
+            <div className="shrink-0 pt-3">
+              {!sidebarCollapsed && (
+                <div className="mx-2 mb-3 h-[2px] bg-gradient-to-r from-transparent via-gray-200/80 to-transparent dark:via-white/10" />
+              )}
+              <Group
+                title="Admin"
+                items={adminPinnedItems}
+                titleClassName="text-[11px] md:text-[11px]"
+                headerRight={<FaLock className="text-[11px]" />}
+              />
+            </div>
+          )}
         </nav>
 
         {/* Content + Footer column */}
