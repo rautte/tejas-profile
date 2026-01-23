@@ -80,7 +80,7 @@ export function readBuildProfileVersion() {
       ref: nullIfEmptyOrUnknown(meta.repoRef),
       buildRunId: nullIfEmptyOrUnknown(meta.ghRunId),
       checkpointTag: computeCheckpointTag(meta),
-      artifactUrl: nullIfEmptyOrUnknown(meta.artifactUrl),
+    //   artifactUrl: nullIfEmptyOrUnknown(meta.artifactUrl),
       artifactKey: nullIfEmptyOrUnknown(meta.artifactKey),
       artifactSha256: nullIfEmptyOrUnknown(meta.artifactSha256),
 

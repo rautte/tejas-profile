@@ -238,4 +238,14 @@ jobs:
 
           REPO_ARTIFACT_KEY: ${{ needs.build.outputs.REPO_ARTIFACT_KEY }}
           REPO_ARTIFACT_SHA256: ${{ needs.build.outputs.REPO_ARTIFACT_SHA256 }}
+
+          # ✅ add this (fixes buildTime null)
+          BUILD_TIME: ${{ needs.build.outputs.BUILD_TIME }}
+
+          # ✅ optional but recommended for full parity with Analytics payload shape
+          GIT_REF: ${{ github.ref }}
+          GH_RUN_ID: ${{ github.run_id }}
+          REPO_URL: ${{ vars.REPO_URL || secrets.REPO_URL }}
+          TIMEZONE: America/Los_Angeles
         run: node scripts/publish-ci-snapshot.mjs
+

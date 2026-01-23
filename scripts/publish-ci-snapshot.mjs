@@ -106,7 +106,6 @@ async function main() {
         ref: nullIfEmptyOrUnknown(GIT_REF),
         buildRunId: nullIfEmptyOrUnknown(GH_RUN_ID),
         checkpointTag: nullIfEmptyOrUnknown(CHECKPOINT_TAG),
-        artifactUrl: null,
         artifactKey: nullIfEmptyOrUnknown(REPO_ARTIFACT_KEY),
         artifactSha256: nullIfEmptyOrUnknown(REPO_ARTIFACT_SHA256),
       },
