@@ -68,3 +68,12 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+
+
+## IMP USE (from repo root):
+- cd ~/projects/tejas-profile && export AWS_SDK_LOAD_CONFIG=1 && export AWS_PROFILE=tejas-sso && aws sso login --profile tejas-sso
+- cd infra/cdk && npx cdk deploy AssetsCdnStack TejasProfileSnapshotsStackProd TejasProfileSnapshotsStackDev
+- scripts/checkpoint_deploy.sh 
+
+
