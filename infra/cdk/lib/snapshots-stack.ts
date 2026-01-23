@@ -292,6 +292,12 @@ export class SnapshotsStack extends cdk.Stack {
     });
 
     httpApi.addRoutes({
+        path: "/repo/presign-get",
+        methods: [apigwv2.HttpMethod.GET],
+        integration,
+    });
+
+    httpApi.addRoutes({
       path: "/deploy/trigger",
       methods: [apigwv2.HttpMethod.POST],
       integration,

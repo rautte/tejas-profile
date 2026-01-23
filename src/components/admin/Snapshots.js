@@ -2,7 +2,7 @@
 
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { HiOutlineEye, HiPencilAlt, HiOutlineClipboardCopy } from "react-icons/hi";
+import { HiOutlineEye, HiPencilAlt, HiOutlineClipboardCopy, HiOutlineDownload } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
 import { HiStar } from "react-icons/hi2";
 
@@ -20,6 +20,7 @@ import {
   getDeployHistory,
   purgeSnapshot,
   updateSnapshotRemark,
+  presignRepoGet,
 } from "../../utils/snapshots/snapshotsApi";
 
 function SectionCard({ title, subtitle, action, children }) {
@@ -697,6 +698,26 @@ export default function AdminSnapshots() {
         }
     }, [selectedKeys, refreshTrash]);
 
+    const downloadRepoZip = useCallback(async (repoKey) => {
+        const key = String(repoKey || "").trim();
+        if (!key) return;
+
+        try {
+            const out = await presignRepoGet(key);
+            const url = out?.url;
+            if (!url) throw new Error("Missing presigned URL");
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = key.split("/").pop() || "repo.zip";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (e) {
+            setErr(String(e?.message || e));
+        }
+    }, []);
+
     useEffect(() => {
         refresh();
         if (showTrash) {
@@ -1355,23 +1376,44 @@ export default function AdminSnapshots() {
                             </td>
 
                             <td className="py-3 px-4">
-                            {isProfileTab ? (
-                                <CopyHoverCell
-                                value={it.meta?.repoArtifactKey || ""}
-                                title={it.meta?.repoArtifactKey || ""}
-                                textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                                maxWidthClass="max-w-[420px]"
-                                showCopy={Boolean(it.meta?.repoArtifactKey)}
-                                />
-                            ) : (
-                                <CopyHoverCell
-                                value={it.key}
-                                title={it.key}
-                                textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                                maxWidthClass="max-w-[420px]"
-                                showCopy={Boolean(it.key)}
-                                />
-                            )}
+                                {isProfileTab ? (
+                                    <div className="flex items-start gap-2">
+                                    {/* ✅ icon-only, no background */}
+                                    <button
+                                        type="button"
+                                        title={it.meta?.repoArtifactKey ? "Download repo zip" : "No repo zip"}
+                                        disabled={!it.meta?.repoArtifactKey}
+                                        onClick={(e) => {
+                                        e?.stopPropagation?.();
+                                        downloadRepoZip(it.meta?.repoArtifactKey);
+                                        }}
+                                        className={cx(
+                                        "mt-[2px] p-0 bg-transparent border-0 shadow-none",
+                                        "text-gray-500 dark:text-gray-400",
+                                        "hover:text-purple-700 dark:hover:text-purple-300",
+                                        "disabled:opacity-40 disabled:cursor-not-allowed"
+                                        )}
+                                    >
+                                        <HiOutlineDownload className="h-4 w-4" />
+                                    </button>
+
+                                    <CopyHoverCell
+                                        value={it.meta?.repoArtifactKey || ""}
+                                        title={it.meta?.repoArtifactKey || ""}
+                                        textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                                        maxWidthClass="max-w-[420px]"
+                                        showCopy={Boolean(it.meta?.repoArtifactKey)}
+                                    />
+                                    </div>
+                                ) : (
+                                    <CopyHoverCell
+                                    value={it.key}
+                                    title={it.key}
+                                    textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                                    maxWidthClass="max-w-[420px]"
+                                    showCopy={Boolean(it.key)}
+                                    />
+                                )}
                             </td>
 
                             <td className="text-xs py-3 px-4 w-[520px] align-top">

@@ -659,6 +659,35 @@ export async function handler(event: Event) {
     return json(200, { ok: true, bucket: REPO_BUCKET, key, url, contentType }, corsOrigin);
   }
 
+    // -----------------------------
+    // GET /repo/presign-get?key=...  (REPO BUCKET)
+    // - Allows downloading repo zip via presigned GET
+    // - Only for profiles/* or trash/profiles/*
+    // -----------------------------
+    if (method === "GET" && path.endsWith("/repo/presign-get")) {
+    const keyRaw = event.queryStringParameters?.key || "";
+    const key = normalizeKey(keyRaw);
+
+    const ok =
+        (key && key.startsWith(PROFILES_PREFIX)) ||
+        (key && key.startsWith(`trash/${PROFILES_PREFIX}`));
+
+    if (!ok) {
+        return json(400, { ok: false, error: "Invalid key (must start with profiles/ or trash/profiles/)" }, corsOrigin);
+    }
+
+    const cmd = new GetObjectCommand({
+        Bucket: REPO_BUCKET,
+        Key: key,
+        // optional: forces browser download behavior
+        ResponseContentDisposition: `attachment; filename="${basename(key) || "repo.zip"}"`,
+        ResponseContentType: "application/zip",
+    });
+
+    const url = await getSignedUrl(s3, cmd, { expiresIn: 60 });
+    return json(200, { ok: true, bucket: REPO_BUCKET, key, url }, corsOrigin);
+    }
+
   // -----------------------------
   // GET /snapshots/list?scope=trash  (SNAPSHOTS BUCKET)
   // -----------------------------

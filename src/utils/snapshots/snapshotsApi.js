@@ -254,6 +254,29 @@ export async function presignPutRepoZip({
   return json; // { key, url, contentType }
 }
 
+export async function presignRepoGet(repoKey) {
+  const base = mustHaveApi();
+
+  const key = String(repoKey || "").trim();
+  if (!key) throw new Error("repoKey required");
+
+  const qs = new URLSearchParams({ key });
+
+  const res = await fetch(`${base}/repo/presign-get?${qs.toString()}`, {
+    method: "GET",
+    headers: headers(), // ✅ uses your owner session/token logic
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || "repo presign-get failed");
+  }
+
+  return json; // { ok, bucket, key, url }
+}
+
+
+
 // Upload file/blob to presigned S3 url
 export async function uploadRepoZipToS3(
   url,
