@@ -1258,7 +1258,7 @@ export default function AdminSnapshots() {
                                 <div className="inline-flex items-center gap-2">
                                     <CopyHoverCell
                                     value={it.meta?.profileVersionId || ""}
-                                    title={it.meta?.profileVersionId || ""}
+                                    // title={it.meta?.profileVersionId || ""}
                                     textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
                                     showCopy={Boolean(it.meta?.profileVersionId)}
                                     />
@@ -1282,7 +1282,7 @@ export default function AdminSnapshots() {
                             <div className="flex items-center gap-2 min-w-0">
                                 <CopyHoverCell
                                 value={it.filename}
-                                title={it.filename}
+                                // title={it.filename}
                                 textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
                                 // maxWidthClass="max-w-[360px]"
                                 />
@@ -1327,7 +1327,7 @@ export default function AdminSnapshots() {
                             <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                                 <CopyHoverCell
                                 value={it.meta?.gitSha || ""}
-                                title={it.meta?.gitSha || ""}
+                                // title={it.meta?.gitSha || ""}
                                 textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
                                 className=""
                                 showCopy={Boolean(it.meta?.gitSha)}
@@ -1399,7 +1399,7 @@ export default function AdminSnapshots() {
 
                                     <CopyHoverCell
                                         value={it.meta?.repoArtifactKey || ""}
-                                        title={it.meta?.repoArtifactKey || ""}
+                                        // title={it.meta?.repoArtifactKey || ""}
                                         textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
                                         maxWidthClass="max-w-[420px]"
                                         showCopy={Boolean(it.meta?.repoArtifactKey)}
@@ -1408,7 +1408,7 @@ export default function AdminSnapshots() {
                                 ) : (
                                     <CopyHoverCell
                                     value={it.key}
-                                    title={it.key}
+                                    // title={it.key}
                                     textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
                                     maxWidthClass="max-w-[420px]"
                                     showCopy={Boolean(it.key)}
@@ -1448,7 +1448,7 @@ export default function AdminSnapshots() {
                                             "break-words whitespace-normal text-gray-700 dark:text-gray-300",
                                             !showTrash ? "pr-10" : "" // reserve a tiny space so hover button doesn't cover last chars
                                         )}
-                                        title={it.meta?.remark || ""}
+                                        // title={it.meta?.remark || ""}
                                         >
                                         {it.meta?.remark ? it.meta.remark : "—"}
                                         </div>
@@ -1461,7 +1461,7 @@ export default function AdminSnapshots() {
                                             e?.stopPropagation?.();
                                             startEditRemark(it.key, it.meta?.remark || "");
                                             }}
-                                            title="Edit remark"
+                                            // title="Edit remark"
                                             className={cx(
                                             "absolute top-1 right-1",
                                             "opacity-0 group-hover:opacity-100 transition",
