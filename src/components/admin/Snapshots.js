@@ -1070,12 +1070,32 @@ const COLUMN_DEFS = [
     sortable: false,
     tabs: ["profile", "analytics"],
     getValue: (it) => it.filename || "",
-    renderCell: (it) => (
-      <CopyHoverCell
-        value={it.filename}
-        textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
-      />
-    ),
+    renderCell: (it, ctx) => {
+        const sha = it.meta?.gitSha || "";
+        const isActive = Boolean(sha && ctx?.activeGitSha && sha === ctx.activeGitSha);
+        const isLastUsed = Boolean(sha && ctx?.prevGitSha && sha === ctx.prevGitSha);
+
+        return (
+        <div className="inline-flex items-center gap-2 min-w-0">
+            <CopyHoverCell
+            value={it.filename}
+            textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
+            />
+
+            {isActive ? (
+            <span className="shrink-0 text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300">
+                Active
+            </span>
+            ) : null}
+
+            {!isActive && isLastUsed ? (
+            <span className="shrink-0 text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                Last used
+            </span>
+            ) : null}
+        </div>
+        );
+    },
   },
   {
     id: COL.GIT_SHA,
@@ -1083,33 +1103,13 @@ const COLUMN_DEFS = [
     sortable: false,
     tabs: ["profile"],
     getValue: (it) => it.meta?.gitSha || "",
-    renderCell: (it, ctx) => {
-        const sha = it.meta?.gitSha || "";
-        const isActive = Boolean(sha && ctx?.activeGitSha && sha === ctx.activeGitSha);
-        const isLastUsed = Boolean(sha && ctx?.prevGitSha && sha === ctx.prevGitSha);
-
-        return (
-        <div className="inline-flex items-center gap-2">
-            <CopyHoverCell
-            value={sha}
-            textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-            showCopy={Boolean(sha)}
-            />
-
-            {isActive ? (
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300">
-                Active
-            </span>
-            ) : null}
-
-            {!isActive && isLastUsed ? (
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                Last used
-            </span>
-            ) : null}
-        </div>
-        );
-    },
+    renderCell: (it) => (
+        <CopyHoverCell
+        value={it.meta?.gitSha || ""}
+        textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+        showCopy={Boolean(it.meta?.gitSha)}
+        />
+    ),
   },
   {
     id: COL.CATEGORY,
