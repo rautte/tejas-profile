@@ -429,32 +429,42 @@ function GeoTypeahead({
           {/* ✅ If nothing matches: show only "Other" */}
           {showOtherOnly ? (
             <button
-              type="button"
-              disabled={disabled}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                const hint = String(value || "").trim();
+                type="button"
+                disabled={disabled}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                const typed = String(value || "").trim();
+
+                // ✅ UI value should become "Other" (not the typed text)
+                onValueChange("Other");
+
+                // ✅ Persist strict selection
                 onSelectGeo({
-                  hint,
-                  city: null,
-                  region: null,
-                  country: null,
-                  countryCode: null,
-                  lat: null,
-                  lng: null,
-                  source: "other",
-                  datasetId: null,
-                  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                  locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+                    hint: "Other",              // <-- required behavior
+                    city: null,
+                    region: null,
+                    country: null,
+                    countryCode: null,
+                    lat: null,
+                    lng: null,
+                    source: "other",
+                    datasetId: null,
+
+                    // Optional: keep what user typed (so you can inspect later)
+                    typedHint: typed || null,
+
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    locale: typeof navigator !== "undefined" ? navigator.language : undefined,
                 });
+
                 setOpen(false);
-              }}
-              className="w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100/70 dark:hover:bg-white/10 transition"
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100/70 dark:hover:bg-white/10 transition"
             >
-              <div className="font-medium">Other</div>
-              <div className="text-[12px] text-gray-600 dark:text-gray-400">
-                Use your typed value: “{String(value || "").trim()}”
-              </div>
+                <div className="font-medium">Other</div>
+                <div className="text-[12px] text-gray-600 dark:text-gray-400">
+                No such city exists: “{String(value || "").trim()}”
+                </div>
             </button>
           ) : null}
         </div>
@@ -786,37 +796,6 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
     </div>
   );
 }
-
-// function parseGeoHintToStructured(hintRaw) {
-//   const hint = String(hintRaw || "").trim();
-//   if (!hint) return null;
-
-//   // Very lightweight parsing for Phase 3:
-//   // "Seattle, US" → city="Seattle", country="US"
-//   // "Pune, Maharashtra, IN" → city="Pune", region="Maharashtra", country="IN"
-//   const parts = hint.split(",").map((p) => p.trim()).filter(Boolean);
-
-//   const city = parts[0] || null;
-//   const region = parts.length >= 3 ? parts[1] : null;
-//   const country = parts.length >= 2 ? parts[parts.length - 1] : null;
-
-//   // Phase 3: countryCode is best-effort (if user typed "US"/"IN" etc)
-//   const countryCode =
-//     country && /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : null;
-
-//   return {
-//     hint,
-//     city,
-//     region,
-//     country,
-//     countryCode,
-//     lat: null,
-//     lng: null,
-//     source: "manual", // important for Phase 4/5
-//     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-//     locale: typeof navigator !== "undefined" ? navigator.language : undefined,
-//   };
-// }
 
 
 export default function AdminAnalytics() {
