@@ -1,6 +1,8 @@
 // scripts/publish-ci-snapshot.mjs
 // Publishes a minimal "CI deploy snapshot" so it appears in Admin → Snapshots UI
 
+import { SECTION_ORDER } from "../src/data/App";
+
 const SNAPSHOTS_API = (process.env.SNAPSHOTS_API || "").replace(/\/$/, "");
 const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
 const STAGE = process.env.STAGE || "prod";
@@ -12,10 +14,49 @@ const CHECKPOINT_TAG = process.env.CHECKPOINT_TAG || "unknown";
 const REPO_ARTIFACT_KEY = process.env.REPO_ARTIFACT_KEY || "";
 const REPO_ARTIFACT_SHA256 = process.env.REPO_ARTIFACT_SHA256 || "";
 
+const TIMEZONE = process.env.TIMEZONE || "America/Los_Angeles";
+const CATEGORY = "Profile";
+
+const BUILD_TIME = process.env.BUILD_TIME || ""; // optional
+const MANIFEST_KEY = process.env.PROFILE_MANIFEST_KEY || ""; // optional
+const GIT_REF = process.env.GIT_REF || process.env.GITHUB_REF || ""; // optional (e.g. refs/heads/main)
+const GH_RUN_ID = process.env.GH_RUN_ID || process.env.GITHUB_RUN_ID || ""; // optional
+const REPO_URL = process.env.REPO_URL || "https://github.com/rautte/tejas-profile";
+
+// optional: pass sections as JSON array string OR comma-separated
+// const PROFILE_SECTIONS = process.env.PROFILE_SECTIONS || "";
+
+
 function must(v, name) {
   if (!v) throw new Error(`${name} is required`);
   return v;
 }
+
+function nullIfEmptyOrUnknown(v) {
+  const s = String(v || "").trim();
+  if (!s || s.toLowerCase() === "unknown") return null;
+  return s;
+}
+
+function parseSections(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+
+  // JSON array support
+  if (s.startsWith("[")) {
+    try {
+      const arr = JSON.parse(s);
+      return Array.isArray(arr) ? arr : null;
+    } catch {
+      // fall through
+    }
+  }
+
+  // comma-separated support
+  const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
+  return parts.length ? parts : null;
+}
+
 
 async function main() {
   must(SNAPSHOTS_API, "SNAPSHOTS_API");
@@ -65,23 +106,50 @@ async function main() {
     );
   }
 
-  // The JSON content stored in S3 (previewable in UI)
-  const snapshotBody = {
+    // The JSON content stored in S3 (previewable in UI)
+    const snapshotBody = {
     kind: "ci_deploy_snapshot",
     stage: STAGE,
+    category: CATEGORY,
+    timezone: TIMEZONE,
     createdAt,
     note: "Auto-created after successful Build & Deploy (Pages).",
     profileVersion: {
       id: PROFILE_VERSION,
-      gitSha: GIT_SHA || null,
+
+      // prefer provided sections, otherwise default to your canonical list
+      sections:
+        SECTION_ORDER || [
+          "About Me",
+          "Experience",
+          "Skills",
+          "Education",
+          "Resume",
+          "Projects",
+          "Code Lab",
+          "Fun Zone",
+          "Timeline",
+          "Analytics",
+          "Snapshots",
+          "Data",
+          "Settings",
+        ],
+
+      manifestKey: nullIfEmptyOrUnknown(MANIFEST_KEY),
+      gitSha: nullIfEmptyOrUnknown(GIT_SHA),
+      buildTime: nullIfEmptyOrUnknown(BUILD_TIME),
+
       repo: {
         provider: "github",
-        repo: "rautte/tejas-profile",
-        checkpointTag: CHECKPOINT_TAG,
+        repo: REPO_URL, // matches your desired shape
+        commit: nullIfEmptyOrUnknown(GIT_SHA),
+        ref: nullIfEmptyOrUnknown(GIT_REF),
+        buildRunId: nullIfEmptyOrUnknown(GH_RUN_ID),
+        checkpointTag: nullIfEmptyOrUnknown(CHECKPOINT_TAG),
 
-        // ✅ helpful for preview
-        artifactKey: REPO_ARTIFACT_KEY,
-        artifactSha256: REPO_ARTIFACT_SHA256,
+        artifactUrl: null,
+        artifactKey: nullIfEmptyOrUnknown(REPO_ARTIFACT_KEY),
+        artifactSha256: nullIfEmptyOrUnknown(REPO_ARTIFACT_SHA256),
       },
     },
   };

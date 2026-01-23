@@ -111,7 +111,7 @@ export function buildAnalyticsSnapshot({
     category: "Analytics",
     profileVersion: {
       id: pv.id,
-      sections: pv.sections || SECTION_ORDER,
+      sections: SECTION_ORDER || pv.sections,
       manifestKey: pv.manifestKey || null,
       gitSha: pv.gitSha || null,
       buildTime: pv.buildTime || null,
