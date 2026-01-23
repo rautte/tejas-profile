@@ -2,7 +2,7 @@
 
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { HiOutlineEye, HiPencilAlt, HiOutlineClipboardCopy, HiOutlineDownload } from "react-icons/hi";
+import { HiOutlineEye, HiPencilAlt, HiOutlineClipboardCopy, HiOutlineDownload, HiOutlineArrowsExpand } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
 import { HiStar } from "react-icons/hi2";
 
@@ -152,6 +152,28 @@ function ActionButton({ variant = "neutral", children, onClick, disabled, title 
       disabled={disabled}
       title={title}
       className={cx(base, styles)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({ onClick, title, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={cx(
+        "inline-flex items-center justify-center",
+        "h-9 w-9 rounded-lg border shadow-sm transition",
+        "border-gray-300/70 dark:border-white/10",
+        "bg-gray-50/80 dark:bg-white/10",
+        "text-gray-700 dark:text-gray-200",
+        "hover:bg-gray-100/80 dark:hover:bg-white/15",
+        "hover:text-purple-700 dark:hover:text-purple-300",
+        "focus:outline-none"
+      )}
     >
       {children}
     </button>
@@ -372,6 +394,109 @@ function PreviewModal({ open, title, json, loading, error, onClose, onDownload }
   );
 }
 
+function ExpandedTableModal({ open, title, onClose, children }) {
+  // ✅ hard-lock page scroll while modal is open (prevents section switching + scroll bleed)
+  useEffect(() => {
+    if (!open) return;
+
+    const scrollY = window.scrollY;
+
+    const prev = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      left: document.body.style.left,
+      right: document.body.style.right,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+    };
+
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.width = "100%";
+    document.body.style.overflow = "hidden";
+
+    // ✅ block key-driven section navigation (arrow keys / page keys) while modal open
+    const onKeyDownCapture = (e) => {
+      const k = e.key;
+      const block =
+        k === "ArrowUp" ||
+        k === "ArrowDown" ||
+        k === "ArrowLeft" ||
+        k === "ArrowRight" ||
+        k === "PageUp" ||
+        k === "PageDown" ||
+        k === "Home" ||
+        k === "End" ||
+        k === " " ||
+        k === "Spacebar";
+
+      if (!block) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener("keydown", onKeyDownCapture, true);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDownCapture, true);
+
+      document.body.style.position = prev.position;
+      document.body.style.top = prev.top;
+      document.body.style.left = prev.left;
+      document.body.style.right = prev.right;
+      document.body.style.width = prev.width;
+      document.body.style.overflow = prev.overflow;
+
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[320] flex items-center justify-center px-4"
+      onWheelCapture={(e) => e.stopPropagation()}
+      onTouchMoveCapture={(e) => e.stopPropagation()}
+    >
+      {/* ✅ blurred backdrop */}
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 backdrop-blur-lg backdrop-saturate-150"
+      />
+
+      <div className="relative w-full max-w-[95vw] rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-200/70 dark:border-white/10 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {title || "Expanded table"}
+            </div>
+            <div className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
+              Full table view
+            </div>
+          </div>
+
+          <ActionButton variant="soft-danger" onClick={onClose} title="Close">
+            Close
+          </ActionButton>
+        </div>
+
+        {/* ✅ modal body scrolls, not the page */}
+        <div className="p-4">
+          <div className="max-h-[78vh] overflow-auto overscroll-contain"> {/* can do max-h-[88vh] for more vertical height */}
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function ConfirmModal({
   open,
   title,
@@ -457,6 +582,389 @@ function ConfirmModal({
   );
 }
 
+function SortableTh({ label, sortKey, sort, setSort, className = "" }) {
+  const active = sort.key === sortKey;
+  const arrow = active ? (sort.dir === "asc" ? "↑" : "↓") : "↕";
+
+  return (
+    <th
+      className={cx("py-3 px-4 font-semibold whitespace-nowrap cursor-pointer select-none", className)}
+      title="Click to sort"
+      onClick={() =>
+        setSort((prev) => ({
+          key: sortKey,
+          dir: prev.key === sortKey && prev.dir === "desc" ? "asc" : "desc",
+        }))
+      }
+    >
+      <div className="flex items-center gap-1">
+        {label} <span className="opacity-70">{arrow}</span>
+      </div>
+    </th>
+  );
+}
+
+
+function SnapshotsTable({
+  visibleRows,
+  isProfileTab,
+  activeTab,
+  focusedKey,
+  focusRow,
+  selectedKeys,
+  toggleRow,
+  allSelectedOnScreen,
+  toggleSelectAll,
+  sort,
+  setSort,
+  openPreview,
+  favorites,
+  activeGitSha,
+  prevGitSha,
+  showTrash,
+  askDeploy,
+  downloadRepoZip,
+  remarkEditKey,
+  remarkDraft,
+  setRemarkDraft,
+  remarkBusy,
+  saveEditRemark,
+  cancelEditRemark,
+  startEditRemark,
+  containerClassName = "max-h-[520px] overflow-auto",
+}) {
+  return (
+    <div className={containerClassName}>
+      <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1640px]" : "min-w-[1480px]")}>
+        <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
+          <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
+            <th className="py-3 px-4 font-semibold whitespace-nowrap">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-purple-600"
+                checked={allSelectedOnScreen}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  toggleSelectAll();
+                }}
+                title="Select all"
+              />
+            </th>
+            <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
+            <th className="py-3 px-4 font-semibold whitespace-nowrap">Profile_Version_ID</th>
+            <th className="py-3 px-4 font-semibold">Filename</th>
+
+            {isProfileTab ? (
+              <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
+            ) : null}
+
+            <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
+            <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Key</th>
+            <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Value</th>
+
+            {!isProfileTab ? (
+              <th className="py-3 px-4 font-semibold whitespace-nowrap">Geo_Hint</th>
+            ) : null}
+
+            {isProfileTab ? (
+              <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
+            ) : null}
+
+            <SortableTh label="From_Date" sortKey="from" sort={sort} setSort={setSort} />
+            <SortableTh label="To_Date" sortKey="to" sort={sort} setSort={setSort} />
+            <SortableTh label="Created_At" sortKey="createdAt" sort={sort} setSort={setSort} />
+            <SortableTh label="Size" sortKey="size" sort={sort} setSort={setSort} />
+
+            {isProfileTab ? (
+              <th className="py-3 px-4 font-semibold whitespace-nowrap">Repo_Key</th>
+            ) : (
+              <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
+            )}
+
+            <th className="py-3 px-4 font-semibold whitespace-nowrap w-[520px]">Remark</th>
+
+            {isProfileTab ? (
+              <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
+            ) : null}
+          </tr>
+        </thead>
+
+        <tbody>
+          {visibleRows.map((it) => {
+            const sha = it.meta?.gitSha || "";
+            const isActiveRow = Boolean(sha && activeGitSha && sha === activeGitSha);
+            const isFocused = it.key === focusedKey;
+
+            return (
+              <tr
+                key={it.key}
+                onClick={() => focusRow(it.key)}
+                className={cx(
+                  "border-t border-gray-200/60 dark:border-white/10 cursor-pointer transition-colors",
+                  "hover:bg-gray-100/40 dark:hover:bg-white/5",
+                  isFocused
+                    ? "bg-purple-50/60 dark:bg-purple-500/10 shadow-[inset_0_0_0_1px_rgba(147,51,234,0.25)] dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.18)]"
+                    : ""
+                )}
+              >
+                {/* selection */}
+                <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-purple-600"
+                    checked={selectedKeys.includes(it.key)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleRow(it.key);
+                    }}
+                    title="Select"
+                  />
+                </td>
+
+                {/* preview */}
+                <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                  <ActionButton
+                    variant="green"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openPreview(it.key);
+                    }}
+                    title="Open preview"
+                  >
+                    <HiOutlineEye className="text-base" />
+                  </ActionButton>
+                </td>
+
+                {/* profile version id + favorite */}
+                <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                  <div className="inline-flex items-center gap-2">
+                    <CopyHoverCell
+                      value={it.meta?.profileVersionId || ""}
+                      textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                      showCopy={Boolean(it.meta?.profileVersionId)}
+                    />
+                    {favorites?.[it.key] ? (
+                      <HiStar
+                        className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]"
+                        title="Favorite"
+                      />
+                    ) : null}
+                  </div>
+                </td>
+
+                {/* filename + badges */}
+                <td className="text-xs py-3 px-4">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CopyHoverCell
+                      value={it.filename}
+                      textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
+                    />
+
+                    {isProfileTab
+                      ? (() => {
+                          const sha2 = it.meta?.gitSha || "";
+                          const isActive = sha2 && activeGitSha && sha2 === activeGitSha;
+                          const isPrev = sha2 && prevGitSha && sha2 === prevGitSha;
+                          if (!isActive && !isPrev) return null;
+
+                          return (
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isActive ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                                  ACTIVE
+                                </span>
+                              ) : null}
+                              {isPrev ? (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
+                                  LAST USED
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })()
+                      : null}
+                  </div>
+                </td>
+
+                {/* git sha */}
+                {isProfileTab ? (
+                  <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                    <CopyHoverCell
+                      value={it.meta?.gitSha || ""}
+                      textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                      showCopy={Boolean(it.meta?.gitSha)}
+                    />
+                  </td>
+                ) : null}
+
+                {/* category */}
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                  {it.meta?.category || "—"}
+                </td>
+
+                {/* tag key/value */}
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                  {it.meta?.tagKey || "—"}
+                </td>
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                  {it.meta?.tagValue || "—"}
+                </td>
+
+                {/* geo */}
+                {!isProfileTab ? (
+                  <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                    {it.meta?.geoHint || "—"}
+                  </td>
+                ) : null}
+
+                {/* checkpoint */}
+                {isProfileTab ? (
+                  <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                    {it.meta?.checkpointTag || "—"}
+                  </td>
+                ) : null}
+
+                {/* from/to/created/size */}
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{it.from}</td>
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{it.to}</td>
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{it.createdAt}</td>
+                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{prettyKB(it.size)}</td>
+
+                {/* repo key / analytics key */}
+                <td className="py-3 px-4">
+                  {isProfileTab ? (
+                    <div className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        title={it.meta?.repoArtifactKey ? "Download repo zip" : "No repo zip"}
+                        disabled={!it.meta?.repoArtifactKey}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadRepoZip(it.meta?.repoArtifactKey);
+                        }}
+                        className={cx(
+                          "mt-[2px] p-0 bg-transparent border-0 shadow-none",
+                          "text-gray-500 dark:text-gray-400",
+                          "hover:text-purple-700 dark:hover:text-purple-300",
+                          "disabled:opacity-40 disabled:cursor-not-allowed"
+                        )}
+                      >
+                        <HiOutlineDownload className="h-4 w-4" />
+                      </button>
+
+                      <CopyHoverCell
+                        value={it.meta?.repoArtifactKey || ""}
+                        textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                        maxWidthClass="max-w-[420px]"
+                        showCopy={Boolean(it.meta?.repoArtifactKey)}
+                      />
+                    </div>
+                  ) : (
+                    <CopyHoverCell
+                      value={it.key}
+                      textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                      maxWidthClass="max-w-[420px]"
+                      showCopy={Boolean(it.key)}
+                    />
+                  )}
+                </td>
+
+                {/* remark */}
+                <td className="text-xs py-3 px-4 w-[520px] align-top">
+                  {remarkEditKey === it.key ? (
+                    <div className="flex items-start justify-between gap-3">
+                      <input
+                        value={remarkDraft}
+                        onChange={(e) => setRemarkDraft(e.target.value)}
+                        disabled={remarkBusy}
+                        placeholder="Add remark…"
+                        className={cx(
+                          "h-9 w-[260px] rounded-lg border px-3 text-xs outline-none",
+                          "border-gray-200/70 dark:border-white/10",
+                          "bg-white/80 dark:bg-white/10",
+                          "text-gray-900 dark:text-gray-100",
+                          "placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                        )}
+                      />
+
+                      <ActionButton variant="green" onClick={(e) => { e.stopPropagation(); saveEditRemark(); }} disabled={remarkBusy}>
+                        Save
+                      </ActionButton>
+                      <ActionButton onClick={(e) => { e.stopPropagation(); cancelEditRemark(); }} disabled={remarkBusy}>
+                        Cancel
+                      </ActionButton>
+                    </div>
+                  ) : (
+                    <div className="relative group">
+                      <div
+                        className={cx(
+                          "break-words whitespace-normal text-gray-700 dark:text-gray-300",
+                          !showTrash ? "pr-10" : ""
+                        )}
+                      >
+                        {it.meta?.remark ? it.meta.remark : "—"}
+                      </div>
+
+                      {!showTrash ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditRemark(it.key, it.meta?.remark || "");
+                          }}
+                          className={cx(
+                            "absolute top-1 right-1",
+                            "opacity-0 group-hover:opacity-100 transition",
+                            "inline-flex items-center gap-1.5",
+                            "px-2 py-1 rounded-md border shadow-sm",
+                            "dark:border-gray-200/70 border-white/10",
+                            "dark:bg-white/85 bg-[#0b0b12]/80 backdrop-blur",
+                            "dark:text-gray-700 text-gray-200 dark:hover:text-gray-900 hover:text-white"
+                          )}
+                        >
+                          <HiPencilAlt className="h-3.5 w-3.5" />
+                          <span className="text-[11px] font-semibold leading-none">Edit</span>
+                        </button>
+                      ) : (
+                        <span className="absolute top-1 right-1 text-[11px] text-gray-400">Locked</span>
+                      )}
+                    </div>
+                  )}
+                </td>
+
+                {/* deploy */}
+                {isProfileTab ? (
+                  <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                    <ActionButton
+                      variant="green"
+                      disabled={showTrash || isActiveRow}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        askDeploy(it.key);
+                      }}
+                      title={
+                        showTrash
+                          ? "Restore first, then deploy"
+                          : isActiveRow
+                          ? "Already active — deploy disabled"
+                          : "Deploy this snapshot's version"
+                      }
+                    >
+                      {isActiveRow ? "Active" : "Deploy"}
+                    </ActionButton>
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AdminSnapshots() {
     const [items, setItems] = useState([]);
     const [trashItems, setTrashItems] = useState([]);
@@ -471,6 +979,9 @@ export default function AdminSnapshots() {
     const [previewJson, setPreviewJson] = useState(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewErr, setPreviewErr] = useState("");
+
+    // expanded table modal state
+    const [tableExpandOpen, setTableExpandOpen] = useState(false);
 
     const [showTrash, setShowTrash] = useState(() => {
         try {
@@ -1138,6 +1649,14 @@ export default function AdminSnapshots() {
                 </ActionButton>
                 </div>
             ) : null}
+
+            <IconButton
+                onClick={() => setTableExpandOpen(true)}
+                title="Expand table"
+            >
+                <HiOutlineArrowsExpand className="h-5 w-5" />
+            </IconButton>
+
         </div>
     </div>
   );
@@ -1161,31 +1680,6 @@ export default function AdminSnapshots() {
     return dir === "asc"
         ? String(A).localeCompare(String(B))
         : String(B).localeCompare(String(A));
-  }
-
-  function SortableTh({ label, sortKey, sort, setSort, className = "" }) {
-    const active = sort.key === sortKey;
-    const arrow = active ? (sort.dir === "asc" ? "↑" : "↓") : "↕";
-
-    return (
-        <th
-        className={cx(
-            "py-3 px-4 font-semibold whitespace-nowrap cursor-pointer select-none",
-            className
-        )}
-        title="Click to sort"
-        onClick={() =>
-            setSort((prev) => ({
-            key: sortKey,
-            dir: prev.key === sortKey && prev.dir === "desc" ? "asc" : "desc",
-            }))
-        }
-        >
-        <div className="flex items-center gap-1">
-            {label} <span className="opacity-70">{arrow}</span>
-        </div>
-        </th>
-    );
   }
 
   return (
@@ -1224,353 +1718,50 @@ export default function AdminSnapshots() {
           ) : trashLoading && showTrash ? (
             <div className="text-sm text-gray-600 dark:text-gray-400">Loading trash…</div>
           ) : visibleRows.length ? (
-            <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
-              <div className="max-h-[520px] overflow-auto">
-                <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1640px]" : "min-w-[1480px]")}>
-                  <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
-                    <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">
-                            <input
-                            type="checkbox"
-                            className="h-4 w-4 accent-purple-600"
-                            checked={allSelectedOnScreen}
-                            onChange={toggleSelectAll}
-                            title="Select all"
-                            />
-                        </th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Profile_Version_ID</th>
-                        {/* <th className="py-3 px-4 font-semibold whitespace-nowrap">Dummy</th> */}
-                        <th className="py-3 px-4 font-semibold">Filename</th>
+            <div className="relative rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
+              {/* <button
+                type="button"
+                onClick={() => setTableExpandOpen(true)}
+                title="Expand table"
+                className={cx(
+                    "absolute top-3 right-3 z-20",
+                    "text-gray-600 dark:text-gray-300",
+                    "hover:text-purple-700 dark:hover:text-purple-300",
+                    "transition",
+                    "focus:outline-none"
+                )}
+                >
+                <HiOutlineArrowsExpand className="h-5 w-5" />
+              </button> */}
 
-                        {isProfileTab ? (
-                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
-                        ) : null}
-
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Key</th>
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Value</th>
-
-                        {!isProfileTab ? (
-                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Geo_Hint</th>
-                        ) : null}
-
-                        {isProfileTab ? (
-                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
-                        ) : null}
-
-                        <SortableTh label="From_Date" sortKey="from" sort={sort} setSort={setSort} />
-                        <SortableTh label="To_Date" sortKey="to" sort={sort} setSort={setSort} />
-                        <SortableTh label="Created_At" sortKey="createdAt" sort={sort} setSort={setSort} />
-                        <SortableTh label="Size" sortKey="size" sort={sort} setSort={setSort} />
-
-                        {isProfileTab ? (
-                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Repo_Key</th>
-                            ) : (
-                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
-                        )}
-
-                        <th className="py-3 px-4 font-semibold whitespace-nowrap w-[520px]">Remark</th>
-
-                        {isProfileTab ? (
-                            <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
-                        ) : null}
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {visibleRows.map((it) => {
-                        const sha = it.meta?.gitSha || "";
-                        const isActiveRow = Boolean(sha && activeGitSha && sha === activeGitSha);
-
-                        const isFocused = it.key === focusedKey;
-
-                        return (
-                        <tr
-                            key={it.key}
-                            onClick={() => focusRow(it.key)}
-                            className={cx(
-                            "border-t border-gray-200/60 dark:border-white/10 cursor-pointer transition-colors",
-                            // hover (very subtle)
-                            "hover:bg-gray-100/40 dark:hover:bg-white/5",
-                            // focused (slightly stronger than hover)
-                            isFocused
-                                ? "bg-purple-50/60 dark:bg-purple-500/10 shadow-[inset_0_0_0_1px_rgba(147,51,234,0.25)] dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.18)]"
-                                : ""
-                            )}
-                        >
-                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                            <input
-                                type="checkbox"
-                                className="h-4 w-4 accent-purple-600"
-                                checked={selectedKeys.includes(it.key)}
-                                onChange={() => toggleRow(it.key)}
-                                title="Select"
-                            />
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                            <ActionButton
-                                variant="green"
-                                onClick={() => openPreview(it.key)}
-                                title="Open preview"
-                            >
-                                <HiOutlineEye className="text-base" />
-                            </ActionButton>
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                                <div className="inline-flex items-center gap-2">
-                                    <CopyHoverCell
-                                    value={it.meta?.profileVersionId || ""}
-                                    // title={it.meta?.profileVersionId || ""}
-                                    textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                                    showCopy={Boolean(it.meta?.profileVersionId)}
-                                    />
-
-                                    {favorites?.[it.key] ? (
-                                    <HiStar
-                                        className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]"
-                                        title="Favorite"
-                                    />
-                                    ) : null}
-                                </div>
-                            </td>
-
-                            {/*
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {"—"}
-                            </td>
-                            */}
-
-                            <td className="text-xs py-3 px-4">
-                            <div className="flex items-center gap-2 min-w-0">
-                                <CopyHoverCell
-                                value={it.filename}
-                                // title={it.filename}
-                                textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
-                                // maxWidthClass="max-w-[360px]"
-                                />
-
-                                {/* badges */}
-                                {isProfileTab
-                                ? (() => {
-                                    const sha2 = it.meta?.gitSha || "";
-                                    const isActive = sha2 && activeGitSha && sha2 === activeGitSha;
-                                    const isPrev = sha2 && prevGitSha && sha2 === prevGitSha;
-                                    if (!isActive && !isPrev) return null;
-
-                                    return (
-                                        <div className="flex items-center gap-1 shrink-0">
-                                        {isActive ? (
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                                            ACTIVE
-                                            </span>
-                                        ) : null}
-                                        {isPrev ? (
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
-                                            LAST USED
-                                            </span>
-                                        ) : null}
-                                        </div>
-                                    );
-                                    })()
-                                : null}
-                            </div>
-
-                            {/* optional: show sha under filename (tiny) */}
-                            {/*
-                            {snapShaByKey[it.key] ? (
-                                <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                                {shortSha(snapShaByKey[it.key])}
-                                </div>
-                            ) : null}
-                            */}
-                            </td>
-
-                            {isProfileTab ? (
-                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                                <CopyHoverCell
-                                value={it.meta?.gitSha || ""}
-                                // title={it.meta?.gitSha || ""}
-                                textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                                className=""
-                                showCopy={Boolean(it.meta?.gitSha)}
-                                />
-                            </td>
-                            ) : null}
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.meta?.category || "—"}
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.meta?.tagKey || "—"}
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.meta?.tagValue || "—"}
-                            </td>
-
-                            {!isProfileTab ? (
-                                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                                    {it.meta?.geoHint || "—"}
-                                </td>
-                            ) : null}
-
-                            {isProfileTab ? (
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                                {it.meta?.checkpointTag || "—"}
-                            </td>
-                            ) : null}
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.from}
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.to}
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {it.createdAt}
-                            </td>
-
-                            <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                            {prettyKB(it.size)}
-                            </td>
-
-                            <td className="py-3 px-4">
-                                {isProfileTab ? (
-                                    <div className="flex items-start gap-2">
-                                    {/* ✅ icon-only, no background */}
-                                    <button
-                                        type="button"
-                                        title={it.meta?.repoArtifactKey ? "Download repo zip" : "No repo zip"}
-                                        disabled={!it.meta?.repoArtifactKey}
-                                        onClick={(e) => {
-                                        e?.stopPropagation?.();
-                                        downloadRepoZip(it.meta?.repoArtifactKey);
-                                        }}
-                                        className={cx(
-                                        "mt-[2px] p-0 bg-transparent border-0 shadow-none",
-                                        "text-gray-500 dark:text-gray-400",
-                                        "hover:text-purple-700 dark:hover:text-purple-300",
-                                        "disabled:opacity-40 disabled:cursor-not-allowed"
-                                        )}
-                                    >
-                                        <HiOutlineDownload className="h-4 w-4" />
-                                    </button>
-
-                                    <CopyHoverCell
-                                        value={it.meta?.repoArtifactKey || ""}
-                                        // title={it.meta?.repoArtifactKey || ""}
-                                        textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                                        maxWidthClass="max-w-[420px]"
-                                        showCopy={Boolean(it.meta?.repoArtifactKey)}
-                                    />
-                                    </div>
-                                ) : (
-                                    <CopyHoverCell
-                                    value={it.key}
-                                    // title={it.key}
-                                    textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                                    maxWidthClass="max-w-[420px]"
-                                    showCopy={Boolean(it.key)}
-                                    />
-                                )}
-                            </td>
-
-                            <td className="text-xs py-3 px-4 w-[520px] align-top">
-                                {remarkEditKey === it.key ? (
-                                    <div className="flex items-start justify-between gap-3">
-                                    <input
-                                        value={remarkDraft}
-                                        onChange={(e) => setRemarkDraft(e.target.value)}
-                                        disabled={remarkBusy}
-                                        placeholder="Add remark…"
-                                        className={cx(
-                                        "h-9 w-[260px] rounded-lg border px-3 text-xs outline-none",
-                                        "border-gray-200/70 dark:border-white/10",
-                                        "bg-white/80 dark:bg-white/10",
-                                        "text-gray-900 dark:text-gray-100",
-                                        "placeholder:text-gray-400 dark:placeholder:text-gray-500"
-                                        )}
-                                    />
-
-                                    <ActionButton variant="green" onClick={saveEditRemark} disabled={remarkBusy}>
-                                        Save
-                                    </ActionButton>
-                                    <ActionButton onClick={cancelEditRemark} disabled={remarkBusy}>
-                                        Cancel
-                                    </ActionButton>
-                                    </div>
-                                ) : (
-                                    <div className="relative group">
-                                        {/* Remark text (full width, stable) */}
-                                        <div
-                                        className={cx(
-                                            "break-words whitespace-normal text-gray-700 dark:text-gray-300",
-                                            !showTrash ? "pr-10" : "" // reserve a tiny space so hover button doesn't cover last chars
-                                        )}
-                                        // title={it.meta?.remark || ""}
-                                        >
-                                        {it.meta?.remark ? it.meta.remark : "—"}
-                                        </div>
-
-                                        {/* Hover Edit button */}
-                                        {!showTrash ? (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                            e?.stopPropagation?.();
-                                            startEditRemark(it.key, it.meta?.remark || "");
-                                            }}
-                                            // title="Edit remark"
-                                            className={cx(
-                                            "absolute top-1 right-1",
-                                            "opacity-0 group-hover:opacity-100 transition",
-                                            "inline-flex items-center gap-1.5",
-                                            "px-2 py-1 rounded-md border shadow-sm",
-                                            "dark:border-gray-200/70 border-white/10",
-                                            "dark:bg-white/85 bg-[#0b0b12]/80 backdrop-blur",
-                                            "dark:text-gray-700 text-gray-200 dark:hover:text-gray-900 hover:text-white"
-                                            )}
-                                        >
-                                            <HiPencilAlt className="h-3.5 w-3.5" />
-                                            <span className="text-[11px] font-semibold leading-none">Edit</span>
-                                        </button>
-                                        ) : (
-                                        <span className="absolute top-1 right-1 text-[11px] text-gray-400">Locked</span>
-                                        )}
-                                    </div>
-                                )}
-                            </td>
-
-                            {isProfileTab ? (
-                            <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                                <ActionButton
-                                variant="green"
-                                disabled={showTrash || isActiveRow}
-                                onClick={() => askDeploy(it.key)}
-                                title={
-                                    showTrash
-                                    ? "Restore first, then deploy"
-                                    : isActiveRow
-                                    ? "Already active — deploy disabled"
-                                    : "Deploy this snapshot's version"
-                                }
-                                >
-                                {isActiveRow ? "Active" : "Deploy"}
-                                </ActionButton>
-                            </td>
-                            ) : null}
-                        </tr>
-                        );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <SnapshotsTable
+                containerClassName="max-h-[520px] overflow-auto"
+                visibleRows={visibleRows}
+                isProfileTab={isProfileTab}
+                activeTab={activeTab}
+                focusedKey={focusedKey}
+                focusRow={focusRow}
+                selectedKeys={selectedKeys}
+                toggleRow={toggleRow}
+                allSelectedOnScreen={allSelectedOnScreen}
+                toggleSelectAll={toggleSelectAll}
+                sort={sort}
+                setSort={setSort}
+                openPreview={openPreview}
+                favorites={favorites}
+                activeGitSha={activeGitSha}
+                prevGitSha={prevGitSha}
+                showTrash={showTrash}
+                askDeploy={askDeploy}
+                downloadRepoZip={downloadRepoZip}
+                remarkEditKey={remarkEditKey}
+                remarkDraft={remarkDraft}
+                setRemarkDraft={setRemarkDraft}
+                remarkBusy={remarkBusy}
+                saveEditRemark={saveEditRemark}
+                cancelEditRemark={cancelEditRemark}
+                startEditRemark={startEditRemark}
+              />
             </div>
           ) : (
             <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -1596,6 +1787,43 @@ export default function AdminSnapshots() {
           downloadJson(name, previewJson);
         }}
       />
+
+      <ExpandedTableModal
+        open={tableExpandOpen}
+        onClose={() => setTableExpandOpen(false)}
+        title={activeTab === "profile" ? "Profile snapshots (expanded)" : "Analytics snapshots (expanded)"}
+      >
+        <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
+          <SnapshotsTable
+            containerClassName="overflow-auto"   // ✅ no 520px cap
+            visibleRows={visibleRows}
+            isProfileTab={isProfileTab}
+            activeTab={activeTab}
+            focusedKey={focusedKey}
+            focusRow={focusRow}
+            selectedKeys={selectedKeys}
+            toggleRow={toggleRow}
+            allSelectedOnScreen={allSelectedOnScreen}
+            toggleSelectAll={toggleSelectAll}
+            sort={sort}
+            setSort={setSort}
+            openPreview={openPreview}
+            favorites={favorites}
+            activeGitSha={activeGitSha}
+            prevGitSha={prevGitSha}
+            showTrash={showTrash}
+            askDeploy={askDeploy}
+            downloadRepoZip={downloadRepoZip}
+            remarkEditKey={remarkEditKey}
+            remarkDraft={remarkDraft}
+            setRemarkDraft={setRemarkDraft}
+            remarkBusy={remarkBusy}
+            saveEditRemark={saveEditRemark}
+            cancelEditRemark={cancelEditRemark}
+            startEditRemark={startEditRemark}
+          />
+        </div>
+      </ExpandedTableModal>
 
       <ConfirmModal
         open={deleteOpen}
