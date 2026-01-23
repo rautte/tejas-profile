@@ -23,6 +23,8 @@ import {
   presignRepoGet,
 } from "../../utils/snapshots/snapshotsApi";
 
+const SNAPSHOTS_UI_STATE_KEY = "admin_snapshots_ui_state_v1";
+
 function SectionCard({ title, subtitle, action, children }) {
   return (
     <div className={cx(CARD_SURFACE, CARD_ROUNDED_2XL)}>
@@ -470,7 +472,15 @@ export default function AdminSnapshots() {
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewErr, setPreviewErr] = useState("");
 
-    const [showTrash, setShowTrash] = useState(false);
+    const [showTrash, setShowTrash] = useState(() => {
+        try {
+            const raw = localStorage.getItem(SNAPSHOTS_UI_STATE_KEY);
+            const parsed = raw ? JSON.parse(raw) : null;
+            return Boolean(parsed?.showTrash);
+        } catch {
+            return false;
+        }
+    });
 
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [deleteKey, setDeleteKey] = useState("");
@@ -530,9 +540,50 @@ export default function AdminSnapshots() {
     const selectedCount = selectedKeys.length;
 
     // tabs
-    const [activeTab, setActiveTab] = useState("profile"); // "profile" | "analytics"
+    const [activeTab, setActiveTab] = useState(() => {
+        try {
+            const raw = localStorage.getItem(SNAPSHOTS_UI_STATE_KEY);
+            const parsed = raw ? JSON.parse(raw) : null;
+            const t = parsed?.activeTab;
+            return t === "analytics" || t === "profile" ? t : "profile";
+        } catch {
+            return "profile";
+        }
+    }); // "profile" | "analytics"
+
     const activeName = activeTab === "profile" ? "ci_deploy" : "analytics";
     const isProfileTab = activeTab === "profile";
+
+    // focused row (per-tab)
+    const [focusedRowByTab, setFocusedRowByTab] = useState(() => ({
+    profile: "",
+    analytics: "",
+    }));
+
+    const focusedKey = focusedRowByTab?.[activeTab] || "";
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem(SNAPSHOTS_UI_STATE_KEY);
+            const prev = raw ? JSON.parse(raw) : {};
+            const next = {
+            ...(prev && typeof prev === "object" ? prev : {}),
+            activeTab,
+            showTrash,
+            };
+            localStorage.setItem(SNAPSHOTS_UI_STATE_KEY, JSON.stringify(next));
+        } catch {
+            // ignore
+        }
+    }, [activeTab, showTrash]);
+
+
+    const focusRow = useCallback(
+    (key) => {
+        setFocusedRowByTab((prev) => ({ ...(prev || {}), [activeTab]: key }));
+    },
+    [activeTab]
+    );
 
     const startEditRemark = useCallback((key, current) => {
         setRemarkEditKey(key);
@@ -1232,8 +1283,22 @@ export default function AdminSnapshots() {
                         const sha = it.meta?.gitSha || "";
                         const isActiveRow = Boolean(sha && activeGitSha && sha === activeGitSha);
 
+                        const isFocused = it.key === focusedKey;
+
                         return (
-                        <tr key={it.key} className="border-t border-gray-200/60 dark:border-white/10">
+                        <tr
+                            key={it.key}
+                            onClick={() => focusRow(it.key)}
+                            className={cx(
+                            "border-t border-gray-200/60 dark:border-white/10 cursor-pointer transition-colors",
+                            // hover (very subtle)
+                            "hover:bg-gray-100/40 dark:hover:bg-white/5",
+                            // focused (slightly stronger than hover)
+                            isFocused
+                                ? "bg-purple-50/60 dark:bg-purple-500/10 shadow-[inset_0_0_0_1px_rgba(147,51,234,0.25)] dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.18)]"
+                                : ""
+                            )}
+                        >
                             <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                             <input
                                 type="checkbox"
