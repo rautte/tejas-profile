@@ -323,6 +323,13 @@ function tryParseFromKey(key: string): ParsedMeta {
   return { name, from, to, createdAt };
 }
 
+function isProfileSnapshotKey(key: string) {
+  const meta = tryParseFromKey(key);
+  // Profile tab uses name "ci_deploy"
+  return meta?.name === "ci_deploy";
+}
+
+
 async function streamToString(body: any): Promise<string> {
   if (!body) return "";
   // AWS SDK v3 returns a Readable stream in Node
@@ -913,11 +920,16 @@ export async function handler(event: Event) {
     await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
     // 2) Move repo artifact zip -> trash/ (best-effort; don't block JSON move)
-    if (repoArtifactKey) {
+    // ✅ Only Profile tab deletions should affect repo artifacts
+    if (isProfileSnapshotKey(fromKey) && repoArtifactKey) {
     try {
         await moveRepoArtifactToTrash(repoArtifactKey);
     } catch (e) {
-        console.log("WARN moveRepoArtifactToTrash failed", { repoArtifactKey, err: String((e as any)?.message || e) });
+        console.log("WARN moveRepoArtifactToTrash failed", {
+        fromKey,
+        repoArtifactKey,
+        err: String((e as any)?.message || e),
+        });
     }
     }
 
@@ -968,11 +980,16 @@ export async function handler(event: Event) {
     await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
     // 2) Restore repo artifact zip trash/ -> live (best-effort)
-    if (repoArtifactKey) {
+    // ✅ Only Profile tab restores should affect repo artifacts
+    if (isProfileSnapshotKey(toKey) && repoArtifactKey) {
     try {
         await restoreRepoArtifactFromTrash(repoArtifactKey);
     } catch (e) {
-        console.log("WARN restoreRepoArtifactFromTrash failed", { repoArtifactKey, err: String((e as any)?.message || e) });
+        console.log("WARN restoreRepoArtifactFromTrash failed", {
+        toKey,
+        repoArtifactKey,
+        err: String((e as any)?.message || e),
+        });
     }
     }
 
@@ -1047,11 +1064,16 @@ export async function handler(event: Event) {
     }
 
     // ✅ Purge repo artifact (trash/profiles/...) forever too (best-effort)
-    if (repoArtifactKey) {
+    // ✅ Only Profile tab purges should affect repo artifacts
+    if (isProfileSnapshotKey(key) && repoArtifactKey) {
     try {
         await purgeRepoArtifactForever(repoArtifactKey);
     } catch (e) {
-        console.log("WARN purgeRepoArtifactForever failed", { repoArtifactKey, err: String((e as any)?.message || e) });
+        console.log("WARN purgeRepoArtifactForever failed", {
+        key,
+        repoArtifactKey,
+        err: String((e as any)?.message || e),
+        });
     }
     }
 
