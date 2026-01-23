@@ -513,7 +513,7 @@ function PublishOptionsModal({
       <button
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 bg-black/45"
+        className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/45 to-black/55 backdrop-blur-xl backdrop-saturate-150"
       />
 
       <div className="relative w-full max-w-md rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
@@ -674,7 +674,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
       <button
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/45 to-black/55 backdrop-blur-xl backdrop-saturate-150"
       />
       <div className="relative w-full max-w-md rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200/70 dark:border-white/10">
