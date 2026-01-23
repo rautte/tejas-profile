@@ -11,11 +11,8 @@
  * After a lazy scroll to the end of a section, it still triggers section navigation even after a hard threshold scroll value of "STRONG_CONFIRM_MIN = 150". 
  * 
  * * TODO FIX:
- * 1. For the Timeline section, enable the left/right arrow key section navigation based on the end poundaries of the timeline bar, where timeline bar gets first preference and then App.js
- *    - When timeline bar reached its left end then enable next left arrow button click for section navigation to previous section (here app.js gets preference)
- *    - When timeline bar reached its right end (by default at right) then enable next right arrow button click for section navigation to next section (here app.js gets preference)
- * 2 When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
- * 3. Clean the code prod-like with modular, reliable, and scalable structure
+ * 1 When using TAB key on keyboard then the highlight pill for the left section pane should be the same as hover (right now it is a bigger border that does not look good)
+ * 2. Clean the code prod-like with modular, reliable, and scalable structure
  */
 
 import "./App.css";

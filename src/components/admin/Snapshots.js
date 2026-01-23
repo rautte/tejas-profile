@@ -1,7 +1,7 @@
 // src/components/admin/Snapshots.js
 
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { HiOutlineEye, HiPencilAlt, HiOutlineClipboardCopy, HiOutlineDownload, HiOutlineArrowsExpand } from "react-icons/hi";
 import { FaRegSave } from "react-icons/fa";
 import { HiStar } from "react-icons/hi2";
@@ -631,6 +631,8 @@ function SnapshotsTable({
   saveEditRemark,
   cancelEditRemark,
   startEditRemark,
+  remarkInputRef,
+  editingRowRef,
   containerClassName = "max-h-[520px] overflow-auto",
 }) {
   return (
@@ -698,6 +700,7 @@ function SnapshotsTable({
 
             return (
               <tr
+                ref={remarkEditKey === it.key ? editingRowRef : null} // ✅ only edited row
                 key={it.key}
                 onClick={() => focusRow(it.key)}
                 className={cx(
@@ -874,18 +877,35 @@ function SnapshotsTable({
                 {/* remark */}
                 <td className="text-xs py-3 px-4 w-[520px] align-top">
                   {remarkEditKey === it.key ? (
-                    <div className="flex items-start justify-between gap-3">
+                    <div
+                        className="flex items-start justify-between gap-3"
+                        onClick={(e) => e.stopPropagation()} // ✅ blanket stop for edit UI clicks
+                    >
                       <input
+                        ref={remarkInputRef}
+                        autoFocus
                         value={remarkDraft}
                         onChange={(e) => setRemarkDraft(e.target.value)}
                         disabled={remarkBusy}
                         placeholder="Add remark…"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                            e.stopPropagation();
+                            if (e.key === "Enter") {
+                            e.preventDefault();
+                            if (!remarkBusy) saveEditRemark();
+                            }
+                            if (e.key === "Escape") {
+                            e.preventDefault();
+                            if (!remarkBusy) cancelEditRemark();
+                            }
+                        }}
                         className={cx(
-                          "h-9 w-[260px] rounded-lg border px-3 text-xs outline-none",
-                          "border-gray-200/70 dark:border-white/10",
-                          "bg-white/80 dark:bg-white/10",
-                          "text-gray-900 dark:text-gray-100",
-                          "placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                            "h-9 w-[260px] rounded-lg border px-3 text-xs outline-none",
+                            "border-gray-200/70 dark:border-white/10",
+                            "bg-white/80 dark:bg-white/10",
+                            "text-gray-900 dark:text-gray-100",
+                            "placeholder:text-gray-400 dark:placeholder:text-gray-500"
                         )}
                       />
 
@@ -1011,6 +1031,9 @@ export default function AdminSnapshots() {
     const [remarkDraft, setRemarkDraft] = useState("");
     const [remarkBusy, setRemarkBusy] = useState(false);
 
+    const remarkInputRef = useRef(null);
+    const editingRowRef = useRef(null);
+
     const [sort, setSort] = useState({
         key: "createdAt",
         dir: "desc",
@@ -1102,6 +1125,21 @@ export default function AdminSnapshots() {
     const startEditRemark = useCallback((key, current) => {
         setRemarkEditKey(key);
         setRemarkDraft(String(current || ""));
+
+        requestAnimationFrame(() => {
+            // ✅ scroll row into view first
+            editingRowRef.current?.scrollIntoView({
+            block: "center",
+            inline: "nearest",
+            behavior: "smooth",
+            });
+
+            // ✅ then focus input
+            requestAnimationFrame(() => {
+            remarkInputRef.current?.focus();
+            remarkInputRef.current?.select();
+            });
+        });
     }, []);
 
     const cancelEditRemark = useCallback(() => {
@@ -1765,6 +1803,8 @@ export default function AdminSnapshots() {
                 saveEditRemark={saveEditRemark}
                 cancelEditRemark={cancelEditRemark}
                 startEditRemark={startEditRemark}
+                remarkInputRef={remarkInputRef} 
+                editingRowRef={editingRowRef}
               />
             </div>
           ) : (
@@ -1825,6 +1865,8 @@ export default function AdminSnapshots() {
             saveEditRemark={saveEditRemark}
             cancelEditRemark={cancelEditRemark}
             startEditRemark={startEditRemark}
+            remarkInputRef={remarkInputRef}
+            editingRowRef={editingRowRef}
           />
         </div>
       </ExpandedTableModal>
