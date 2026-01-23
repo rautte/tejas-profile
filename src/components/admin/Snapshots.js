@@ -582,6 +582,412 @@ function ConfirmModal({
   );
 }
 
+function QuerySearchModal({
+  open,
+  onClose,
+  activeTab,
+  tabs, // {profile:{label}, analytics:{label}, ...}
+  getColsForTab,
+  getSortableColsForTab,
+  initial,
+  onApply,
+  onClear,
+}) {
+  const [fromTab, setFromTab] = useState(initial?.fromTab || activeTab);
+  const [selectCols, setSelectCols] = useState(initial?.selectCols || []);
+  const [orderBy, setOrderBy] = useState(initial?.orderBy || "");
+  const [orderDir, setOrderDir] = useState(initial?.orderDir || "desc");
+  const [limit, setLimit] = useState(
+    typeof initial?.limit === "number" ? String(initial.limit) : ""
+  );
+
+  // key:value filters (simple)
+  const [filters, setFilters] = useState(Array.isArray(initial?.filters) ? initial.filters : []);
+
+  useEffect(() => {
+    if (!open) return;
+    // reset to latest initial when opening
+    setFromTab(initial?.fromTab || activeTab);
+    setSelectCols(initial?.selectCols || []);
+    setOrderBy(initial?.orderBy || "");
+    setOrderDir(initial?.orderDir || "desc");
+    setLimit(typeof initial?.limit === "number" ? String(initial.limit) : "");
+    setFilters(Array.isArray(initial?.filters) ? initial.filters : []);
+  }, [open, initial, activeTab]);
+
+  // modal scroll lock (same pattern you used)
+  useEffect(() => {
+    if (!open) return;
+    const scrollY = window.scrollY;
+    const prev = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      left: document.body.style.left,
+      right: document.body.style.right,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+    };
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.width = "100%";
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.position = prev.position;
+      document.body.style.top = prev.top;
+      document.body.style.left = prev.left;
+      document.body.style.right = prev.right;
+      document.body.style.width = prev.width;
+      document.body.style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, [open]);
+
+  if (!open) return null;
+
+  const cols = getColsForTab(fromTab);
+  const sortable = getSortableColsForTab(fromTab);
+
+  const canSelect = Boolean(fromTab);
+  const canOrderBy = canSelect && selectCols.length > 0;
+  const canLimit = canOrderBy && Boolean(orderBy);
+  const parsedLimit = Number(String(limit || "").trim());
+  const limitOk = canLimit && Number.isFinite(parsedLimit) && parsedLimit > 0;
+
+  const applyDisabled = !limitOk;
+
+  const addFilterRow = () => {
+    const firstCol = cols[0]?.id || "";
+    setFilters((prev) => [
+      ...(prev || []),
+      { col: firstCol, op: "contains", value: "" },
+    ]);
+  };
+
+  const updateFilter = (idx, patch) => {
+    setFilters((prev) => {
+      const next = [...(prev || [])];
+      next[idx] = { ...(next[idx] || {}), ...(patch || {}) };
+      return next;
+    });
+  };
+
+  const removeFilter = (idx) => {
+    setFilters((prev) => (prev || []).filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[330] flex items-center justify-center px-4"
+      onWheelCapture={(e) => e.stopPropagation()}
+      onTouchMoveCapture={(e) => e.stopPropagation()}
+    >
+      {/* blurred backdrop */}
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40 backdrop-blur-md backdrop-saturate-150"
+      />
+
+      <div className="relative w-full max-w-2xl rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/90 dark:bg-[#0b0b12]/90 backdrop-blur-xl shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-200/70 dark:border-white/10 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+              Query search
+            </div>
+            <div className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
+              Build a simple SQL-like query (From → Select → Order By → Limit)
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <ActionButton
+              onClick={() => {
+                onClear?.();
+                onClose?.();
+              }}
+              title="Clear query"
+            >
+              Clear
+            </ActionButton>
+            <ActionButton variant="soft-danger" onClick={onClose} title="Close">
+              Close
+            </ActionButton>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* From */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              From
+            </div>
+            <select
+              value={fromTab}
+              onChange={(e) => {
+                const nextTab = e.target.value;
+                setFromTab(nextTab);
+                // reset downstream (enforced ordering)
+                setSelectCols([]);
+                setOrderBy("");
+                setLimit("");
+                setFilters([]);
+              }}
+              className={cx(
+                "w-full h-10 rounded-xl border px-3 text-sm outline-none",
+                "border-gray-200/70 dark:border-white/10",
+                "bg-white/80 dark:bg-white/10",
+                "text-gray-900 dark:text-gray-100"
+              )}
+            >
+              {TAB_IDS.map((t) => (
+                <option key={t} value={t}>
+                  {tabs?.[t]?.label || t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Select */}
+          <div className={cx("space-y-1.5", !canSelect ? "opacity-50 pointer-events-none" : "")}>
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Select
+            </div>
+
+            <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="text-xs text-gray-600 dark:text-gray-400">
+                  Choose columns to show in the table
+                </div>
+                <div className="flex items-center gap-2">
+                  <ActionButton
+                    onClick={() => setSelectCols(cols.map((c) => c.id))}
+                    title="Select all columns"
+                  >
+                    All
+                  </ActionButton>
+                  <ActionButton
+                    onClick={() => setSelectCols([])}
+                    title="Clear selected columns"
+                  >
+                    None
+                  </ActionButton>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {cols.map((c) => {
+                  const checked = selectCols.includes(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className="inline-flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 select-none"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-purple-600"
+                        checked={checked}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setSelectCols((prev) => {
+                            const p = prev || [];
+                            if (on) return [...new Set([...p, c.id])];
+                            return p.filter((x) => x !== c.id);
+                          });
+                          // reset downstream (enforced ordering)
+                          setOrderBy("");
+                          setLimit("");
+                        }}
+                      />
+                      {c.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Order By */}
+          <div className={cx("space-y-1.5", !canOrderBy ? "opacity-50 pointer-events-none" : "")}>
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Order By
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={orderBy}
+                onChange={(e) => {
+                  setOrderBy(e.target.value);
+                  setLimit("");
+                }}
+                className={cx(
+                  "flex-1 h-10 rounded-xl border px-3 text-sm outline-none",
+                  "border-gray-200/70 dark:border-white/10",
+                  "bg-white/80 dark:bg-white/10",
+                  "text-gray-900 dark:text-gray-100"
+                )}
+              >
+                <option value="">Select a sortable column…</option>
+                {sortable.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={orderDir}
+                onChange={(e) => setOrderDir(e.target.value)}
+                className={cx(
+                  "w-[140px] h-10 rounded-xl border px-3 text-sm outline-none",
+                  "border-gray-200/70 dark:border-white/10",
+                  "bg-white/80 dark:bg-white/10",
+                  "text-gray-900 dark:text-gray-100"
+                )}
+                title="Sort direction"
+              >
+                <option value="desc">DESC</option>
+                <option value="asc">ASC</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Limit */}
+          <div className={cx("space-y-1.5", !canLimit ? "opacity-50 pointer-events-none" : "")}>
+            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              Limit
+            </div>
+            <input
+              value={limit}
+              onChange={(e) => setLimit(e.target.value.replace(/[^\d]/g, ""))}
+              placeholder="e.g. 50"
+              className={cx(
+                "w-full h-10 rounded-xl border px-3 text-sm outline-none",
+                "border-gray-200/70 dark:border-white/10",
+                "bg-white/80 dark:bg-white/10",
+                "text-gray-900 dark:text-gray-100",
+                "placeholder:text-gray-400 dark:placeholder:text-gray-500"
+              )}
+            />
+            {!limitOk && canLimit ? (
+              <div className="text-[11px] text-amber-700 dark:text-amber-300">
+                Limit must be a positive number.
+              </div>
+            ) : null}
+          </div>
+
+          {/* Filters (key:value lookup) */}
+          <div className={cx("space-y-2", !canLimit ? "opacity-50 pointer-events-none" : "")}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                Filters (key:value)
+              </div>
+              <ActionButton onClick={addFilterRow} title="Add filter">
+                + Add
+              </ActionButton>
+            </div>
+
+            {filters?.length ? (
+              <div className="space-y-2">
+                {filters.map((f, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 p-3 flex flex-col sm:flex-row gap-2"
+                  >
+                    <select
+                      value={f.col || ""}
+                      onChange={(e) => updateFilter(idx, { col: e.target.value })}
+                      className={cx(
+                        "flex-1 h-10 rounded-xl border px-3 text-sm outline-none",
+                        "border-gray-200/70 dark:border-white/10",
+                        "bg-white/80 dark:bg-white/10",
+                        "text-gray-900 dark:text-gray-100"
+                      )}
+                    >
+                      {cols.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={f.op || "contains"}
+                      onChange={(e) => updateFilter(idx, { op: e.target.value })}
+                      className={cx(
+                        "w-full sm:w-[140px] h-10 rounded-xl border px-3 text-sm outline-none",
+                        "border-gray-200/70 dark:border-white/10",
+                        "bg-white/80 dark:bg-white/10",
+                        "text-gray-900 dark:text-gray-100"
+                      )}
+                      title="Operator"
+                    >
+                      <option value="contains">contains</option>
+                      <option value="eq">=</option>
+                      <option value="startsWith">startsWith</option>
+                      <option value="endsWith">endsWith</option>
+                    </select>
+
+                    <input
+                      value={f.value || ""}
+                      onChange={(e) => updateFilter(idx, { value: e.target.value })}
+                      placeholder="value…"
+                      className={cx(
+                        "flex-1 h-10 rounded-xl border px-3 text-sm outline-none",
+                        "border-gray-200/70 dark:border-white/10",
+                        "bg-white/80 dark:bg-white/10",
+                        "text-gray-900 dark:text-gray-100",
+                        "placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                      )}
+                    />
+
+                    <ActionButton
+                      variant="soft-danger"
+                      onClick={() => removeFilter(idx)}
+                      title="Remove filter"
+                    >
+                      Remove
+                    </ActionButton>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                Optional. Leave empty to query only by From/Select/Order/Limit.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-200/70 dark:border-white/10 flex items-center justify-end gap-2">
+          <ActionButton onClick={onClose}>Cancel</ActionButton>
+          <ActionButton
+            variant="purple"
+            disabled={applyDisabled}
+            onClick={() => {
+              const payload = {
+                fromTab,
+                selectCols,
+                orderBy,
+                orderDir,
+                limit: parsedLimit,
+                filters: (filters || []).filter((f) => String(f?.value || "").trim().length > 0),
+              };
+              onApply?.(payload);
+              onClose?.();
+            }}
+            title={applyDisabled ? "Complete From → Select → Order By → Limit" : "Apply query"}
+          >
+            Apply query
+          </ActionButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function SortableTh({ label, sortKey, sort, setSort, className = "" }) {
   const active = sort.key === sortKey;
   const arrow = active ? (sort.dir === "asc" ? "↑" : "↓") : "↕";
@@ -604,11 +1010,218 @@ function SortableTh({ label, sortKey, sort, setSort, className = "" }) {
   );
 }
 
+// -----------------------------
+// Query Search: Tab + Column schema (SCALABLE)
+// -----------------------------
+
+const TAB_IDS = ["profile", "analytics"];
+
+const COL = {
+  // "data" columns (selectable)
+  PROFILE_VERSION_ID: "profileVersionId",
+  FILENAME: "filename",
+  GIT_SHA: "gitSha",
+  CATEGORY: "category",
+  TAG_KEY: "tagKey",
+  TAG_VALUE: "tagValue",
+  GEO_HINT: "geoHint",
+  CHECKPOINT: "checkpointTag",
+  FROM_DATE: "from",
+  TO_DATE: "to",
+  CREATED_AT: "createdAt",
+  SIZE: "size",
+  KEY: "key", // analytics key or repo key
+};
+
+const COLUMN_DEFS = [
+  // inside your column definitions (the ones used to build selectedCols)
+  {
+    id: COL.PROFILE_VERSION_ID,
+    label: "Profile_Version_ID",
+    sortable: false,
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.meta?.profileVersionId || "",
+    renderCell: (it) => (
+      <CopyHoverCell
+        value={it.meta?.profileVersionId || ""}
+        textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+        showCopy={Boolean(it.meta?.profileVersionId)}
+      />
+    ),
+  },
+  {
+    id: COL.FILENAME,
+    label: "Filename",
+    sortable: false,
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.filename || "",
+    renderCell: (it) => (
+      <CopyHoverCell
+        value={it.filename}
+        textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
+      />
+    ),
+  },
+  {
+    id: COL.GIT_SHA,
+    label: "Git_SHA",
+    sortable: false,
+    tabs: ["profile"],
+    getValue: (it) => it.meta?.gitSha || "",
+    renderCell: (it) => (
+      <CopyHoverCell
+        value={it.meta?.gitSha || ""}
+        textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+        showCopy={Boolean(it.meta?.gitSha)}
+      />
+    ),
+  },
+  {
+    id: COL.CATEGORY,
+    label: "Category",
+    sortable: false,
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.meta?.category || "",
+    renderCell: (it) => it.meta?.category || "—",
+  },
+  {
+    id: COL.TAG_KEY,
+    label: "Tag_Key",
+    sortable: false,
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.meta?.tagKey || "",
+    renderCell: (it) => it.meta?.tagKey || "—",
+  },
+  {
+    id: COL.TAG_VALUE,
+    label: "Tag_Value",
+    sortable: false,
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.meta?.tagValue || "",
+    renderCell: (it) => it.meta?.tagValue || "—",
+  },
+  {
+    id: COL.GEO_HINT,
+    label: "Geo_Hint",
+    sortable: false,
+    tabs: ["analytics"],
+    getValue: (it) => it.meta?.geoHint || "",
+    renderCell: (it) => it.meta?.geoHint || "—",
+  },
+  {
+    id: COL.CHECKPOINT,
+    label: "Checkpoint",
+    sortable: false,
+    tabs: ["profile"],
+    getValue: (it) => it.meta?.checkpointTag || "",
+    renderCell: (it) => it.meta?.checkpointTag || "—",
+  },
+
+  // Sortable ones (used in Order By)
+  {
+    id: COL.FROM_DATE,
+    label: "From_Date",
+    sortable: true,
+    sortKey: "from",
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.from === "—" ? "" : it.from,
+    renderCell: (it) => it.from,
+  },
+  {
+    id: COL.TO_DATE,
+    label: "To_Date",
+    sortable: true,
+    sortKey: "to",
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.to === "—" ? "" : it.to,
+    renderCell: (it) => it.to,
+  },
+  {
+    id: COL.CREATED_AT,
+    label: "Created_At",
+    sortable: true,
+    sortKey: "createdAt",
+    tabs: ["profile", "analytics"],
+    getValue: (it) => it.createdAtIso || it.createdAt || "",
+    renderCell: (it) => it.createdAt,
+  },
+  {
+    id: COL.SIZE,
+    label: "Size",
+    sortable: true,
+    sortKey: "size",
+    tabs: ["profile", "analytics"],
+    getValue: (it) => Number(it.size || 0),
+    renderCell: (it) => prettyKB(it.size),
+  },
+
+  {
+    id: COL.KEY,
+    label: "Repo_Key / Analytics_Key",
+    sortable: false,
+    tabs: ["profile", "analytics"],
+    getValue: (it) => (it.meta?.repoArtifactKey || it.key || ""),
+    renderCell: (it) => {
+      // we’ll render the existing per-tab key UI in the table (below)
+      return null;
+    },
+  },
+];
+
+const TAB_CONFIG = {
+  profile: {
+    label: "Profile",
+    // default “select” (data columns shown when no query applied)
+    defaultSelect: [
+      COL.PROFILE_VERSION_ID,
+      COL.FILENAME,
+      COL.GIT_SHA,
+      COL.CATEGORY,
+      COL.TAG_KEY,
+      COL.TAG_VALUE,
+      COL.CHECKPOINT,
+      COL.FROM_DATE,
+      COL.TO_DATE,
+      COL.CREATED_AT,
+      COL.SIZE,
+      COL.KEY,
+    ],
+  },
+  analytics: {
+    label: "Analytics",
+    defaultSelect: [
+      COL.PROFILE_VERSION_ID,
+      COL.FILENAME,
+      COL.CATEGORY,
+      COL.TAG_KEY,
+      COL.TAG_VALUE,
+      COL.GEO_HINT,
+      COL.FROM_DATE,
+      COL.TO_DATE,
+      COL.CREATED_AT,
+      COL.SIZE,
+      COL.KEY,
+    ],
+  },
+};
+
+function colsForTab(tabId) {
+  return COLUMN_DEFS.filter((c) => c.tabs.includes(tabId));
+}
+function selectableColsForTab(tabId) {
+  // we keep "KEY" selectable too, but you can exclude if you want
+  return colsForTab(tabId);
+}
+function sortableColsForTab(tabId) {
+  return colsForTab(tabId).filter((c) => c.sortable);
+}
+
 
 function SnapshotsTable({
   visibleRows,
   isProfileTab,
   activeTab,
+  selectedColumnIds, 
   focusedKey,
   focusRow,
   selectedKeys,
@@ -635,253 +1248,213 @@ function SnapshotsTable({
   editingRowRef,
   containerClassName = "max-h-[520px] overflow-auto",
 }) {
+  const allCols = colsForTab(activeTab);
+  const byId = Object.fromEntries(allCols.map((c) => [c.id, c]));
+  const selectedCols = (selectedColumnIds || [])
+    .map((id) => byId[id])
+    .filter(Boolean);
   return (
     <div className={containerClassName}>
-      <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1640px]" : "min-w-[1480px]")}>
+        <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1640px]" : "min-w-[1480px]")}>
         <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
-          <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
+            <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
+            {/* selection */}
             <th className="py-3 px-4 font-semibold whitespace-nowrap">
-              <input
+                <input
                 type="checkbox"
                 className="h-4 w-4 accent-purple-600"
                 checked={allSelectedOnScreen}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => {
-                  e.stopPropagation();
-                  toggleSelectAll();
+                    e.stopPropagation();
+                    toggleSelectAll();
                 }}
                 title="Select all"
-              />
+                />
             </th>
+
+            {/* preview */}
             <th className="py-3 px-4 font-semibold whitespace-nowrap">Preview</th>
-            <th className="py-3 px-4 font-semibold whitespace-nowrap">Profile_Version_ID</th>
-            <th className="py-3 px-4 font-semibold">Filename</th>
 
-            {isProfileTab ? (
-              <th className="py-3 px-4 font-semibold whitespace-nowrap">Git_SHA</th>
-            ) : null}
+            {/* ✅ dynamic data headers */}
+            {selectedCols.map((c) => {
+                // KEY column label differs by tab
+                if (c.id === COL.KEY) {
+                return (
+                    <th key={c.id} className="py-3 px-4 font-semibold whitespace-nowrap">
+                    {isProfileTab ? "Repo_Key" : "Analytics_Key"}
+                    </th>
+                );
+                }
 
-            <th className="py-3 px-4 font-semibold whitespace-nowrap">Category</th>
-            <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Key</th>
-            <th className="py-3 px-4 font-semibold whitespace-nowrap">Tag_Value</th>
+                // sortable columns keep your SortableTh
+                if (c.sortable && c.sortKey) {
+                return (
+                    <SortableTh
+                    key={c.id}
+                    label={c.label}
+                    sortKey={c.sortKey}
+                    sort={sort}
+                    setSort={setSort}
+                    />
+                );
+                }
 
-            {!isProfileTab ? (
-              <th className="py-3 px-4 font-semibold whitespace-nowrap">Geo_Hint</th>
-            ) : null}
+                return (
+                <th key={c.id} className="py-3 px-4 font-semibold whitespace-nowrap">
+                    {c.label}
+                </th>
+                );
+            })}
 
-            {isProfileTab ? (
-              <th className="py-3 px-4 font-semibold whitespace-nowrap">Checkpoint</th>
-            ) : null}
-
-            <SortableTh label="From_Date" sortKey="from" sort={sort} setSort={setSort} />
-            <SortableTh label="To_Date" sortKey="to" sort={sort} setSort={setSort} />
-            <SortableTh label="Created_At" sortKey="createdAt" sort={sort} setSort={setSort} />
-            <SortableTh label="Size" sortKey="size" sort={sort} setSort={setSort} />
-
-            {isProfileTab ? (
-              <th className="py-3 px-4 font-semibold whitespace-nowrap">Repo_Key</th>
-            ) : (
-              <th className="py-3 px-4 font-semibold whitespace-nowrap">Analytics_Key</th>
-            )}
-
+            {/* remark (always) */}
             <th className="py-3 px-4 font-semibold whitespace-nowrap w-[520px]">Remark</th>
 
+            {/* deploy (profile only) */}
             {isProfileTab ? (
-              <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
+                <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
             ) : null}
-          </tr>
+            </tr>
         </thead>
 
         <tbody>
-          {visibleRows.map((it) => {
+            {visibleRows.map((it) => {
             const sha = it.meta?.gitSha || "";
             const isActiveRow = Boolean(sha && activeGitSha && sha === activeGitSha);
             const isFocused = it.key === focusedKey;
 
             return (
-              <tr
+                <tr
                 ref={remarkEditKey === it.key ? editingRowRef : null} // ✅ only edited row
                 key={it.key}
                 onClick={() => focusRow(it.key)}
                 className={cx(
-                  "border-t border-gray-200/60 dark:border-white/10 cursor-pointer transition-colors",
-                  "hover:bg-gray-100/40 dark:hover:bg-white/5",
-                  isFocused
+                    "border-t border-gray-200/60 dark:border-white/10 cursor-pointer transition-colors",
+                    "hover:bg-gray-100/40 dark:hover:bg-white/5",
+                    isFocused
                     ? "bg-purple-50/60 dark:bg-purple-500/10 shadow-[inset_0_0_0_1px_rgba(147,51,234,0.25)] dark:shadow-[inset_0_0_0_1px_rgba(167,139,250,0.18)]"
                     : ""
                 )}
-              >
+                >
                 {/* selection */}
                 <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                  <input
+                    <input
                     type="checkbox"
                     className="h-4 w-4 accent-purple-600"
                     checked={selectedKeys.includes(it.key)}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => {
-                      e.stopPropagation();
-                      toggleRow(it.key);
+                        e.stopPropagation();
+                        toggleRow(it.key);
                     }}
                     title="Select"
-                  />
+                    />
                 </td>
 
                 {/* preview */}
                 <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                  <ActionButton
+                    <ActionButton
                     variant="green"
                     onClick={(e) => {
-                      e.stopPropagation();
-                      openPreview(it.key);
+                        e.stopPropagation();
+                        openPreview(it.key);
                     }}
                     title="Open preview"
-                  >
+                    >
                     <HiOutlineEye className="text-base" />
-                  </ActionButton>
+                    </ActionButton>
                 </td>
 
-                {/* profile version id + favorite */}
-                <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                  <div className="inline-flex items-center gap-2">
-                    <CopyHoverCell
-                      value={it.meta?.profileVersionId || ""}
-                      textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                      showCopy={Boolean(it.meta?.profileVersionId)}
-                    />
-                    {favorites?.[it.key] ? (
-                      <HiStar
-                        className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]"
-                        title="Favorite"
-                      />
-                    ) : null}
-                  </div>
-                </td>
+                {/* ✅ dynamic data cells */}
+                {selectedCols.map((c) => {
 
-                {/* filename + badges */}
-                <td className="text-xs py-3 px-4">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CopyHoverCell
-                      value={it.filename}
-                      textClassName="font-semibold text-gray-900 dark:text-gray-100 truncate"
-                    />
+                    // ✅ special: profile version id + favorite star
+                    if (c.id === COL.PROFILE_VERSION_ID) {
+                    return (
+                        <td key={c.id} className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                        <div className="inline-flex items-center gap-2">
+                            <CopyHoverCell
+                            value={it.meta?.profileVersionId || ""}
+                            textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
+                            showCopy={Boolean(it.meta?.profileVersionId)}
+                            />
 
-                    {isProfileTab
-                      ? (() => {
-                          const sha2 = it.meta?.gitSha || "";
-                          const isActive = sha2 && activeGitSha && sha2 === activeGitSha;
-                          const isPrev = sha2 && prevGitSha && sha2 === prevGitSha;
-                          if (!isActive && !isPrev) return null;
+                            {favorites?.[it.key] ? (
+                            <HiStar
+                                className="h-4 w-4 text-amber-400 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]"
+                                title="Favorite"
+                            />
+                            ) : null}
+                        </div>
+                        </td>
+                    );
+                    }
 
-                          return (
-                            <div className="flex items-center gap-1 shrink-0">
-                              {isActive ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                                  ACTIVE
-                                </span>
-                              ) : null}
-                              {isPrev ? (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border border-yellow-500/30 bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
-                                  LAST USED
-                                </span>
-                              ) : null}
+                    // special: key cell (repo zip / analytics key)
+                    if (c.id === COL.KEY) {
+                    return (
+                        <td key={c.id} className="py-3 px-4">
+                        {isProfileTab ? (
+                            <div className="flex items-start gap-2">
+                            <button
+                                type="button"
+                                title={it.meta?.repoArtifactKey ? "Download repo zip" : "No repo zip"}
+                                disabled={!it.meta?.repoArtifactKey}
+                                onClick={(e) => {
+                                e.stopPropagation();
+                                downloadRepoZip(it.meta?.repoArtifactKey);
+                                }}
+                                className={cx(
+                                "mt-[2px] p-0 bg-transparent border-0 shadow-none",
+                                "text-gray-500 dark:text-gray-400",
+                                "hover:text-purple-700 dark:hover:text-purple-300",
+                                "disabled:opacity-40 disabled:cursor-not-allowed"
+                                )}
+                            >
+                                <HiOutlineDownload className="h-4 w-4" />
+                            </button>
+
+                            <CopyHoverCell
+                                value={it.meta?.repoArtifactKey || ""}
+                                textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                                maxWidthClass="max-w-[420px]"
+                                showCopy={Boolean(it.meta?.repoArtifactKey)}
+                            />
                             </div>
-                          );
-                        })()
-                      : null}
-                  </div>
-                </td>
-
-                {/* git sha */}
-                {isProfileTab ? (
-                  <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                    <CopyHoverCell
-                      value={it.meta?.gitSha || ""}
-                      textClassName="text-[12px] text-gray-700 dark:text-gray-300 font-mono"
-                      showCopy={Boolean(it.meta?.gitSha)}
-                    />
-                  </td>
-                ) : null}
-
-                {/* category */}
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                  {it.meta?.category || "—"}
-                </td>
-
-                {/* tag key/value */}
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                  {it.meta?.tagKey || "—"}
-                </td>
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                  {it.meta?.tagValue || "—"}
-                </td>
-
-                {/* geo */}
-                {!isProfileTab ? (
-                  <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                    {it.meta?.geoHint || "—"}
-                  </td>
-                ) : null}
-
-                {/* checkpoint */}
-                {isProfileTab ? (
-                  <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
-                    {it.meta?.checkpointTag || "—"}
-                  </td>
-                ) : null}
-
-                {/* from/to/created/size */}
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{it.from}</td>
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{it.to}</td>
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{it.createdAt}</td>
-                <td className="text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300">{prettyKB(it.size)}</td>
-
-                {/* repo key / analytics key */}
-                <td className="py-3 px-4">
-                  {isProfileTab ? (
-                    <div className="flex items-start gap-2">
-                      <button
-                        type="button"
-                        title={it.meta?.repoArtifactKey ? "Download repo zip" : "No repo zip"}
-                        disabled={!it.meta?.repoArtifactKey}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          downloadRepoZip(it.meta?.repoArtifactKey);
-                        }}
-                        className={cx(
-                          "mt-[2px] p-0 bg-transparent border-0 shadow-none",
-                          "text-gray-500 dark:text-gray-400",
-                          "hover:text-purple-700 dark:hover:text-purple-300",
-                          "disabled:opacity-40 disabled:cursor-not-allowed"
+                        ) : (
+                            <CopyHoverCell
+                            value={it.key}
+                            textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
+                            maxWidthClass="max-w-[420px]"
+                            showCopy={Boolean(it.key)}
+                            />
                         )}
-                      >
-                        <HiOutlineDownload className="h-4 w-4" />
-                      </button>
+                        </td>
+                    );
+                    }
 
-                      <CopyHoverCell
-                        value={it.meta?.repoArtifactKey || ""}
-                        textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                        maxWidthClass="max-w-[420px]"
-                        showCopy={Boolean(it.meta?.repoArtifactKey)}
-                      />
-                    </div>
-                  ) : (
-                    <CopyHoverCell
-                      value={it.key}
-                      textClassName="text-[12px] text-gray-600 dark:text-gray-400 font-mono"
-                      maxWidthClass="max-w-[420px]"
-                      showCopy={Boolean(it.key)}
-                    />
-                  )}
-                </td>
+                    // default: render from schema (cell renderer if present)
+                    return (
+                    <td
+                        key={c.id}
+                        className={cx(
+                        "text-xs py-3 px-4 whitespace-nowrap text-gray-700 dark:text-gray-300",
+                        c.id === COL.FILENAME ? "" : ""
+                        )}
+                    >
+                        {c.renderCell ? c.renderCell(it) : (c.getValue?.(it) || "—")}
+                    </td>
+                    );
+                })}
 
                 {/* remark */}
                 <td className="text-xs py-3 px-4 w-[520px] align-top">
-                  {remarkEditKey === it.key ? (
+                    {remarkEditKey === it.key ? (
                     <div
                         className="flex items-start justify-between gap-3"
                         onClick={(e) => e.stopPropagation()} // ✅ blanket stop for edit UI clicks
                     >
-                      <input
+                        <input
                         ref={remarkInputRef}
                         autoFocus
                         value={remarkDraft}
@@ -907,34 +1480,47 @@ function SnapshotsTable({
                             "text-gray-900 dark:text-gray-100",
                             "placeholder:text-gray-400 dark:placeholder:text-gray-500"
                         )}
-                      />
+                        />
 
-                      <ActionButton variant="green" onClick={(e) => { e.stopPropagation(); saveEditRemark(); }} disabled={remarkBusy}>
+                        <ActionButton
+                        variant="green"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            saveEditRemark();
+                        }}
+                        disabled={remarkBusy}
+                        >
                         Save
-                      </ActionButton>
-                      <ActionButton onClick={(e) => { e.stopPropagation(); cancelEditRemark(); }} disabled={remarkBusy}>
+                        </ActionButton>
+                        <ActionButton
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            cancelEditRemark();
+                        }}
+                        disabled={remarkBusy}
+                        >
                         Cancel
-                      </ActionButton>
+                        </ActionButton>
                     </div>
-                  ) : (
+                    ) : (
                     <div className="relative group">
-                      <div
+                        <div
                         className={cx(
-                          "break-words whitespace-normal text-gray-700 dark:text-gray-300",
-                          !showTrash ? "pr-10" : ""
+                            "break-words whitespace-normal text-gray-700 dark:text-gray-300",
+                            !showTrash ? "pr-10" : ""
                         )}
-                      >
+                        >
                         {it.meta?.remark ? it.meta.remark : "—"}
-                      </div>
+                        </div>
 
-                      {!showTrash ? (
+                        {!showTrash ? (
                         <button
-                          type="button"
-                          onClick={(e) => {
+                            type="button"
+                            onClick={(e) => {
                             e.stopPropagation();
                             startEditRemark(it.key, it.meta?.remark || "");
-                          }}
-                          className={cx(
+                            }}
+                            className={cx(
                             "absolute top-1 right-1",
                             "opacity-0 group-hover:opacity-100 transition",
                             "inline-flex items-center gap-1.5",
@@ -942,47 +1528,98 @@ function SnapshotsTable({
                             "dark:border-gray-200/70 border-white/10",
                             "dark:bg-white/85 bg-[#0b0b12]/80 backdrop-blur",
                             "dark:text-gray-700 text-gray-200 dark:hover:text-gray-900 hover:text-white"
-                          )}
+                            )}
                         >
-                          <HiPencilAlt className="h-3.5 w-3.5" />
-                          <span className="text-[11px] font-semibold leading-none">Edit</span>
+                            <HiPencilAlt className="h-3.5 w-3.5" />
+                            <span className="text-[11px] font-semibold leading-none">Edit</span>
                         </button>
-                      ) : (
-                        <span className="absolute top-1 right-1 text-[11px] text-gray-400">Locked</span>
-                      )}
+                        ) : (
+                        <span className="absolute top-1 right-1 text-[11px] text-gray-400">
+                            Locked
+                        </span>
+                        )}
                     </div>
-                  )}
+                    )}
                 </td>
 
                 {/* deploy */}
                 {isProfileTab ? (
-                  <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
+                    <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
                     <ActionButton
-                      variant="green"
-                      disabled={showTrash || isActiveRow}
-                      onClick={(e) => {
+                        variant="green"
+                        disabled={showTrash || isActiveRow}
+                        onClick={(e) => {
                         e.stopPropagation();
                         askDeploy(it.key);
-                      }}
-                      title={
+                        }}
+                        title={
                         showTrash
-                          ? "Restore first, then deploy"
-                          : isActiveRow
-                          ? "Already active — deploy disabled"
-                          : "Deploy this snapshot's version"
-                      }
+                            ? "Restore first, then deploy"
+                            : isActiveRow
+                            ? "Already active — deploy disabled"
+                            : "Deploy this snapshot's version"
+                        }
                     >
-                      {isActiveRow ? "Active" : "Deploy"}
+                        {isActiveRow ? "Active" : "Deploy"}
                     </ActionButton>
-                  </td>
+                    </td>
                 ) : null}
-              </tr>
+                </tr>
             );
-          })}
+            })}
         </tbody>
-      </table>
+        </table>
     </div>
   );
+}
+
+function normalizeText(v) {
+  return String(v ?? "").toLowerCase().trim();
+}
+
+function matchesFilter(value, op, needle) {
+  const V = normalizeText(value);
+  const N = normalizeText(needle);
+  if (!N) return true;
+
+  if (op === "eq") return V === N;
+  if (op === "startsWith") return V.startsWith(N);
+  if (op === "endsWith") return V.endsWith(N);
+  return V.includes(N);
+}
+
+function applyKeyValueFilters(rowsIn, tabId, filters) {
+  if (!filters?.length) return rowsIn;
+
+  const cols = colsForTab(tabId);
+  const byId = Object.fromEntries(cols.map((c) => [c.id, c]));
+
+  return (rowsIn || []).filter((row) =>
+    filters.every((f) => {
+      const colDef = byId[f.col];
+      const raw = colDef?.getValue ? colDef.getValue(row) : "";
+      return matchesFilter(raw, f.op, f.value);
+    })
+  );
+}
+
+function toTime(v) {
+  if (!v) return 0;
+  const t = Date.parse(String(v));
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function comparePrimitive(a, b, dir) {
+  const A = a ?? "";
+  const B = b ?? "";
+  if (A === B) return 0;
+
+  if (typeof A === "number" && typeof B === "number") {
+    return dir === "asc" ? A - B : B - A;
+  }
+  return dir === "asc"
+    ? String(A).localeCompare(String(B))
+    : String(B).localeCompare(String(A));
 }
 
 export default function AdminSnapshots() {
@@ -1121,6 +1758,38 @@ export default function AdminSnapshots() {
     },
     [activeTab]
     );
+
+    // Query Search state (per tab)
+    const [queryOpen, setQueryOpen] = useState(false);
+
+    // per-tab query config (scalable if more tabs added later)
+    const [queryByTab, setQueryByTab] = useState(() => {
+    try {
+        const raw = localStorage.getItem("admin_snapshots_query_v1");
+        const parsed = raw ? JSON.parse(raw) : null;
+        const base = {};
+        TAB_IDS.forEach((t) => (base[t] = null));
+        return parsed && typeof parsed === "object" ? { ...base, ...parsed } : base;
+    } catch {
+        const base = {};
+        TAB_IDS.forEach((t) => (base[t] = null));
+        return base;
+    }
+    });
+
+    useEffect(() => {
+    try {
+        localStorage.setItem("admin_snapshots_query_v1", JSON.stringify(queryByTab));
+    } catch {
+        // ignore
+    }
+    }, [queryByTab]);
+
+    const activeQuery = queryByTab?.[activeTab] || null;
+    const selectedColumnIds =
+    activeQuery?.selectCols?.length
+        ? activeQuery.selectCols
+        : TAB_CONFIG?.[activeTab]?.defaultSelect || [];
 
     const startEditRemark = useCallback((key, current) => {
         setRemarkEditKey(key);
@@ -1361,42 +2030,91 @@ export default function AdminSnapshots() {
     }, [items, trashItems, showTrash]);
 
     const visibleRows = useMemo(() => {
-        const sorted = [...(rows || [])];
+    const base = [...(rows || [])];
 
-        sorted.sort((a, b) => {
+    // base sort = your current UI sort (headers)
+    base.sort((a, b) => {
+        let av;
+        let bv;
+
+        switch (sort.key) {
+        case "from":
+            av = a.from === "—" ? "" : a.from;
+            bv = b.from === "—" ? "" : b.from;
+            return comparePrimitive(av, bv, sort.dir);
+
+        case "to":
+            av = a.to === "—" ? "" : a.to;
+            bv = b.to === "—" ? "" : b.to;
+            return comparePrimitive(av, bv, sort.dir);
+
+        case "createdAt":
+            av = toTime(a.createdAtIso);
+            bv = toTime(b.createdAtIso);
+            return comparePrimitive(av, bv, sort.dir);
+
+        case "size":
+            av = Number(a.size || 0);
+            bv = Number(b.size || 0);
+            return comparePrimitive(av, bv, sort.dir);
+
+        default:
+            return 0;
+        }
+    });
+
+    // If a query exists for this tab, override:
+    const q = queryByTab?.[activeTab];
+    if (!q) return base;
+
+    // 1) filters (key:value)
+    let out = applyKeyValueFilters(base, activeTab, q.filters);
+
+    // 2) order by (override)
+    if (q.orderBy) {
+        const sortable = sortableColsForTab(activeTab);
+        const byId = Object.fromEntries(sortable.map((c) => [c.id, c]));
+        const col = byId[q.orderBy];
+
+        if (col?.sortKey) {
+        const sortKey = col.sortKey;
+
+        out = [...out].sort((a, b) => {
             let av;
             let bv;
 
-            switch (sort.key) {
-            case "from":
-                // YYYY-MM-DD sorts lexicographically correctly
-                av = a.from === "—" ? "" : a.from;
-                bv = b.from === "—" ? "" : b.from;
-                return comparePrimitive(av, bv, sort.dir);
-
-            case "to":
-                av = a.to === "—" ? "" : a.to;
-                bv = b.to === "—" ? "" : b.to;
-                return comparePrimitive(av, bv, sort.dir);
-
-            case "createdAt":
-                // ✅ use createdAtIso for real chronology
-                av = toTime(a.createdAtIso);
-                bv = toTime(b.createdAtIso);
-                return comparePrimitive(av, bv, sort.dir);
-
-            case "size":
-                av = Number(a.size || 0);
-                bv = Number(b.size || 0);
-                return comparePrimitive(av, bv, sort.dir);
-
-            default:
-                return 0;
+            if (sortKey === "from") {
+            av = a.from === "—" ? "" : a.from;
+            bv = b.from === "—" ? "" : b.from;
+            return comparePrimitive(av, bv, q.orderDir);
             }
+            if (sortKey === "to") {
+            av = a.to === "—" ? "" : a.to;
+            bv = b.to === "—" ? "" : b.to;
+            return comparePrimitive(av, bv, q.orderDir);
+            }
+            if (sortKey === "createdAt") {
+            av = toTime(a.createdAtIso);
+            bv = toTime(b.createdAtIso);
+            return comparePrimitive(av, bv, q.orderDir);
+            }
+            if (sortKey === "size") {
+            av = Number(a.size || 0);
+            bv = Number(b.size || 0);
+            return comparePrimitive(av, bv, q.orderDir);
+            }
+            return 0;
         });
+        }
+    }
 
-        return sorted;
-    }, [rows, sort]);
+    // 3) limit
+    if (typeof q.limit === "number" && q.limit > 0) {
+        out = out.slice(0, q.limit);
+    }
+
+    return out;
+    }, [rows, sort, activeTab, queryByTab]);
 
 
   const activeGitSha = deployHistory?.active?.gitSha || "";
@@ -1692,6 +2410,14 @@ export default function AdminSnapshots() {
                 </div>
             ) : null}
 
+            <ActionButton
+                variant="purple"
+                onClick={() => setQueryOpen(true)}
+                title="Build a SQL-like query for this table"
+            >
+                Query search
+            </ActionButton>
+
             <IconButton
                 onClick={() => setTableExpandOpen(true)}
                 title="Expand table"
@@ -1703,26 +2429,6 @@ export default function AdminSnapshots() {
     </div>
   );
 
-  function toTime(v) {
-    if (!v) return 0;
-    const t = Date.parse(String(v));
-    return Number.isNaN(t) ? 0 : t;
-  }
-
-  function comparePrimitive(a, b, dir) {
-    const A = a ?? "";
-    const B = b ?? "";
-    if (A === B) return 0;
-
-    // numbers first
-    if (typeof A === "number" && typeof B === "number") {
-        return dir === "asc" ? A - B : B - A;
-    }
-
-    return dir === "asc"
-        ? String(A).localeCompare(String(B))
-        : String(B).localeCompare(String(A));
-  }
 
   return (
     <section className="py-0 px-4 transition-colors">
@@ -1778,6 +2484,7 @@ export default function AdminSnapshots() {
 
               <SnapshotsTable
                 containerClassName="max-h-[520px] overflow-auto"
+                selectedColumnIds={selectedColumnIds}
                 visibleRows={visibleRows}
                 isProfileTab={isProfileTab}
                 activeTab={activeTab}
@@ -1840,6 +2547,7 @@ export default function AdminSnapshots() {
         <div className="rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden">
           <SnapshotsTable
             containerClassName="overflow-auto"   // ✅ no 520px cap
+            selectedColumnIds={selectedColumnIds}
             visibleRows={visibleRows}
             isProfileTab={isProfileTab}
             activeTab={activeTab}
@@ -1870,6 +2578,49 @@ export default function AdminSnapshots() {
           />
         </div>
       </ExpandedTableModal>
+
+      <QuerySearchModal
+        open={queryOpen}
+        onClose={() => setQueryOpen(false)}
+        activeTab={activeTab}
+        tabs={TAB_CONFIG}
+        getColsForTab={(t) => selectableColsForTab(t)}
+        getSortableColsForTab={(t) => sortableColsForTab(t)}
+        initial={queryByTab?.[activeTab] || {
+            fromTab: activeTab,
+            selectCols: TAB_CONFIG?.[activeTab]?.defaultSelect || [],
+            orderBy: COL.CREATED_AT,
+            orderDir: "desc",
+            limit: 100,
+            filters: [],
+        }}
+        onApply={(q) => {
+            // Switch to the chosen From tab (as requested)
+            if (q?.fromTab && q.fromTab !== activeTab) {
+            setActiveTab(q.fromTab);
+            }
+
+            // store query under that tab
+            setQueryByTab((prev) => ({
+            ...(prev || {}),
+            [q.fromTab || activeTab]: q,
+            }));
+
+            // also sync your table sort headers to match order-by (optional, but nice)
+            const sortable = sortableColsForTab(q.fromTab || activeTab);
+            const byId = Object.fromEntries(sortable.map((c) => [c.id, c]));
+            const col = byId[q.orderBy];
+            if (col?.sortKey) {
+            setSort({ key: col.sortKey, dir: q.orderDir || "desc" });
+            }
+        }}
+        onClear={() => {
+            setQueryByTab((prev) => ({
+            ...(prev || {}),
+            [activeTab]: null,
+            }));
+        }}
+      />
 
       <ConfirmModal
         open={deleteOpen}
