@@ -75,7 +75,6 @@ jobs:
 
           zip -r "$ARTIFACT_PATH" \
             src public infra scripts data \
-            .github/workflows \
             .husky/pre-commit .husky/pre-push \
             .gitignore \
             infra/cdk/.gitignore infra/cdk/.npmignore \
