@@ -25,6 +25,9 @@ const GIT_REF = process.env.GIT_REF || process.env.GITHUB_REF || ""; // optional
 const GH_RUN_ID = process.env.GH_RUN_ID || process.env.GITHUB_RUN_ID || ""; // optional
 const REPO_URL = process.env.REPO_URL || "https://github.com/rautte/tejas-profile";
 
+const DIFF_FILES_JSON = process.env.DIFF_FILES_JSON || "";
+const DIFF_TAG_VALUE = process.env.DIFF_TAG_VALUE || "none";
+
 function must(v, name) {
   if (!v) throw new Error(`${name} is required`);
   return v;
@@ -35,6 +38,25 @@ function nullIfEmptyOrUnknown(v) {
   if (!s || s.toLowerCase() === "unknown") return null;
   return s;
 }
+
+function parseDiffFiles(raw) {
+  const fallback = { infra: [], data: [], uiux: [], githubWorkflow: [] };
+  const s = String(raw || "").trim();
+  if (!s) return fallback;
+
+  try {
+    const obj = JSON.parse(s);
+    return {
+      infra: Array.isArray(obj?.infra) ? obj.infra : [],
+      data: Array.isArray(obj?.data) ? obj.data : [],
+      uiux: Array.isArray(obj?.uiux) ? obj.uiux : [],
+      githubWorkflow: Array.isArray(obj?.githubWorkflow) ? obj.githubWorkflow : [],
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 
 async function main() {
   must(SNAPSHOTS_API, "SNAPSHOTS_API");
@@ -47,6 +69,8 @@ async function main() {
 
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const createdAt = new Date().toISOString();
+  const diffFiles = parseDiffFiles(DIFF_FILES_JSON);
+  const diffTagValue = (String(DIFF_TAG_VALUE || "").trim() || "none");
 
   // This is the metadata your list view already expects (shows in columns)
   const presignPayload = {
@@ -56,8 +80,8 @@ async function main() {
     createdAt,
 
     category: "Profile",
-    tagKey: "stage",
-    tagValue: STAGE,
+    tagKey: "diffFiles",
+    tagValue: diffTagValue,
 
     profileVersionId: PROFILE_VERSION,
     gitSha: GIT_SHA,
@@ -93,6 +117,7 @@ async function main() {
     timezone: TIMEZONE,
     createdAt,
     note: "Auto-created after successful Build & Deploy (Pages).",
+    diffFiles,
     profileVersion: {
       id: PROFILE_VERSION,
       sections: SECTION_ORDER, // ✅ single source of truth from src/data/App/index.js
@@ -140,8 +165,8 @@ async function main() {
       key,
       meta: {
         category: "Profile",
-        tagkey: "stage",
-        tagvalue: STAGE,
+        tagkey: "diffFiles",
+        tagvalue: diffTagValue,
 
         profileversionid: PROFILE_VERSION,
         gitsha: GIT_SHA,

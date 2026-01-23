@@ -28,6 +28,8 @@ jobs:
       BUILD_TIME: ${{ steps.meta.outputs.BUILD_TIME }}
       REPO_ARTIFACT_KEY: ${{ steps.s3.outputs.S3_KEY }}
       REPO_ARTIFACT_SHA256: ${{ steps.ziprepo.outputs.SHA256 }}
+      DIFF_FILES_JSON: ${{ steps.diff.outputs.DIFF_FILES_JSON }}
+      DIFF_TAG_VALUE: ${{ steps.diff.outputs.DIFF_TAG_VALUE }}
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -49,6 +51,72 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y zip
           fi
+      
+      - name: Compute diffFiles (this run)
+        id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Compare HEAD to its parent commit.
+          # If this is the first commit or parent isn't available, treat as no diff.
+          BASE_SHA="$(git rev-parse HEAD^ 2>/dev/null || true)"
+
+          CHANGED=""
+          if [ -n "${BASE_SHA}" ]; then
+            CHANGED="$(git diff --name-only "${BASE_SHA}" HEAD || true)"
+          fi
+
+          # Helpers to build JSON arrays
+          arr_json () {
+            local s="${1:-}"
+            if [ -z "${s}" ]; then
+              echo '[]'
+            else
+              printf '%s\n' "${s}" | jq -R -s 'split("\n")[:-1]'
+            fi
+          }
+
+          INFRA_FILES="$(printf '%s\n' "${CHANGED}" | grep '^infra/cdk/' || true)"
+          DATA_FILES="$(printf '%s\n' "${CHANGED}" | grep '^src/data/' || true)"
+          UIUX_FILES="$(printf '%s\n' "${CHANGED}" | grep '^src/' | grep -v '^src/data/' || true)"
+          GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\ .github/workflows/' || true)"
+          # ^ the above grep has a leading space because YAML can be tricky in docs; use this exact line instead:
+          # GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\.github/workflows/' || true)"
+
+          # IMPORTANT: use this correct line in your YAML (no leading space):
+          GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\.github/workflows/' || true)"
+
+          INFRA_JSON="$(arr_json "${INFRA_FILES}")"
+          DATA_JSON="$(arr_json "${DATA_FILES}")"
+          UIUX_JSON="$(arr_json "${UIUX_FILES}")"
+          GHWF_JSON="$(arr_json "${GHWF_FILES}")"
+
+          DIFF_FILES_JSON="$(jq -n \
+            --argjson infra "${INFRA_JSON}" \
+            --argjson data "${DATA_JSON}" \
+            --argjson uiux "${UIUX_JSON}" \
+            --argjson githubWorkflow "${GHWF_JSON}" \
+            '{infra:$infra, data:$data, uiux:$uiux, githubWorkflow:$githubWorkflow}')"
+
+          # Build Tag_Value = non-empty keys joined by underscores, else "none"
+          parts=()
+          [ "$(echo "${INFRA_JSON}" | jq 'length')" -gt 0 ] && parts+=("infra")
+          [ "$(echo "${DATA_JSON}" | jq 'length')" -gt 0 ] && parts+=("data")
+          [ "$(echo "${UIUX_JSON}" | jq 'length')" -gt 0 ] && parts+=("uiux")
+          [ "$(echo "${GHWF_JSON}" | jq 'length')" -gt 0 ] && parts+=("githubWorkflow")
+
+          if [ "${#parts[@]}" -eq 0 ]; then
+            DIFF_TAG_VALUE="none"
+          else
+            IFS=_; DIFF_TAG_VALUE="${parts[*]}"; unset IFS
+          fi
+
+          echo "DIFF_FILES_JSON=${DIFF_FILES_JSON}" >> "$GITHUB_OUTPUT"
+          echo "DIFF_TAG_VALUE=${DIFF_TAG_VALUE}" >> "$GITHUB_OUTPUT"
+
+          echo "[diff] DIFF_TAG_VALUE=${DIFF_TAG_VALUE}"
+          echo "[diff] DIFF_FILES_JSON=${DIFF_FILES_JSON}"
 
       - name: Compute version metadata
         id: meta
@@ -247,5 +315,7 @@ jobs:
           GH_RUN_ID: ${{ github.run_id }}
           REPO_URL: ${{ vars.REPO_URL || secrets.REPO_URL }}
           TIMEZONE: America/Los_Angeles
+          DIFF_FILES_JSON: ${{ needs.build.outputs.DIFF_FILES_JSON }}
+          DIFF_TAG_VALUE: ${{ needs.build.outputs.DIFF_TAG_VALUE }}
         run: node scripts/publish-ci-snapshot.mjs
 
