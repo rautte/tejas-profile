@@ -606,12 +606,12 @@ function QuerySearchModal({
 
   useEffect(() => {
     if (!open) return;
-    // reset to latest initial when opening
+
     setFromTab(initial?.fromTab || activeTab);
-    setSelectCols(initial?.selectCols || []);
-    setOrderBy(initial?.orderBy || "");
-    setOrderDir(initial?.orderDir || "desc");
-    setLimit(typeof initial?.limit === "number" ? String(initial.limit) : "");
+    setSelectCols(Array.isArray(initial?.selectCols) ? initial.selectCols : []); // ✅ none
+    setOrderBy(initial?.orderBy || "");                                          // ✅ none
+    setOrderDir(initial?.orderDir || "desc");                                    // ✅ desc
+    setLimit(typeof initial?.limit === "number" ? String(initial.limit) : "");   // ✅ empty
     setFilters(Array.isArray(initial?.filters) ? initial.filters : []);
   }, [open, initial, activeTab]);
 
@@ -649,13 +649,28 @@ function QuerySearchModal({
   const cols = getColsForTab(fromTab);
   const sortable = getSortableColsForTab(fromTab);
 
-  const canSelect = Boolean(fromTab);
-  const canOrderBy = canSelect && selectCols.length > 0;
-  const canLimit = canOrderBy && Boolean(orderBy);
-  const parsedLimit = Number(String(limit || "").trim());
-  const limitOk = canLimit && Number.isFinite(parsedLimit) && parsedLimit > 0;
+  const hasFrom = Boolean(fromTab);                 // usually true
+  const hasSelect = (selectCols || []).length > 0;  // optional
+  const hasOrderBy = Boolean(orderBy);              // optional
+  const hasLimit = String(limit || "").trim().length > 0; // optional (only if user typed)
 
-  const applyDisabled = !limitOk;
+  // ✅ UI enable/disable gates
+  const canSelect = hasFrom;               // Select enabled after From
+  const canOrderBy = hasFrom && hasSelect; // OrderBy enabled after Select
+  const canLimit = hasFrom;                // Limit enabled after From (NOT after OrderBy)
+  const canFilters = hasFrom;              // Filters enabled after From
+
+  const parsedLimit = Number(String(limit || "").trim());
+  const limitOk = !hasLimit || (Number.isFinite(parsedLimit) && parsedLimit > 0); // ✅ only validate if provided
+
+  // ✅ “at least 2 of 4”
+  const stepsChosenCount =
+    (hasFrom ? 1 : 0) +
+    (hasSelect ? 1 : 0) +
+    (hasOrderBy ? 1 : 0) +
+    (hasLimit ? 1 : 0);
+
+  const applyDisabled = !limitOk || stepsChosenCount < 2;
 
   const addFilterRow = () => {
     const firstCol = cols[0]?.id || "";
@@ -797,7 +812,7 @@ function QuerySearchModal({
                           });
                           // reset downstream (enforced ordering)
                           setOrderBy("");
-                          setLimit("");
+                        //   setLimit("");
                         }}
                       />
                       {c.label}
@@ -819,7 +834,7 @@ function QuerySearchModal({
                 value={orderBy}
                 onChange={(e) => {
                   setOrderBy(e.target.value);
-                  setLimit("");
+                //   setLimit("");
                 }}
                 className={cx(
                   "flex-1 h-10 rounded-xl border px-3 text-sm outline-none",
@@ -870,7 +885,7 @@ function QuerySearchModal({
                 "placeholder:text-gray-400 dark:placeholder:text-gray-500"
               )}
             />
-            {!limitOk && canLimit ? (
+            {!limitOk && hasLimit ? (
               <div className="text-[11px] text-amber-700 dark:text-amber-300">
                 Limit must be a positive number.
               </div>
@@ -878,7 +893,7 @@ function QuerySearchModal({
           </div>
 
           {/* Filters (key:value lookup) */}
-          <div className={cx("space-y-2", !canLimit ? "opacity-50 pointer-events-none" : "")}>
+          <div className={cx("space-y-2", !canFilters ? "opacity-50 pointer-events-none" : "")}>
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">
                 Filters (key:value)
@@ -968,10 +983,10 @@ function QuerySearchModal({
             onClick={() => {
               const payload = {
                 fromTab,
-                selectCols,
-                orderBy,
-                orderDir,
-                limit: parsedLimit,
+                selectCols, // can be []
+                orderBy: hasOrderBy ? orderBy : "",
+                orderDir: orderDir || "desc",
+                limit: hasLimit ? parsedLimit : undefined, // ✅ only if user typed it
                 filters: (filters || []).filter((f) => String(f?.value || "").trim().length > 0),
               };
               onApply?.(payload);
@@ -2588,10 +2603,10 @@ export default function AdminSnapshots() {
         getSortableColsForTab={(t) => sortableColsForTab(t)}
         initial={queryByTab?.[activeTab] || {
             fromTab: activeTab,
-            selectCols: TAB_CONFIG?.[activeTab]?.defaultSelect || [],
-            orderBy: COL.CREATED_AT,
-            orderDir: "desc",
-            limit: 100,
+            selectCols: [],      // ✅ none by default
+            orderBy: "",         // ✅ none
+            orderDir: "desc",    // ✅ desc default
+            limit: undefined,    // ✅ placeholder "e.g. 50"
             filters: [],
         }}
         onApply={(q) => {
