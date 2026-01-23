@@ -74,7 +74,11 @@ jobs:
           ARTIFACT_PATH="/tmp/${ARTIFACT_NAME}"
 
           zip -r "$ARTIFACT_PATH" \
-            src public infra scripts \
+            src public infra scripts data \
+            .github/workflows \
+            .husky/pre-commit .husky/pre-push \
+            .gitignore \
+            infra/cdk/.gitignore infra/cdk/.npmignore \
             package.json package-lock.json \
             tailwind.config.js postcss.config.js tsconfig.json \
             README.md \
