@@ -1073,6 +1073,10 @@ export default function AdminSnapshots() {
 
     const focusedKey = focusedRowByTab?.[activeTab] || "";
 
+    const clearFocus = useCallback(() => {
+        setFocusedRowByTab((prev) => ({ ...(prev || {}), [activeTab]: "" }));
+    }, [activeTab]);
+
     useEffect(() => {
         try {
             const raw = localStorage.getItem(SNAPSHOTS_UI_STATE_KEY);
@@ -1087,7 +1091,6 @@ export default function AdminSnapshots() {
             // ignore
         }
     }, [activeTab, showTrash]);
-
 
     const focusRow = useCallback(
     (key) => {
@@ -1174,8 +1177,9 @@ export default function AdminSnapshots() {
     }, []);
 
     const refreshAll = useCallback(async () => {
+        clearFocus(); // immediate defocus
         await Promise.all([refresh(), refreshTrash(), refreshHistory()]);
-    }, [refresh, refreshTrash, refreshHistory]);
+    }, [clearFocus, refresh, refreshTrash, refreshHistory]);
 
     const doBulkDelete = useCallback(async () => {
         if (!selectedKeys.length) return;

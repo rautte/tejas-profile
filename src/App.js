@@ -458,7 +458,7 @@ function App() {
   const recruiterQuickLook = [DEFAULT_SECTION, ...SIDEBAR_GROUPS.recruiter];
   const hiringManagerQuickLookBody = SIDEBAR_GROUPS.hiringManager;
   const moreAboutMe = SIDEBAR_GROUPS.explore;
-  const adminOnly = SIDEBAR_GROUPS.admin ?? [];
+  // const adminOnly = SIDEBAR_GROUPS.admin ?? [];
   const adminPinnedItems = isOwner ? ADMIN_LABELS.filter((l) => LABELS.includes(l)) : [];
 
   // ------------------------------
