@@ -166,8 +166,47 @@ export class SnapshotsStack extends cdk.Stack {
         })
     );
 
-    // ✅ Repo bucket permissions for Lambda (ONLY presign PUT under profiles/*)
+    // ✅ Repo bucket permissions for Lambda
+    // - presign PUT needs PutObject on profiles/*
+    // - trash/restore/purge needs Get/Put/Delete + ListBucket + ListBucketVersions on repo bucket
     repoBucket.grantPut(fn, "profiles/*");
+
+    // Allow Lambda to manage repo artifacts lifecycle too (profiles/* <-> trash/*)
+    repoBucket.grantReadWrite(fn, "profiles/*");
+    repoBucket.grantReadWrite(fn, "trash/*");
+
+    // Allow listing ONLY under profiles/* and trash/*
+    fn.addToRolePolicy(
+    new iam.PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [repoBucket.bucketArn],
+        conditions: {
+        StringLike: {
+            "s3:prefix": ["profiles/", "profiles/*", "trash/", "trash/*"],
+        },
+        },
+    })
+    );
+
+    // Needed to delete all versions + delete markers in the versioned repo bucket during purge
+    fn.addToRolePolicy(
+    new iam.PolicyStatement({
+        actions: ["s3:ListBucketVersions"],
+        resources: [repoBucket.bucketArn],
+    })
+    );
+
+    // Needed to purge versions
+    fn.addToRolePolicy(
+    new iam.PolicyStatement({
+        actions: ["s3:DeleteObject", "s3:DeleteObjectVersion"],
+        resources: [
+        repoBucket.arnForObjects("profiles/*"),
+        repoBucket.arnForObjects("trash/*"),
+        ],
+    })
+    );
+
 
     // -----------------------------
     // GitHub Actions deployer role access (repo zip uploads)

@@ -181,6 +181,97 @@ function basename(key: string) {
 }
 
 // -----------------------------
+// helpers: repo artifact lifecycle (repo bucket)
+// -----------------------------
+const REPO_TRASH_PREFIX = TRASH_PREFIX; // use same "trash/" prefix in repo bucket too
+
+function toRepoTrashKey(repoKey: string) {
+  const k = normalizeKey(repoKey);
+  if (!k.startsWith(PROFILES_PREFIX)) return "";
+  return `${REPO_TRASH_PREFIX}${k}`; // trash/profiles/...
+}
+
+async function moveRepoArtifactToTrash(repoKeyRaw: string) {
+  const repoKey = normalizeKey(String(repoKeyRaw || ""));
+  if (!repoKey) return;
+
+  const trashKey = toRepoTrashKey(repoKey);
+  if (!trashKey) return;
+
+  // Copy repo zip -> trash/
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: REPO_BUCKET,
+      Key: trashKey,
+      CopySource: encodeCopySource(REPO_BUCKET, repoKey),
+      MetadataDirective: "COPY",
+    })
+  );
+
+  // Delete original
+  await s3.send(new DeleteObjectCommand({ Bucket: REPO_BUCKET, Key: repoKey }));
+}
+
+async function restoreRepoArtifactFromTrash(repoKeyRaw: string) {
+  const repoKey = normalizeKey(String(repoKeyRaw || ""));
+  if (!repoKey) return;
+
+  const trashKey = toRepoTrashKey(repoKey);
+  if (!trashKey) return;
+
+  // Copy repo zip from trash/ -> live
+  await s3.send(
+    new CopyObjectCommand({
+      Bucket: REPO_BUCKET,
+      Key: repoKey,
+      CopySource: encodeCopySource(REPO_BUCKET, trashKey),
+      MetadataDirective: "COPY",
+    })
+  );
+
+  // Delete trash copy (keeps versioned history if bucket versioning is on)
+  await s3.send(new DeleteObjectCommand({ Bucket: REPO_BUCKET, Key: trashKey }));
+}
+
+async function purgeRepoArtifactForever(repoKeyRaw: string) {
+  const repoKey = normalizeKey(String(repoKeyRaw || ""));
+  if (!repoKey) return;
+
+  const trashKey = toRepoTrashKey(repoKey);
+  if (!trashKey) return;
+
+  // Versioned bucket: delete ALL versions + delete markers for trashKey
+  const versionsOut = await s3.send(
+    new ListObjectVersionsCommand({
+      Bucket: REPO_BUCKET,
+      Prefix: trashKey,
+    })
+  );
+
+  const versions = (versionsOut.Versions || [])
+    .filter((v) => v.Key === trashKey && v.VersionId)
+    .map((v) => ({ Key: trashKey, VersionId: v.VersionId! }));
+
+  const markers = (versionsOut.DeleteMarkers || [])
+    .filter((m) => m.Key === trashKey && m.VersionId)
+    .map((m) => ({ Key: trashKey, VersionId: m.VersionId! }));
+
+  const objects = [...versions, ...markers];
+  if (!objects.length) return;
+
+  for (let i = 0; i < objects.length; i += 1000) {
+    const chunk = objects.slice(i, i + 1000);
+    await s3.send(
+      new DeleteObjectsCommand({
+        Bucket: REPO_BUCKET,
+        Delete: { Objects: chunk, Quiet: true },
+      })
+    );
+  }
+}
+
+
+// -----------------------------
 // parse metadata from key
 // -----------------------------
 type ParsedMeta = {
@@ -799,19 +890,39 @@ export async function handler(event: Event) {
       return json(400, { ok: false, error: "Could not compute trash key" }, corsOrigin);
     }
 
+    // ✅ Read snapshot metadata first (to fetch repoartifactkey)
+    let repoArtifactKey = "";
+    try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
+    repoArtifactKey = String(head?.Metadata?.repoartifactkey || "").trim();
+    } catch {
+    // ignore: snapshot may not exist; copy below will fail anyway and surface error
+    }
+
+    // 1) Move snapshot JSON -> trash/
     await s3.send(
-      new CopyObjectCommand({
+    new CopyObjectCommand({
         Bucket: SNAPSHOTS_BUCKET,
         CopySource: encodeCopySource(SNAPSHOTS_BUCKET, fromKey),
         Key: toKey,
         ContentType: "application/json",
         MetadataDirective: "COPY",
-      })
+    })
     );
 
     await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
-    return json(200, { ok: true, fromKey, toKey }, corsOrigin);
+    // 2) Move repo artifact zip -> trash/ (best-effort; don't block JSON move)
+    if (repoArtifactKey) {
+    try {
+        await moveRepoArtifactToTrash(repoArtifactKey);
+    } catch (e) {
+        console.log("WARN moveRepoArtifactToTrash failed", { repoArtifactKey, err: String((e as any)?.message || e) });
+    }
+    }
+
+    return json(200, { ok: true, fromKey, toKey, repoArtifactKey: repoArtifactKey || null }, corsOrigin);
+
   }
 
   // -----------------------------
@@ -835,19 +946,38 @@ export async function handler(event: Event) {
       return json(400, { ok: false, error: "Could not compute restore key" }, corsOrigin);
     }
 
+    // ✅ Read trash snapshot metadata first (to fetch repoartifactkey)
+    let repoArtifactKey = "";
+    try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
+    repoArtifactKey = String(head?.Metadata?.repoartifactkey || "").trim();
+    } catch {
+    // ignore
+    }
+
+    // 1) Restore snapshot JSON trash/ -> snapshots/
     await s3.send(
-      new CopyObjectCommand({
+    new CopyObjectCommand({
         Bucket: SNAPSHOTS_BUCKET,
         CopySource: encodeCopySource(SNAPSHOTS_BUCKET, fromKey),
         Key: toKey,
-        // ContentType: "application/json",
         MetadataDirective: "COPY",
-      })
+    })
     );
 
     await s3.send(new DeleteObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: fromKey }));
 
-    return json(200, { ok: true, fromKey, toKey }, corsOrigin);
+    // 2) Restore repo artifact zip trash/ -> live (best-effort)
+    if (repoArtifactKey) {
+    try {
+        await restoreRepoArtifactFromTrash(repoArtifactKey);
+    } catch (e) {
+        console.log("WARN restoreRepoArtifactFromTrash failed", { repoArtifactKey, err: String((e as any)?.message || e) });
+    }
+    }
+
+    return json(200, { ok: true, fromKey, toKey, repoArtifactKey: repoArtifactKey || null }, corsOrigin);
+
   }
 
   // -----------------------------
@@ -867,6 +997,16 @@ export async function handler(event: Event) {
     if (!key || !key.startsWith(TRASH_PREFIX)) {
       return json(400, { ok: false, error: "Invalid key (must start with trash/)" }, corsOrigin);
     }
+
+    // ✅ Read trash snapshot metadata first (repoartifactkey) so we can purge the repo zip too
+    let repoArtifactKey = "";
+    try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: SNAPSHOTS_BUCKET, Key: key }));
+    repoArtifactKey = String(head?.Metadata?.repoartifactkey || "").trim();
+    } catch {
+    // ignore: if snapshot already missing, your purge may return deleted=0 later
+    }
+
 
     // list all versions + delete markers for this exact key
     const versionsOut = await s3.send(
@@ -906,7 +1046,17 @@ export async function handler(event: Event) {
       deleted += chunk.length;
     }
 
-    return json(200, { ok: true, key, deleted }, corsOrigin);
+    // ✅ Purge repo artifact (trash/profiles/...) forever too (best-effort)
+    if (repoArtifactKey) {
+    try {
+        await purgeRepoArtifactForever(repoArtifactKey);
+    } catch (e) {
+        console.log("WARN purgeRepoArtifactForever failed", { repoArtifactKey, err: String((e as any)?.message || e) });
+    }
+    }
+
+    return json(200, { ok: true, key, deleted, repoArtifactKey: repoArtifactKey || null }, corsOrigin);
+
   }
 
     // -----------------------------
