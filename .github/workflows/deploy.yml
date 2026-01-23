@@ -58,8 +58,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Compare HEAD to its parent commit.
-          # If this is the first commit or parent isn't available, treat as no diff.
           BASE_SHA="$(git rev-parse HEAD^ 2>/dev/null || true)"
 
           CHANGED=""
@@ -67,7 +65,9 @@ jobs:
             CHANGED="$(git diff --name-only "${BASE_SHA}" HEAD || true)"
           fi
 
-          # Helpers to build JSON arrays
+          # Ensure jq exists (build job doesn't install jq elsewhere)
+          command -v jq >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y jq)
+
           arr_json () {
             local s="${1:-}"
             if [ -z "${s}" ]; then
@@ -80,11 +80,6 @@ jobs:
           INFRA_FILES="$(printf '%s\n' "${CHANGED}" | grep '^infra/cdk/' || true)"
           DATA_FILES="$(printf '%s\n' "${CHANGED}" | grep '^src/data/' || true)"
           UIUX_FILES="$(printf '%s\n' "${CHANGED}" | grep '^src/' | grep -v '^src/data/' || true)"
-          GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\ .github/workflows/' || true)"
-          # ^ the above grep has a leading space because YAML can be tricky in docs; use this exact line instead:
-          # GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\.github/workflows/' || true)"
-
-          # IMPORTANT: use this correct line in your YAML (no leading space):
           GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\.github/workflows/' || true)"
 
           INFRA_JSON="$(arr_json "${INFRA_FILES}")"
@@ -99,7 +94,6 @@ jobs:
             --argjson githubWorkflow "${GHWF_JSON}" \
             '{infra:$infra, data:$data, uiux:$uiux, githubWorkflow:$githubWorkflow}')"
 
-          # Build Tag_Value = non-empty keys joined by underscores, else "none"
           parts=()
           [ "$(echo "${INFRA_JSON}" | jq 'length')" -gt 0 ] && parts+=("infra")
           [ "$(echo "${DATA_JSON}" | jq 'length')" -gt 0 ] && parts+=("data")
@@ -112,11 +106,16 @@ jobs:
             IFS=_; DIFF_TAG_VALUE="${parts[*]}"; unset IFS
           fi
 
-          echo "DIFF_FILES_JSON=${DIFF_FILES_JSON}" >> "$GITHUB_OUTPUT"
-          echo "DIFF_TAG_VALUE=${DIFF_TAG_VALUE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "DIFF_TAG_VALUE=${DIFF_TAG_VALUE}"
+            echo "DIFF_FILES_JSON<<EOF"
+            echo "${DIFF_FILES_JSON}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           echo "[diff] DIFF_TAG_VALUE=${DIFF_TAG_VALUE}"
           echo "[diff] DIFF_FILES_JSON=${DIFF_FILES_JSON}"
+
 
       - name: Compute version metadata
         id: meta
