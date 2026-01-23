@@ -9,6 +9,7 @@ import { SECTION_ORDER } from "../../data/App";
 import SectionHeader from "../shared/SectionHeader";
 import { cx } from "../../utils/cx";
 import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../../utils/ui";
+import { loadGeoDataset, searchGeo } from "../../utils/geo/geoDataset";
 
 import {
   computeOverview,
@@ -309,6 +310,161 @@ function SmallActionButton({
   );
 }
 
+function GeoTypeahead({
+  value,
+  onValueChange,
+  onSelectGeo,
+  disabled,
+  placeholder = "e.g. Seattle, US",
+}) {
+  const [dataset, setDataset] = useState([]);
+  const [err, setErr] = useState("");
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await loadGeoDataset();
+        if (mounted) setDataset(Array.isArray(data) ? data : []);
+      } catch (e) {
+        if (mounted) setErr(String(e?.message || e));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const q = String(value || "").trim();
+
+  const results = useMemo(() => {
+    if (!q) return [];
+    if (!dataset?.length) return [];
+    return searchGeo(dataset, q, 8);
+  }, [dataset, q]);
+
+  // Show dropdown when user is typing something (even if no matches => we show Other)
+  const shouldShowDropdown = open && !!q;
+
+  const showOtherOnly = shouldShowDropdown && !loading && results.length === 0;
+
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => {
+          onValueChange(e.target.value);
+          setOpen(true);
+
+          // IMPORTANT: typing invalidates selection; user must re-select from dropdown
+          onSelectGeo(null);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // tiny delay so click works
+          window.setTimeout(() => setOpen(false), 120);
+        }}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+      />
+
+      {err ? (
+        <div className="mt-1 text-[12px] text-amber-700 dark:text-amber-300">
+          Geo dataset unavailable — you can still choose “Other”. ({err})
+        </div>
+      ) : null}
+
+      {shouldShowDropdown ? (
+        <div className="absolute z-[260] mt-2 w-full overflow-hidden rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/95 dark:bg-[#0b0b12]/95 backdrop-blur-xl shadow-2xl">
+          {loading ? (
+            <div className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
+              Loading…
+            </div>
+          ) : null}
+
+          {!loading && results.length ? (
+            results.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                disabled={disabled}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onValueChange(r.display || `${r.city}, ${r.countryCode}`);
+                  onSelectGeo({
+                    hint: r.display || `${r.city}, ${r.countryCode}`,
+                    city: r.city,
+                    region: r.region || null,
+                    country: r.country || null,
+                    countryCode: r.countryCode,
+                    lat: typeof r.lat === "number" ? r.lat : null,
+                    lng: typeof r.lng === "number" ? r.lng : null,
+                    source: "dataset",
+                    datasetId: r.id,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+                  });
+                  setOpen(false);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100/70 dark:hover:bg-white/10 transition"
+              >
+                <div className="font-medium">{r.display}</div>
+                <div className="text-[12px] text-gray-600 dark:text-gray-400">
+                  {r.lat != null && r.lng != null ? `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}` : "—"}
+                  <span className="mx-2">•</span>
+                  {r.countryCode}
+                </div>
+              </button>
+            ))
+          ) : null}
+
+          {/* ✅ If nothing matches: show only "Other" */}
+          {showOtherOnly ? (
+            <button
+              type="button"
+              disabled={disabled}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const hint = String(value || "").trim();
+                onSelectGeo({
+                  hint,
+                  city: null,
+                  region: null,
+                  country: null,
+                  countryCode: null,
+                  lat: null,
+                  lng: null,
+                  source: "other",
+                  datasetId: null,
+                  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                  locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+                });
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100/70 dark:hover:bg-white/10 transition"
+            >
+              <div className="font-medium">Other</div>
+              <div className="text-[12px] text-gray-600 dark:text-gray-400">
+                Use your typed value: “{String(value || "").trim()}”
+              </div>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+
 // ✅ A small modal for optional tag + optional geo hint (city/country)
 // City/country is “hint” for now (real geo should be enriched server-side later).
 function PublishOptionsModal({
@@ -324,8 +480,11 @@ function PublishOptionsModal({
   const [tagKey, setTagKey] = useState(defaultTagKey);
   const [tagValue, setTagValue] = useState(defaultTagValue);
   const [geoHint, setGeoHint] = useState(defaultGeoHint);
+  const [geoSelected, setGeoSelected] = useState(null);
+
   const geoHintTrimmed = String(geoHint || "").trim();
-  const canPublish = Boolean(geoHintTrimmed);
+  const canPublish = Boolean(geoSelected) && Boolean(geoHintTrimmed);
+
   const [remark, setRemark] = useState("");
 
   useEffect(() => {
@@ -334,6 +493,7 @@ function PublishOptionsModal({
     setTagValue(defaultTagValue);
     setGeoHint(defaultGeoHint);
     setRemark("");
+    setGeoSelected(null);
   }, [open, defaultTagKey, defaultTagValue, defaultGeoHint]);
 
   if (!open) return null;
@@ -400,19 +560,26 @@ function PublishOptionsModal({
             <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                 Geo hint <span className="text-red-600 dark:text-red-400">*</span>
             </div>
-            <input
-              value={geoHint}
-              onChange={(e) => setGeoHint(e.target.value)}
-              placeholder="e.g. Seattle, US"
-              className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+            <GeoTypeahead
+                value={geoHint}
+                onValueChange={(v) => {
+                    setGeoHint(v);
+                    // if user edits text after selecting, we keep selection unless they clear it
+                    if (!String(v || "").trim()) setGeoSelected(null);
+                }}
+                onSelectGeo={(g) => setGeoSelected(g)}
+                disabled={busy}
+                placeholder="e.g. Seattle, US"
             />
-            {!String(geoHint || "").trim() ? (
+
+            {(!geoHintTrimmed || !geoSelected) ? (
                 <div className="mt-1 text-[12px] text-red-600 dark:text-red-400">
-                    Geo hint is required to publish an Analytics snapshot.
+                    Choose a value from the dropdown (or select “Other”).
                 </div>
             ) : null}
+
             <div className="mt-1 text-[12px] text-gray-500 dark:text-gray-400">
-              Real city/country should be added server-side later. This is just a manual hint.
+                Select from suggestions (dataset) for best accuracy, or type manually.
             </div>
           </div>
 
@@ -450,11 +617,15 @@ function PublishOptionsModal({
                 // ✅ define tags properly (optional)
                 const tags = k && v ? { [k]: v } : {};
 
-                // ✅ geo hint is REQUIRED here
-                const hint = safeTagValue(geoHintTrimmed);
-                const geo = parseGeoHintToStructured(hint);
+                // const hint = safeTagValue(geoHintTrimmed);
 
-                onConfirm({ tags, geo, remark: safeTagValue(remark) || "" });
+                // If user picked a dataset suggestion, use that structured geo.
+                // Otherwise fall back to manual parsing (Phase-3 behavior).
+                if (!geoSelected) return;
+                // const geo = geoSelected;
+
+                onConfirm({ tags, geo: geoSelected, remark: safeTagValue(remark) || "" });
+
             }}
             disabled={busy || !canPublish}
             className="px-3 py-2 rounded-lg text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 transition shadow-sm disabled:opacity-60"
@@ -473,6 +644,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
   const [tagValue, setTagValue] = useState("");
   const [geoHint, setGeoHint] = useState("");
   const [remark, setRemark] = useState("");
+  const [geoSelected, setGeoSelected] = useState(null);
 
   useEffect(() => {
     if (open) {
@@ -481,6 +653,7 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
       setTagValue("");
       setGeoHint("");
       setRemark("");
+      setGeoSelected(null);
     }
   }, [open, defaultChecked]);
 
@@ -547,16 +720,19 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
                 <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                     Geo hint <span className="text-red-600 dark:text-red-400">*</span>
                 </div>
-                <input
+                <GeoTypeahead
                     value={geoHint}
-                    onChange={(e) => setGeoHint(e.target.value)}
-                    placeholder="e.g. Seattle, US"
-                    className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                    onValueChange={(v) => {
+                        setGeoHint(v);
+                        if (!String(v || "").trim()) setGeoSelected(null);
+                    }}
+                    onSelectGeo={(g) => setGeoSelected(g)}
                     disabled={busy}
+                    placeholder="e.g. Seattle, US"
                 />
-                {!String(geoHint || "").trim() ? (
+                {saveSnapshot && (!String(geoHint || "").trim() || !geoSelected) ? (
                     <div className="mt-1 text-[12px] text-red-600 dark:text-red-400">
-                    Geo hint is required to publish an Analytics snapshot.
+                        Choose a value from the dropdown (or select “Other”).
                     </div>
                 ) : null}
               </div>
@@ -592,11 +768,11 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
               const geoHintTrimmed = String(geoHint || "").trim();
 
               // ✅ Only require geo hint if we are publishing a snapshot
-              if (saveSnapshot && !geoHintTrimmed) {
+              if (saveSnapshot && (!geoHintTrimmed || !geoSelected)) {
                 return;
               }
 
-              const geo = saveSnapshot ? parseGeoHintToStructured(geoHintTrimmed) : null;
+              const geo = saveSnapshot ? geoSelected : null;
 
               onConfirm({ saveSnapshot, tags, geo, remark: safeTagValue(remark) || "" });
             }}
@@ -611,36 +787,36 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
   );
 }
 
-function parseGeoHintToStructured(hintRaw) {
-  const hint = String(hintRaw || "").trim();
-  if (!hint) return null;
+// function parseGeoHintToStructured(hintRaw) {
+//   const hint = String(hintRaw || "").trim();
+//   if (!hint) return null;
 
-  // Very lightweight parsing for Phase 3:
-  // "Seattle, US" → city="Seattle", country="US"
-  // "Pune, Maharashtra, IN" → city="Pune", region="Maharashtra", country="IN"
-  const parts = hint.split(",").map((p) => p.trim()).filter(Boolean);
+//   // Very lightweight parsing for Phase 3:
+//   // "Seattle, US" → city="Seattle", country="US"
+//   // "Pune, Maharashtra, IN" → city="Pune", region="Maharashtra", country="IN"
+//   const parts = hint.split(",").map((p) => p.trim()).filter(Boolean);
 
-  const city = parts[0] || null;
-  const region = parts.length >= 3 ? parts[1] : null;
-  const country = parts.length >= 2 ? parts[parts.length - 1] : null;
+//   const city = parts[0] || null;
+//   const region = parts.length >= 3 ? parts[1] : null;
+//   const country = parts.length >= 2 ? parts[parts.length - 1] : null;
 
-  // Phase 3: countryCode is best-effort (if user typed "US"/"IN" etc)
-  const countryCode =
-    country && /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : null;
+//   // Phase 3: countryCode is best-effort (if user typed "US"/"IN" etc)
+//   const countryCode =
+//     country && /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : null;
 
-  return {
-    hint,
-    city,
-    region,
-    country,
-    countryCode,
-    lat: null,
-    lng: null,
-    source: "manual", // important for Phase 4/5
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    locale: typeof navigator !== "undefined" ? navigator.language : undefined,
-  };
-}
+//   return {
+//     hint,
+//     city,
+//     region,
+//     country,
+//     countryCode,
+//     lat: null,
+//     lng: null,
+//     source: "manual", // important for Phase 4/5
+//     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+//     locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+//   };
+// }
 
 
 export default function AdminAnalytics() {
