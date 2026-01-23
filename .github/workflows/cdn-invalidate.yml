@@ -17,4 +17,4 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
           aws-region: ${{ env.AWS_REGION }}
-      - run: aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION_ID" --paths "/ships/sprites/*" "/ships/glb/*"
+      - run: aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION_ID" --paths "/ships/sprites/*" "/ships/glb/*" "/geo/*"

@@ -131,6 +131,7 @@ jobs:
           echo "REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}" >> .env
           echo "REACT_APP_REPO_ARTIFACT_KEY=${{ steps.s3.outputs.S3_KEY }}" >> .env
           echo "REACT_APP_REPO_ARTIFACT_SHA256=${{ steps.ziprepo.outputs.SHA256 }}" >> .env
+          echo "REACT_APP_GEO_DATASET_URL=${{ secrets.REACT_APP_GEO_DATASET_URL }}" >> .env
 
       - run: npm run build
 

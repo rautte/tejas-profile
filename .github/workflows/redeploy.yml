@@ -92,6 +92,7 @@ jobs:
           echo "REACT_APP_GIT_REF=${{ inputs.gitSha }}" >> .env
           echo "REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}" >> .env
           echo "REACT_APP_CHECKPOINT_TAG=${{ inputs.checkpointTag }}" >> .env
+          echo "REACT_APP_GEO_DATASET_URL=${{ secrets.REACT_APP_GEO_DATASET_URL }}" >> .env
 
       - run: npm run build
 

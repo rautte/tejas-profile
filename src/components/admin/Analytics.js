@@ -452,11 +452,7 @@ function PublishOptionsModal({
 
                 // ✅ geo hint is REQUIRED here
                 const hint = safeTagValue(geoHintTrimmed);
-                const geo = {
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    locale: typeof navigator !== "undefined" ? navigator.language : undefined,
-                    hint, // always present
-                };
+                const geo = parseGeoHintToStructured(hint);
 
                 onConfirm({ tags, geo, remark: safeTagValue(remark) || "" });
             }}
@@ -594,15 +590,13 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
               const v = safeTagValue(tagValue);
               const tags = k && v ? { [k]: v } : {};
               const geoHintTrimmed = String(geoHint || "").trim();
-                if (!geoHintTrimmed) {
-                // keep modal open; show inline error (already shown)
+
+              // ✅ Only require geo hint if we are publishing a snapshot
+              if (saveSnapshot && !geoHintTrimmed) {
                 return;
               }
-              const geo = {
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                locale: typeof navigator !== "undefined" ? navigator.language : undefined,
-                hint: safeTagValue(geoHintTrimmed), // ✅ guaranteed
-              };
+
+              const geo = saveSnapshot ? parseGeoHintToStructured(geoHintTrimmed) : null;
 
               onConfirm({ saveSnapshot, tags, geo, remark: safeTagValue(remark) || "" });
             }}
@@ -616,6 +610,38 @@ function ConfirmResetModal({ open, onClose, onConfirm, defaultChecked = true, bu
     </div>
   );
 }
+
+function parseGeoHintToStructured(hintRaw) {
+  const hint = String(hintRaw || "").trim();
+  if (!hint) return null;
+
+  // Very lightweight parsing for Phase 3:
+  // "Seattle, US" → city="Seattle", country="US"
+  // "Pune, Maharashtra, IN" → city="Pune", region="Maharashtra", country="IN"
+  const parts = hint.split(",").map((p) => p.trim()).filter(Boolean);
+
+  const city = parts[0] || null;
+  const region = parts.length >= 3 ? parts[1] : null;
+  const country = parts.length >= 2 ? parts[parts.length - 1] : null;
+
+  // Phase 3: countryCode is best-effort (if user typed "US"/"IN" etc)
+  const countryCode =
+    country && /^[A-Za-z]{2}$/.test(country) ? country.toUpperCase() : null;
+
+  return {
+    hint,
+    city,
+    region,
+    country,
+    countryCode,
+    lat: null,
+    lng: null,
+    source: "manual", // important for Phase 4/5
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    locale: typeof navigator !== "undefined" ? navigator.language : undefined,
+  };
+}
+
 
 export default function AdminAnalytics() {
   const pv = useMemo(() => readBuildProfileVersion(), []);
@@ -684,11 +710,6 @@ export default function AdminAnalytics() {
       setPublishing(true);
 
       try {
-        // ✅ Analytics requires geo hint (must be present in S3 metadata too)
-        const geoHint = String(geo?.hint || "").trim();
-        if (!geoHint) {
-          throw new Error("Geo hint is required to publish an Analytics snapshot.");
-        }
 
         // Build snapshot at publish-time so it captures tags/geo/profileVersion accurately
         const snap = buildAnalyticsSnapshot({
@@ -707,6 +728,12 @@ export default function AdminAnalytics() {
         // 1) Ask API for presigned PUT url + key
         const pvNow = readBuildProfileVersion();
 
+        const geoHint = String(geo?.hint || "").trim();
+        if (!geoHint) {
+          throw new Error("Geo hint is required to publish an Analytics snapshot.");
+        }
+        const geoJson = geo ? JSON.stringify(geo) : "";
+
         const { key, url } = await presignPutSnapshot({
             from,
             to,
@@ -719,7 +746,8 @@ export default function AdminAnalytics() {
             gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
             checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
             remark: String(remark || "").trim(),
-            geoHint: String(geo?.hint || "").trim(),
+            geoHint,
+            geoJson,
         });
 
         // 1) Upload JSON first (no meta headers)
@@ -736,7 +764,8 @@ export default function AdminAnalytics() {
                 gitSha: nonEmptyOrUnknown(pvNow?.gitSha),
                 checkpointTag: nonEmptyOrUnknown(pvNow?.repo?.checkpointTag),
                 remark: String(remark || "").trim(),
-                geoHint: String(geo?.hint || "").trim(),
+                geoHint,
+                geoJson,
             },
         });
 
@@ -750,6 +779,14 @@ export default function AdminAnalytics() {
     },
     [events, overview, granularity, series, firstTrackedTs]
   );
+
+  const refreshEvents = useCallback(() => {
+    // Always read from storage again (authoritative)
+    const latest = getAllEvents();
+
+    // Force a new array identity even if underlying array reference is same-ish
+    setEvents(Array.isArray(latest) ? [...latest] : []);
+  }, []);
 
   // For local download (no tags prompt needed)
   const snapshotForDownload = useMemo(() => {
@@ -816,6 +853,14 @@ export default function AdminAnalytics() {
           subtitle="Quick health check across sessions and engagement"
           action={
             <div className="flex items-center gap-2">
+              <SmallActionButton
+                onClick={refreshEvents}
+                title="Reload events from local storage"
+                disabled={publishing}
+              >
+                Refresh
+              </SmallActionButton>
+
               <SmallActionButton
                 onClick={() => setPublishOptionsOpen(true)}
                 title="Optional tag/geo hint → uploads snapshot to S3 via presigned URL"
@@ -935,14 +980,7 @@ export default function AdminAnalytics() {
             subtitle="Local summary (last 20)"
             action={
                 <div className="flex items-center gap-2">
-                <SmallActionButton
-                    onClick={() => setEvents(getAllEvents())}
-                    title="Reload events from local storage"
-                >
-                    Refresh
-                </SmallActionButton>
-
-                <SmallActionButton
+                {/* <SmallActionButton
                     variant="danger"
                     title={confirmClear ? "Click again to confirm" : "Clear all analytics stored in this browser"}
                     onClick={() => {
@@ -957,7 +995,7 @@ export default function AdminAnalytics() {
                     }}
                 >
                     {confirmClear ? "Confirm clear" : "Clear data"}
-                </SmallActionButton>
+                </SmallActionButton> */}
                 </div>
             }
             actionBelow={
@@ -1040,12 +1078,22 @@ export default function AdminAnalytics() {
         busy={publishing}
         onClose={() => setResetOpen(false)}
         onConfirm={async ({ saveSnapshot, tags, geo, remark }) => {
-            if (saveSnapshot) {
+            // ✅ Immediately reflect reset in UI
+            setEvents([]);
+
+            try {
+                if (saveSnapshot) {
                 await publishSnapshotToS3({ tags, geo, remark });
+                }
+            } finally {
+                // ✅ Always clear local analytics even if publish was skipped
+                resetAnalytics();
+
+                // ✅ Re-read local storage (should now be empty)
+                setEvents(getAllEvents());
+
+                setResetOpen(false);
             }
-            resetAnalytics();
-            setEvents(getAllEvents());
-            setResetOpen(false);
         }}
       />
     </section>

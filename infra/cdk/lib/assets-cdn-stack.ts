@@ -31,6 +31,24 @@ export class AssetsCdnStack extends cdk.Stack {
       autoDeleteObjects: false,
     });
 
+    // ✅ 1b) Public S3 bucket for geo dataset (Option A)
+    const geoBucket = new s3.Bucket(this, "GeoDatasetBucket", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // ✅ private
+      enforceSSL: true,
+      versioned: true,
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: ["*"],
+          allowedHeaders: ["*"],
+          maxAge: 86400,
+        },
+      ],
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      autoDeleteObjects: false,
+    });
+
+
     // 2) CloudFront OAI (compatible across CDK versions)
     // const oai = new cloudfront.OriginAccessIdentity(this, 'OAI', {
     //   comment: 'OAI for tejas-profile heavy assets',
@@ -59,6 +77,18 @@ export class AssetsCdnStack extends cdk.Stack {
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         compress: true,
       },
+
+      // ✅ Route /geo/* to the separate geo dataset bucket
+      additionalBehaviors: {
+        "geo/*": {
+          origin: S3BucketOrigin.withOriginAccessControl(geoBucket),
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+          cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+          compress: true,
+        },
+      },
+
       defaultRootObject: "",
       comment: "CDN for tejas-profile heavy assets",
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
@@ -90,16 +120,32 @@ export class AssetsCdnStack extends cdk.Stack {
         resources: [bucket.bucketArn],
       })
     );
+
     ghRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:PutObjectAcl'],
         resources: [bucket.arnForObjects('*')],
       })
     );
+
     ghRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['cloudfront:CreateInvalidation'],
         resources: ['*'], // CloudFront invalidation doesn’t support resource ARNs
+      })
+    );
+
+    ghRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [geoBucket.bucketArn],
+      })
+    );
+
+    ghRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:PutObjectAcl"],
+        resources: [geoBucket.arnForObjects("*")],
       })
     );
 
@@ -108,5 +154,9 @@ export class AssetsCdnStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
     new cdk.CfnOutput(this, 'CdnUrl', { value: `https://${distribution.distributionDomainName}` });
     new cdk.CfnOutput(this, 'GithubRoleArn', { value: ghRole.roleArn });
+    new cdk.CfnOutput(this, "GeoBucketName", { value: geoBucket.bucketName });
+    new cdk.CfnOutput(this, "GeoDatasetUrl", {
+      value: `https://${distribution.distributionDomainName}/geo/major_cities.v1.json`,
+    });
   }
 }

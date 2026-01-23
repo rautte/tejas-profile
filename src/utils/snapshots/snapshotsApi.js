@@ -9,10 +9,6 @@ function mustHaveApi() {
   return API.replace(/\/$/, "");
 }
 
-// function ownerToken() {
-//   return process.env.REACT_APP_OWNER_SECRET || "";
-// }
-
 function isOwnerEnabled() {
   try {
     return sessionStorage.getItem(OWNER_SESSION_KEY) === "1";
@@ -39,7 +35,6 @@ function headers() {
   return h;
 }
 
-
 // -----------------------------
 // Snapshots (JSON)
 // -----------------------------
@@ -58,6 +53,7 @@ export async function presignPutSnapshot({
   repoArtifactSha256,
   remark,
   geoHint,
+  geoJson, // ✅ Phase-3: structured geo JSON (string or object)
 }) {
   const base = mustHaveApi();
 
@@ -79,25 +75,45 @@ export async function presignPutSnapshot({
       repoArtifactSha256,
       remark,
       geoHint,
+
+      // ✅ Phase-3: send geoJson too (backend can persist this as metadata)
+      // allow either object or string
+      geoJson:
+        geoJson && typeof geoJson === "object"
+          ? JSON.stringify(geoJson)
+          : geoJson || "",
     }),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.error || "presign-put failed");
   return json;
 }
 
+/**
+ * NOTE:
+ * This assumes you have a backend route:
+ *   POST {API}/snapshots/commit-meta
+ * If you don't yet, this will 404 until you add it in snapshots-handler.ts + stack routes.
+ */
 export async function commitSnapshotMeta({ key, meta }) {
+  if (!key) throw new Error("commitSnapshotMeta: key is required");
+  if (!meta || typeof meta !== "object")
+    throw new Error("commitSnapshotMeta: meta is required");
+
   const base = mustHaveApi();
 
   const res = await fetch(`${base}/snapshots/commit-meta`, {
     method: "POST",
-    headers: headers(),
+    headers: headers(), // ✅ keep owner auth consistent
     body: JSON.stringify({ key, meta }),
   });
 
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.ok) throw new Error(json.error || "commit-meta failed");
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || `commitSnapshotMeta failed (${res.status})`);
+  }
+
   return json;
 }
 
@@ -132,7 +148,6 @@ export async function uploadSnapshotToS3(url, snapshotObject) {
   }
 }
 
-
 export async function listSnapshots({ name } = {}) {
   const base = mustHaveApi();
 
@@ -144,11 +159,10 @@ export async function listSnapshots({ name } = {}) {
     : `${base}/snapshots/list`;
 
   const res = await fetch(url, { headers: headers() });
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.error || "list failed");
   return json.items;
 }
-
 
 export async function listTrashSnapshots({ name } = {}) {
   const base = mustHaveApi();
@@ -160,11 +174,10 @@ export async function listTrashSnapshots({ name } = {}) {
     headers: headers(),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.error || "list trash failed");
   return json.items;
 }
-
 
 export async function presignGetSnapshot(key) {
   const base = mustHaveApi();
@@ -174,7 +187,7 @@ export async function presignGetSnapshot(key) {
     headers: headers(),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.error || "presign-get failed");
   return json.url;
 }
@@ -195,7 +208,7 @@ export async function deleteSnapshot(key) {
     body: JSON.stringify({ key }),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.error || "delete failed");
   return json;
 }
@@ -209,7 +222,7 @@ export async function restoreSnapshot(key) {
     body: JSON.stringify({ key }),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.ok) throw new Error(json.error || "restore failed");
   return json;
 }
@@ -235,13 +248,18 @@ export async function presignPutRepoZip({
     body: JSON.stringify({ profileVersion, checkpointTag, gitSha }),
   });
 
-  const json = await res.json();
-  if (!res.ok || !json.ok) throw new Error(json.error || "repo presign-put failed");
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.ok)
+    throw new Error(json.error || "repo presign-put failed");
   return json; // { key, url, contentType }
 }
 
 // Upload file/blob to presigned S3 url
-export async function uploadRepoZipToS3(url, fileOrBlob, contentType = "application/zip") {
+export async function uploadRepoZipToS3(
+  url,
+  fileOrBlob,
+  contentType = "application/zip"
+) {
   const res = await fetch(url, {
     method: "PUT",
     headers: { "content-type": contentType },
@@ -303,6 +321,3 @@ export async function purgeSnapshot(key) {
   if (!res.ok || !json.ok) throw new Error(json.error || "purge failed");
   return json; // { ok:true, key, deleted }
 }
-
-
-
