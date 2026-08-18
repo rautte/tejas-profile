@@ -12,13 +12,6 @@ function isBackendDays(input) {
   );
 }
 
-function sumMapInto(target, src) {
-  if (!src || typeof src !== "object") return;
-  for (const [k, v] of Object.entries(src)) {
-    const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
-    target[k] = (target[k] || 0) + n;
-  }
-}
 
 function backendComputeOverview(days) {
   // We return the SAME SHAPE your UI already expects.
