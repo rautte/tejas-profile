@@ -7,9 +7,8 @@ import {
   GetItemCommand,
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
-import crypto from "crypto";
+import * as crypto from "node:crypto";
 
-console.log("RAW EVENT:", JSON.stringify(event));
 
 type APIGatewayV2Event = any;
 
@@ -232,78 +231,159 @@ function buildDelta(events: any[], countryCode: string | null) {
   return d;
 }
 
-function buildUpdateExpression(dayKey: string, pvKey: string, delta: AggDelta) {
-  // DynamoDB item:
-  // pk = DAY#YYYY-MM-DD
-  // sk = PV#<profileVersionId>
-  // metrics.* are maps
+function activeMetricMaps(delta: AggDelta) {
+  return [
+    { mapName: "sectionViews", map: delta.sectionViews, prefix: "sv" },
+    { mapName: "sectionTimeMs", map: delta.sectionTimeMs, prefix: "stm" },
+    { mapName: "ctaCounts", map: delta.ctaCounts, prefix: "cta" },
+    { mapName: "funnelSteps", map: delta.funnelSteps, prefix: "fnl" },
+    { mapName: "countrySessions", map: delta.countrySessions, prefix: "cty" },
+    { mapName: "deepLinks", map: delta.deepLinks, prefix: "dl" },
+    { mapName: "projectOpens", map: delta.projectOpens, prefix: "proj" },
+    { mapName: "snippetViews", map: delta.snippetViews, prefix: "snip" },
+  ].filter(({ map }) => Object.keys(map).length > 0);
+}
+
+function buildMetricsRootInit(dayKey: string, pvKey: string) {
+  return {
+    Key: marshall({
+      pk: dayKey,
+      sk: pvKey,
+    }),
+
+    ExpressionAttributeNames: {
+      "#metrics": "metrics",
+    },
+
+    ExpressionAttributeValues: marshall({
+      ":emptyMap": {},
+    }),
+
+    UpdateExpression:
+      "SET #metrics = if_not_exists(#metrics, :emptyMap)",
+  };
+}
+
+function buildMetricMapsInit(
+  dayKey: string,
+  pvKey: string,
+  delta: AggDelta
+) {
+  const maps = activeMetricMaps(delta);
+
+  if (!maps.length) {
+    return null;
+  }
+
   const exprNames: Record<string, string> = {
-    "#pk": "pk",
-    "#sk": "sk",
-    "#updatedAt": "updatedAt",
     "#metrics": "metrics",
   };
 
+  const sets: string[] = [];
+
+  for (const { mapName, prefix } of maps) {
+    exprNames[`#${prefix}`] = mapName;
+
+    sets.push(
+      `#metrics.#${prefix} = if_not_exists(#metrics.#${prefix}, :emptyMap)`
+    );
+  }
+
+  return {
+    Key: marshall({
+      pk: dayKey,
+      sk: pvKey,
+    }),
+
+    ExpressionAttributeNames: exprNames,
+
+    ExpressionAttributeValues: marshall({
+      ":emptyMap": {},
+    }),
+
+    UpdateExpression: `SET ${sets.join(", ")}`,
+  };
+}
+
+function buildUpdateExpression(
+  dayKey: string,
+  pvKey: string,
+  delta: AggDelta
+) {
+  const exprNames: Record<string, string> = {
+    "#updatedAt": "updatedAt",
+  };
+
   const exprValues: Record<string, any> = {
-    ":zero": 0,
     ":now": nowIso(),
   };
 
-  const sets: string[] = [];
+  const sets: string[] = [
+    "#updatedAt = :now",
+  ];
+
   const adds: string[] = [];
 
-  sets.push("#updatedAt = :now");
-
-  // numeric top-level sessionCount
+  // -----------------------------
+  // Session count
+  // -----------------------------
   if (delta.sessionCount) {
     exprNames["#sessionCount"] = "sessionCount";
-    exprValues[":sc"] = delta.sessionCount;
-    adds.push("#sessionCount :sc");
+    exprValues[":sessionCountInc"] = delta.sessionCount;
+
+    adds.push("#sessionCount :sessionCountInc");
   }
 
-  function mapAdds(mapName: string, map: IncMap, prefix: string) {
-    if (!Object.keys(map).length) return;
+  // -----------------------------
+  // Nested metric counters
+  // -----------------------------
+  const maps = activeMetricMaps(delta);
 
+  if (maps.length) {
+    exprNames["#metrics"] = "metrics";
+    exprValues[":zero"] = 0;
+  }
+
+  for (const { mapName, map, prefix } of maps) {
     exprNames[`#${prefix}`] = mapName;
-    // ensure metrics exists
-    // We store these maps under metrics.<mapName>
-    for (const [k, v] of Object.entries(map)) {
-      const nk = `#${prefix}_${sha256(k).slice(0, 10)}`; // stable safe name
-      const vk = `:${prefix}_${sha256(k).slice(0, 10)}`;
 
-      exprNames[nk] = k;
-      exprValues[vk] = v;
+    for (const [key, value] of Object.entries(map)) {
+      const hash = sha256(key).slice(0, 10);
 
-      // ADD on map keys is not supported directly.
-      // We do SET metrics.map.key = if_not_exists(...,0) + :inc
+      const keyName = `#${prefix}_${hash}`;
+      const valueName = `:${prefix}_${hash}`;
+
+      exprNames[keyName] = key;
+      exprValues[valueName] = value;
+
       sets.push(
-        `#metrics.#${prefix}.${nk} = if_not_exists(#metrics.#${prefix}.${nk}, :zero) + ${vk}`
+        `#metrics.#${prefix}.${keyName} = ` +
+        `if_not_exists(#metrics.#${prefix}.${keyName}, :zero) + ${valueName}`
       );
     }
   }
 
-  mapAdds("sectionViews", delta.sectionViews, "sv");
-  mapAdds("sectionTimeMs", delta.sectionTimeMs, "stm");
-  mapAdds("ctaCounts", delta.ctaCounts, "cta");
-  mapAdds("funnelSteps", delta.funnelSteps, "fnl");
-  mapAdds("countrySessions", delta.countrySessions, "cty");
-  mapAdds("deepLinks", delta.deepLinks, "dl");
-  mapAdds("projectOpens", delta.projectOpens, "proj");
-  mapAdds("snippetViews", delta.snippetViews, "snip");
+  const parts: string[] = [];
 
-  // Ensure metrics map exists
-  exprValues[":emptyMap"] = {};
-  sets.unshift("#metrics = if_not_exists(#metrics, :emptyMap)");
+  if (sets.length) {
+    parts.push(`SET ${sets.join(", ")}`);
+  }
 
-  const updateExpressionParts: string[] = [];
-  if (sets.length) updateExpressionParts.push(`SET ${sets.join(", ")}`);
-  if (adds.length) updateExpressionParts.push(`ADD ${adds.join(", ")}`);
+  if (adds.length) {
+    parts.push(`ADD ${adds.join(", ")}`);
+  }
 
   return {
-    Key: marshall({ pk: dayKey, sk: pvKey }),
+    Key: marshall({
+      pk: dayKey,
+      sk: pvKey,
+    }),
+
     ExpressionAttributeNames: exprNames,
+
     ExpressionAttributeValues: marshall(exprValues),
-    UpdateExpression: updateExpressionParts.join(" "),
+
+    UpdateExpression: parts.join(" "),
   };
 }
 
@@ -411,7 +491,47 @@ async function handleIngest(event: APIGatewayV2Event) {
 
     // Write aggregate to DynamoDB
     if (ANALYTICS_TABLE) {
-      const update = buildUpdateExpression(dayKey, pvKey, delta);
+      const maps = activeMetricMaps(delta);
+
+      // DynamoDB cannot safely initialize a parent map and update
+      // nested children of that same map in one UpdateExpression.
+      //
+      // Therefore:
+      // 1. ensure metrics exists
+      // 2. ensure required child metric maps exist
+      // 3. atomically increment actual counters
+
+      if (maps.length) {
+        const rootInit = buildMetricsRootInit(dayKey, pvKey);
+
+        await ddb.send(
+          new UpdateItemCommand({
+            TableName: ANALYTICS_TABLE,
+            ...rootInit,
+          })
+        );
+
+        const mapInit = buildMetricMapsInit(
+          dayKey,
+          pvKey,
+          delta
+        );
+
+        if (mapInit) {
+          await ddb.send(
+            new UpdateItemCommand({
+              TableName: ANALYTICS_TABLE,
+              ...mapInit,
+            })
+          );
+        }
+      }
+
+      const update = buildUpdateExpression(
+        dayKey,
+        pvKey,
+        delta
+      );
 
       await ddb.send(
         new UpdateItemCommand({

@@ -5,8 +5,9 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "lib": ["ES2020"],
-    "outDir": "dist",
+    "types": ["node"],
 
+    "outDir": "dist",
     "declaration": true,
     "strict": true,
     "noImplicitAny": true,
