@@ -12,7 +12,6 @@ function isBackendDays(input) {
   );
 }
 
-
 function backendComputeOverview(days) {
   // We return the SAME SHAPE your UI already expects.
   const sectionViews = new Map();
