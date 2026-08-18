@@ -1,5 +1,93 @@
 // src/utils/analytics/aggregations.js
 
+function isBackendDays(input) {
+  // backend query returns: [{ day: "YYYY-MM-DD", sessionCount: number, metrics: object }]
+  return (
+    Array.isArray(input) &&
+    (input.length === 0 ||
+      (input[0] &&
+        typeof input[0] === "object" &&
+        typeof input[0].day === "string" &&
+        "metrics" in input[0]))
+  );
+}
+
+function sumMapInto(target, src) {
+  if (!src || typeof src !== "object") return;
+  for (const [k, v] of Object.entries(src)) {
+    const n = typeof v === "number" && Number.isFinite(v) ? v : 0;
+    target[k] = (target[k] || 0) + n;
+  }
+}
+
+function backendComputeOverview(days) {
+  // We return the SAME SHAPE your UI already expects.
+  const sectionViews = new Map();
+  const sectionTimeMs = new Map();
+  const sectionMaxScroll = new Map(); // not available from backend; keep empty
+  let sessionCount = 0;
+
+  // backend stores: metrics.sectionViews, metrics.sectionTimeMs, etc.
+  for (const d of days || []) {
+    sessionCount += Number(d?.sessionCount || 0) || 0;
+
+    const m = d?.metrics || {};
+    const sv = m.sectionViews || {};
+    const stm = m.sectionTimeMs || {};
+
+    for (const [section, count] of Object.entries(sv)) {
+      const n = Number(count || 0) || 0;
+      sectionViews.set(section, (sectionViews.get(section) ?? 0) + n);
+    }
+
+    for (const [section, ms] of Object.entries(stm)) {
+      const n = Number(ms || 0) || 0;
+      sectionTimeMs.set(section, (sectionTimeMs.get(section) ?? 0) + n);
+    }
+  }
+
+  const totalSectionViews = [...sectionViews.values()].reduce((a, b) => a + b, 0);
+  const avgSectionsPerSession = sessionCount ? totalSectionViews / sessionCount : 0;
+
+  const topSection =
+    [...sectionViews.entries()].sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]?.[0] ?? null;
+
+  return {
+    sessionCount,
+    avgSessionMs: 0, // backend does not track session durations in aggregates
+    avgSectionsPerSession,
+    sectionViews: [...sectionViews.entries()].map(([section, value]) => ({ section, value })),
+    sectionTimeMs: [...sectionTimeMs.entries()].map(([section, value]) => ({ section, value })),
+    sectionMaxScroll: [...sectionMaxScroll.entries()].map(([section, value]) => ({ section, value })),
+    topSection,
+  };
+}
+
+function backendComputeTimeSeries(days, granularity = "day") {
+  // Your backend already aggregates by DAY.
+  // For month/year UI, we roll up here safely.
+  const bucket = new Map(); // key -> sum sessionCount
+
+  function bucketKey(dayStr) {
+    // dayStr "YYYY-MM-DD"
+    if (granularity === "year") return dayStr.slice(0, 4);
+    if (granularity === "month") return dayStr.slice(0, 7);
+    return dayStr;
+  }
+
+  for (const d of days || []) {
+    const day = String(d?.day || "").trim();
+    if (!day) continue;
+    const k = bucketKey(day);
+    const sc = Number(d?.sessionCount || 0) || 0;
+    bucket.set(k, (bucket.get(k) ?? 0) + sc);
+  }
+
+  return [...bucket.entries()]
+    .map(([k, v]) => ({ key: k, value: v }))
+    .sort((a, b) => (a.key < b.key ? -1 : 1));
+}
+
 function dayKey(ts) {
   const d = new Date(ts);
   const y = d.getFullYear();
@@ -19,7 +107,12 @@ function yearKey(ts) {
   return String(new Date(ts).getFullYear());
 }
 
-export function computeOverview(events) {
+export function computeOverview(eventsOrDays) {
+  if (isBackendDays(eventsOrDays)) {
+    return backendComputeOverview(eventsOrDays);
+  }
+
+  const events = eventsOrDays; // existing path
   const sessions = new Set();
   const sessionsStart = new Map(); // sessionId -> ts
   const sessionsEnd = new Map();   // sessionId -> ts
@@ -88,7 +181,12 @@ export function computeOverview(events) {
   };
 }
 
-export function computeTimeSeries(events, granularity = "day") {
+export function computeTimeSeries(eventsOrDays, granularity = "day") {
+  if (isBackendDays(eventsOrDays)) {
+    return backendComputeTimeSeries(eventsOrDays, granularity);
+  }
+
+  const events = eventsOrDays; // existing path
   const keyFn = granularity === "year" ? yearKey : granularity === "month" ? monthKey : dayKey;
 
   // count unique sessions by bucket (session_start is best anchor)
@@ -110,7 +208,13 @@ export function computeTimeSeries(events, granularity = "day") {
   return points;
 }
 
-export function computeRecentSessions(events, limit = 20) {
+export function computeRecentSessions(eventsOrDays, limit = 20) {
+  if (isBackendDays(eventsOrDays)) {
+    // backend aggregates don’t include per-session timelines
+    return [];
+  }
+
+  const events = eventsOrDays; // existing path
   // Build per-session stats from section_time + section_view
   const bySession = new Map();
 

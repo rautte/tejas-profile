@@ -302,6 +302,13 @@ function App() {
     [setIsOwner]
   );
 
+  useEffect(() => {
+    analyticsInit();
+    const onUnload = () => flushAndClose();
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
+
 
   // ------------------------------
   // Analytics: delegated click tracking (opt-in via data-analytics attr)

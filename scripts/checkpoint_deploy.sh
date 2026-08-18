@@ -92,7 +92,7 @@ CHECKPOINT_TAG="checkpoint-$(date +%Y-%m-%d_%H-%M-%S)"
 ORIGIN_URL="$(git remote get-url origin)"
 REPO_SLUG="$(echo "$ORIGIN_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
 
-ENV_FILE=".env.local"
+ENV_FILE=".env.production.local"
 TMP_FILE="$(mktemp)"
 
 # If file exists, remove ONLY the keys we manage, keep everything else

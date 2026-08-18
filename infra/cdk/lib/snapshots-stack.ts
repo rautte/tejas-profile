@@ -7,6 +7,7 @@ import { Construct } from "constructs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodeLambda from "aws-cdk-lib/aws-lambda-nodejs";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigwv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -87,6 +88,22 @@ export class SnapshotsStack extends cdk.Stack {
         // ],
     });
 
+    const analyticsEventsBucket = new s3.Bucket(this, "AnalyticsEventsBucket", {
+        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+        encryption: s3.BucketEncryption.S3_MANAGED,
+        enforceSSL: true,
+        removalPolicy: props.stage === "prod" ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+        autoDeleteObjects: props.stage === "prod" ? false : true,
+
+        lifecycleRules: [
+            {
+            enabled: true,
+            expiration: cdk.Duration.days(30), // ✅ raw retention 30 days
+            prefix: "analytics-events/",
+            },
+        ],
+    });
+
     // -----------------------------
     // Lambda (API) - presigns URLs + lists + soft deletes
     // -----------------------------
@@ -119,6 +136,30 @@ export class SnapshotsStack extends cdk.Stack {
         // ✅ ONLY set if present (prevents wiping prod)
         ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
       },
+    });
+
+    const analyticsTable = new dynamodb.Table(this, "AnalyticsDailyAggTable", {
+        partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING }, // DAY#YYYY-MM-DD
+        sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },      // PV#<profileVersionId>
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        removalPolicy: props.stage === "prod" ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+
+    const analyticsFn = new nodeLambda.NodejsFunction(this, "AnalyticsApiHandler", {
+        runtime: lambda.Runtime.NODEJS_18_X,
+        entry: "lambda/analytics-handler.ts",
+        handler: "handler",
+        memorySize: 256,
+        timeout: cdk.Duration.seconds(12),
+        bundling: { minify: true, target: "node18" },
+        environment: {
+            ANALYTICS_EVENTS_BUCKET: analyticsEventsBucket.bucketName,
+            ANALYTICS_TABLE: analyticsTable.tableName,
+
+            OWNER_TOKEN: props.ownerToken,
+            ALLOWED_ORIGINS: allowedOrigins.join(","),
+            STAGE: props.stage,
+        },
     });
 
     // -----------------------------
@@ -207,6 +248,9 @@ export class SnapshotsStack extends cdk.Stack {
     })
     );
 
+    analyticsEventsBucket.grantPut(analyticsFn, "analytics-events/*");
+    analyticsTable.grantReadWriteData(analyticsFn);
+
 
     // -----------------------------
     // GitHub Actions deployer role access (repo zip uploads)
@@ -252,6 +296,11 @@ export class SnapshotsStack extends cdk.Stack {
     const integration = new apigwv2Integrations.HttpLambdaIntegration(
       "SnapshotsLambdaIntegration",
       fn
+    );
+
+    const analyticsIntegration = new apigwv2Integrations.HttpLambdaIntegration(
+        "AnalyticsLambdaIntegration",
+        analyticsFn
     );
 
     httpApi.addRoutes({
@@ -325,6 +374,18 @@ export class SnapshotsStack extends cdk.Stack {
         path: "/snapshots/commit-meta",
         methods: [apigwv2.HttpMethod.POST],
         integration,
+    });
+
+    httpApi.addRoutes({
+        path: "/analytics/ingest",
+        methods: [apigwv2.HttpMethod.POST],
+        integration: analyticsIntegration,
+    });
+
+    httpApi.addRoutes({
+        path: "/analytics/query",
+        methods: [apigwv2.HttpMethod.GET],
+        integration: analyticsIntegration,
     });
 
     new cdk.CfnOutput(this, "SnapshotsApiUrl", { value: httpApi.apiEndpoint });

@@ -25,6 +25,8 @@ import {
   commitSnapshotMeta,
 } from "../../utils/snapshots/snapshotsApi";
 
+import { queryAnalyticsDays } from "../../utils/analytics/analyticsApi";
+
 
 // -----------------------------
 // Small helpers
@@ -804,6 +806,14 @@ export default function AdminAnalytics() {
   const [events, setEvents] = useState(() => getAllEvents());
   const [resetOpen, setResetOpen] = useState(false);
 
+  // -----------------------------
+  // Live mode (backend aggregated days)
+  // -----------------------------
+  const [liveMode, setLiveMode] = useState(false);
+  const [liveDays, setLiveDays] = useState([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveErr, setLiveErr] = useState("");
+
   const [publishing, setPublishing] = useState(false);
   const [publishErr, setPublishErr] = useState("");
   const [publishOk, setPublishOk] = useState("");
@@ -814,6 +824,36 @@ export default function AdminAnalytics() {
   useEffect(() => {
     return () => setConfirmClear(false);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLive() {
+      if (!liveMode) return;
+
+      setLiveErr("");
+      setLiveLoading(true);
+
+      try {
+        const pvNow = readBuildProfileVersion();
+        const pvId = String(pvNow?.id || "unknown");
+
+        // Optional: you can pass from/to later (phase-2 filters)
+        const days = await queryAnalyticsDays({ profileVersionId: pvId });
+
+        if (!cancelled) setLiveDays(Array.isArray(days) ? days : []);
+      } catch (e) {
+        if (!cancelled) setLiveErr(String(e?.message || e));
+      } finally {
+        if (!cancelled) setLiveLoading(false);
+      }
+    }
+
+    loadLive();
+    return () => {
+      cancelled = true;
+    };
+  }, [liveMode]);
 
   const firstTrackedTs = useMemo(() => {
     if (!events?.length) return null;
@@ -841,11 +881,14 @@ export default function AdminAnalytics() {
 
   const fromLabel = useMemo(() => formatFromDate(firstTrackedTs), [firstTrackedTs]);
 
-  const overview = useMemo(() => computeOverview(events), [events]);
+  // ✅ Unified input: local events OR backend days
+  const input = liveMode ? liveDays : events;
+
+  const overview = useMemo(() => computeOverview(input), [input]);
 
   const series = useMemo(
-    () => computeTimeSeries(events, granularity),
-    [events, granularity]
+    () => computeTimeSeries(input, granularity),
+    [input, granularity]
   );
 
   const sectionViewsRanked = useMemo(() => {
@@ -856,7 +899,7 @@ export default function AdminAnalytics() {
     return [...(overview.sectionTimeMs || [])].sort((a, b) => b.value - a.value);
   }, [overview.sectionTimeMs]);
 
-  const recentSessions = useMemo(() => computeRecentSessions(events, 20), [events]);
+  const recentSessions = useMemo(() => computeRecentSessions(input, 20), [input]);
 
   const publishSnapshotToS3 = useCallback(
     async ({ tags = {}, geo = null, remark = "" } = {}) => {
@@ -968,6 +1011,20 @@ export default function AdminAnalytics() {
           Use this to validate which sections visitors engage with most, and where attention drops off.
         </p>
 
+        {liveMode ? (
+          <div className="px-6">
+            {liveLoading ? (
+              <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                Loading backend analytics…
+              </div>
+            ) : liveErr ? (
+              <div className="rounded-xl border border-red-300/60 dark:border-red-500/40 bg-red-50/60 dark:bg-red-950/30 px-4 py-3 text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap break-words">
+                Live analytics failed: {liveErr}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {publishErr ? (
           <div className="px-6">
             <div className="rounded-xl border border-red-300/60 dark:border-red-500/40 bg-red-50/60 dark:bg-red-950/30 px-4 py-3 text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap break-words">
@@ -1009,8 +1066,24 @@ export default function AdminAnalytics() {
           action={
             <div className="flex items-center gap-2">
               <SmallActionButton
-                onClick={refreshEvents}
-                title="Reload events from local storage"
+                onClick={() => setLiveMode((v) => !v)}
+                title={liveMode ? "Using backend aggregated metrics" : "Using local browser events"}
+                disabled={publishing}
+              >
+                {liveMode ? "Live (Backend)" : "Local (Browser)"}
+              </SmallActionButton>
+
+              <SmallActionButton
+                onClick={() => {
+                  if (liveMode) {
+                    // trigger re-fetch by toggling liveMode off/on quickly
+                    setLiveMode(false);
+                    window.setTimeout(() => setLiveMode(true), 0);
+                  } else {
+                    refreshEvents();
+                  }
+                }}
+                title={liveMode ? "Reload backend days" : "Reload events from local storage"}
                 disabled={publishing}
               >
                 Refresh
@@ -1058,7 +1131,11 @@ export default function AdminAnalytics() {
               sub="section views ÷ sessions"
             />
             <KpiCard title="Top section" value={overview.topSection ?? "—"} sub="by views" />
-            <KpiCard title="Events stored" value={events.length} sub="capped to avoid bloat" />
+            <KpiCard
+              title={liveMode ? "Days loaded" : "Events stored"}
+              value={liveMode ? liveDays.length : events.length}
+              sub={liveMode ? "aggregated by day (backend)" : "capped to avoid bloat"}
+            />
           </div>
         </SectionCard>
 
@@ -1196,7 +1273,9 @@ export default function AdminAnalytics() {
                 ) : (
                   <tr>
                     <td className="py-3 text-gray-600 dark:text-gray-400" colSpan={4}>
-                      No sessions yet.
+                      {liveMode
+                        ? "Recent sessions are not available in Live mode (backend aggregates are per-day). Switch to Local to see sessions."
+                        : "No sessions yet."}
                     </td>
                   </tr>
                 )}
