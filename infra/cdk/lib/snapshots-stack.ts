@@ -10,6 +10,9 @@ import * as nodeLambda from "aws-cdk-lib/aws-lambda-nodejs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigwv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as cloudfrontOrigins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as crypto from "node:crypto";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
@@ -27,6 +30,14 @@ export class SnapshotsStack extends cdk.Stack {
 
     // const allowedOrigins = ["http://localhost:3000", "https://rautte.github.io"];
     const allowedOrigins = props.allowedOrigins;
+
+    const analyticsEdgeToken =
+      crypto
+        .createHash("sha256")
+        .update(
+          `analytics-edge:${props.stage}:${props.ownerToken}`
+        )
+        .digest("hex");
 
     const githubTokenSecretName =
       `tejas-profile/${props.stage}/github-token`;
@@ -168,6 +179,7 @@ export class SnapshotsStack extends cdk.Stack {
             ANALYTICS_TABLE: analyticsTable.tableName,
 
             OWNER_TOKEN: props.ownerToken,
+            ANALYTICS_EDGE_TOKEN: analyticsEdgeToken,
             ALLOWED_ORIGINS: allowedOrigins.join(","),
             STAGE: props.stage,
         },
@@ -401,8 +413,79 @@ export class SnapshotsStack extends cdk.Stack {
         integration: analyticsIntegration,
     });
 
+    const httpApiDomain =
+      cdk.Fn.select(
+        2,
+        cdk.Fn.split(
+          "/",
+          httpApi.apiEndpoint
+        )
+      );
+
+    const analyticsEdgeOrigin =
+      new cloudfrontOrigins.HttpOrigin(
+        httpApiDomain,
+        {
+          protocolPolicy:
+            cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+
+          customHeaders: {
+            "x-analytics-edge-token":
+              analyticsEdgeToken,
+          },
+        }
+      );
+
+    const analyticsEdge =
+      new cloudfront.Distribution(
+        this,
+        "AnalyticsEdgeDistribution",
+        {
+          comment:
+            `tejas-profile-${props.stage}-analytics-edge`,
+
+          defaultBehavior: {
+            origin:
+              analyticsEdgeOrigin,
+
+            viewerProtocolPolicy:
+              cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+
+            allowedMethods:
+              cloudfront.AllowedMethods.ALLOW_ALL,
+
+            cachePolicy:
+              cloudfront.CachePolicy.CACHING_DISABLED,
+
+            originRequestPolicy:
+              cloudfront.OriginRequestPolicy
+                .ALL_VIEWER_EXCEPT_HOST_HEADER,
+
+            compress: false,
+          },
+        }
+      );
+
     new cdk.CfnOutput(this, "SnapshotsApiUrl", { value: httpApi.apiEndpoint });
     new cdk.CfnOutput(this, "SnapshotsBucketName", { value: snapshotsBucket.bucketName });
     new cdk.CfnOutput(this, "RepoBucketName", { value: repoBucket.bucketName });
+
+    new cdk.CfnOutput(
+      this,
+      "AnalyticsEdgeUrl",
+      {
+        value:
+          `https://${analyticsEdge.distributionDomainName}`,
+      }
+    );
+
+    new cdk.CfnOutput(
+      this,
+      "AnalyticsEventsBucketName",
+      {
+        value:
+          analyticsEventsBucket.bucketName,
+      }
+    );
   }
 }

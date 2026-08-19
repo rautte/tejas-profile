@@ -22,6 +22,7 @@ const {
   ANALYTICS_EVENTS_BUCKET = "",
   ANALYTICS_TABLE = "",
   OWNER_TOKEN = "",
+  ANALYTICS_EDGE_TOKEN = "",
   ALLOWED_ORIGINS = "",
   STAGE = "dev",
 } = process.env;
@@ -156,27 +157,109 @@ function isBot(headers: Record<string, string>) {
   return bad.some((b) => ua.includes(b));
 }
 
-function getClientIp(event: APIGatewayV2Event) {
-  // HTTP API v2: requestContext.http.sourceIp
-  const ip = event?.requestContext?.http?.sourceIp;
-  return ip ? String(ip) : "";
+
+function decodeGeoHeader(
+  value: any,
+  max = 120
+) {
+  const raw =
+    safeStr(
+      value,
+      max * 3
+    );
+
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    return safeStr(
+      decodeURIComponent(raw),
+      max
+    );
+  } catch {
+    return safeStr(
+      raw,
+      max
+    );
+  }
 }
 
-function getGeoFromHeaders(headers: Record<string, string>) {
-  // Prefer CloudFront headers if you later put API behind CloudFront
-  // (or Cloudflare if you ever do)
-  const country =
-    headers["cloudfront-viewer-country"] ||
-    headers["CloudFront-Viewer-Country"] ||
-    headers["cf-ipcountry"] ||
-    headers["CF-IPCountry"] ||
-    "";
+function getGeoFromHeaders(
+  headers:
+    Record<string, string>
+) {
+  const edgeToken =
+    safeStr(
+      headers[
+        "x-analytics-edge-token"
+      ] ||
+      headers[
+        "X-Analytics-Edge-Token"
+      ],
+      128
+    );
 
-  // Region/city typically require paid geo DB or edge enrichment; keep null for now.
+  // Never trust CloudFront-looking headers
+  // from a direct API Gateway request.
+  if (
+    !ANALYTICS_EDGE_TOKEN ||
+    edgeToken !==
+      ANALYTICS_EDGE_TOKEN
+  ) {
+    return {
+      countryCode: null,
+      regionCode: null,
+      city: null,
+    };
+  }
+
+  const country =
+    safeStr(
+      headers[
+        "cloudfront-viewer-country"
+      ] ||
+      headers[
+        "CloudFront-Viewer-Country"
+      ],
+      2
+    ).toUpperCase();
+
+  const region =
+    safeStr(
+      headers[
+        "cloudfront-viewer-country-region"
+      ] ||
+      headers[
+        "CloudFront-Viewer-Country-Region"
+      ],
+      8
+    ).toUpperCase();
+
+  const city =
+    decodeGeoHeader(
+      headers[
+        "cloudfront-viewer-city"
+      ] ||
+      headers[
+        "CloudFront-Viewer-City"
+      ],
+      120
+    );
+
   return {
-    countryCode: country ? String(country).slice(0, 2).toUpperCase() : null,
-    region: null,
-    city: null,
+    countryCode:
+      /^[A-Z]{2}$/.test(
+        country
+      )
+        ? country
+        : null,
+
+    regionCode:
+      region || null,
+
+    city:
+      city || null,
   };
 }
 
@@ -420,9 +503,20 @@ function normalizeEvent(e: any) {
 
 function buildSessionFragmentInit(
   event: NonNullable<
-    ReturnType<typeof normalizeEvent>
+    ReturnType<
+      typeof normalizeEvent
+    >
   >,
-  countryCode: string | null
+  geo: {
+    countryCode:
+      string | null;
+
+    regionCode:
+      string | null;
+
+    city:
+      string | null;
+  }
 ) {
   const day = ymd(event.ts);
 
@@ -471,15 +565,45 @@ function buildSessionFragmentInit(
     "#metrics = if_not_exists(#metrics, :metrics)",
   ];
 
-  if (countryCode) {
+  if (geo.countryCode) {
     names["#countryCode"] =
       "countryCode";
 
     values[":countryCode"] =
-      countryCode;
+      geo.countryCode;
 
     sets.push(
-      "#countryCode = if_not_exists(#countryCode, :countryCode)"
+      "#countryCode = " +
+      "if_not_exists(" +
+      "#countryCode, :countryCode)"
+    );
+  }
+
+  if (geo.regionCode) {
+    names["#regionCode"] =
+      "regionCode";
+
+    values[":regionCode"] =
+      geo.regionCode;
+
+    sets.push(
+      "#regionCode = " +
+      "if_not_exists(" +
+      "#regionCode, :regionCode)"
+    );
+  }
+
+  if (geo.city) {
+    names["#city"] =
+      "city";
+
+    values[":city"] =
+      geo.city;
+
+    sets.push(
+      "#city = " +
+      "if_not_exists(" +
+      "#city, :city)"
     );
   }
 
@@ -719,9 +843,20 @@ function buildSessionEventUpdate(
 
 async function applyEventToSessionFragment(
   event: NonNullable<
-    ReturnType<typeof normalizeEvent>
+    ReturnType<
+      typeof normalizeEvent
+    >
   >,
-  countryCode: string | null
+  geo: {
+    countryCode:
+      string | null;
+
+    regionCode:
+      string | null;
+
+    city:
+      string | null;
+  }
 ) {
   if (!ANALYTICS_TABLE) {
     return {
@@ -733,7 +868,7 @@ async function applyEventToSessionFragment(
   const init =
     buildSessionFragmentInit(
       event,
-      countryCode
+      geo
     );
 
   await ddb.send(
@@ -776,15 +911,15 @@ async function applyEventToSessionFragment(
 }
 
 
-async function putRawBatchToS3(params: {
-  day: string;
-  profileVersionId: string;
-  owner: boolean;
-  ip?: string;
-  geo?: any;
-  headers?: any;
-  events: any[];
-}) {
+async function putRawBatchToS3(
+  params: {
+    day: string;
+    profileVersionId: string;
+    owner: boolean;
+    geo?: any;
+    events: any[];
+  }
+) {
   if (!ANALYTICS_EVENTS_BUCKET) return;
 
   const ts = Date.now();
@@ -796,18 +931,29 @@ async function putRawBatchToS3(params: {
     `${ts}-${crypto.randomBytes(6).toString("hex")}.json`,
   ].join("/");
 
-  const body = JSON.stringify({
-    schema: "tejas-profile.analytics.batch.v1",
-    receivedAt: nowIso(),
-    day: params.day,
-    profileVersionId: params.profileVersionId,
-    owner: params.owner,
-    ip: params.ip || null,
-    geo: params.geo || null,
-    // keep a tiny header subset only
-    ua: safeStr(params.headers?.["user-agent"] || params.headers?.["User-Agent"] || "", 400),
-    events: params.events,
-  });
+  const body =
+    JSON.stringify({
+      schema:
+        "tejas-profile.analytics.batch.v2",
+
+      receivedAt:
+        nowIso(),
+
+      day:
+        params.day,
+
+      profileVersionId:
+        params.profileVersionId,
+
+      owner:
+        params.owner,
+
+      geo:
+        params.geo || null,
+
+      events:
+        params.events,
+    });
 
   await s3.send(
     new PutObjectCommand({
@@ -848,7 +994,6 @@ async function handleIngest(event: APIGatewayV2Event) {
     };
   }
 
-  const ip = getClientIp(event);
   const geo = getGeoFromHeaders(headers);
 
   let payload: any = {};
@@ -983,7 +1128,7 @@ async function handleIngest(event: APIGatewayV2Event) {
     const result =
       await applyEventToSessionFragment(
         analyticsEvent,
-        geo.countryCode
+        geo
       );
 
     if (result.accepted) {
@@ -1047,16 +1192,12 @@ async function handleIngest(event: APIGatewayV2Event) {
 
         owner: false,
 
-        ip,
+        geo,
 
-        geo: {
-          ...geo,
-          ip: ip || null,
-        },
-
-        headers,
-
-        events: group.events,
+        events:
+          group.events.map(
+            rawEventForStorage
+          ),
       });
 
     rawBatches.push({
@@ -1091,6 +1232,58 @@ async function handleIngest(event: APIGatewayV2Event) {
     },
     cors
   );
+}
+
+function rawEventForStorage(
+  event: NonNullable<
+    ReturnType<
+      typeof normalizeEvent
+    >
+  >
+) {
+  return {
+    eventId:
+      event.eventId,
+
+    type:
+      event.type,
+
+    ts:
+      event.ts,
+
+    visitorHash:
+      event.visitorHash,
+
+    sessionHash:
+      event.sessionHash,
+
+    profileVersionId:
+      event.profileVersionId,
+
+    section:
+      event.section,
+
+    ctaId:
+      event.ctaId,
+
+    projectId:
+      event.projectId,
+
+    snippetId:
+      event.snippetId,
+
+    depthPct:
+      event.depthPct,
+
+    ms:
+      event.ms,
+
+    path:
+      event.path,
+
+    hash:
+      event.hash,
+  };
 }
 
 function isValidUtcDay(value: string) {
@@ -1805,6 +1998,30 @@ function aggregateSessionFragments(
         activeMs: number;
       }
     >();
+    
+
+  const cities =
+    new Map<
+      string,
+      {
+        city: string;
+        countryCode:
+          string | null;
+        regionCode:
+          string | null;
+
+        visitors:
+          Set<string>;
+
+        sessions:
+          Set<string>;
+
+        activeMs:
+          number;
+      }
+    >();
+
+  
 
   const profileVersions =
     new Map<
@@ -2286,6 +2503,76 @@ function aggregateSessionFragments(
         country.activeMs +=
           itemActiveMs;
       }
+
+      // -------------------------
+      // City / region
+      // -------------------------
+
+      const regionCode =
+        safeStr(
+          item?.regionCode,
+          8
+        ).toUpperCase();
+
+      const cityName =
+        safeStr(
+          item?.city,
+          120
+        );
+
+      if (cityName) {
+        const cityKey =
+          JSON.stringify([
+            countryCode || null,
+            regionCode || null,
+            cityName,
+          ]);
+
+        let city =
+          cities.get(
+            cityKey
+          );
+
+        if (!city) {
+          city = {
+            city:
+              cityName,
+
+            countryCode:
+              countryCode ||
+              null,
+
+            regionCode:
+              regionCode ||
+              null,
+
+            visitors:
+              new Set<string>(),
+
+            sessions:
+              new Set<string>(),
+
+            activeMs:
+              0,
+          };
+
+          cities.set(
+            cityKey,
+            city
+          );
+        }
+
+        city.visitors.add(
+          visitorHash
+        );
+
+        city.sessions.add(
+          sessionHash
+        );
+
+        city.activeMs +=
+          itemActiveMs;
+      }
     }
   }
 
@@ -2634,6 +2921,37 @@ function aggregateSessionFragments(
             value,
           ]) => ({
             countryCode,
+
+            visitors:
+              value.visitors.size,
+
+            sessions:
+              value.sessions.size,
+
+            activeMs:
+              value.activeMs,
+          })
+        )
+        .sort(
+          (a, b) =>
+            b.visitors -
+              a.visitors ||
+            b.sessions -
+              a.sessions
+        ),
+        
+    cities:
+      [...cities.values()]
+        .map(
+          (value) => ({
+            city:
+              value.city,
+
+            countryCode:
+              value.countryCode,
+
+            regionCode:
+              value.regionCode,
 
             visitors:
               value.visitors.size,
