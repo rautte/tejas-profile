@@ -36,6 +36,8 @@ const allowedOrigins = new Set(
 
 const MAX_EVENTS_PER_BATCH = 50;
 
+const MAX_JOURNEY_EVENTS_PER_FRAGMENT = 100;
+
 const MAX_EVENT_AGE_MS =
   24 * 60 * 60 * 1000;
 
@@ -501,6 +503,102 @@ function normalizeEvent(e: any) {
   return normalized;
 }
 
+function buildJourneyToken(
+  event: NonNullable<
+    ReturnType<
+      typeof normalizeEvent
+    >
+  >
+) {
+  let kind = "";
+  let value = "";
+
+  switch (event.type) {
+    case "section_view":
+      if (!event.section) {
+        return null;
+      }
+
+      kind = "section";
+      value = event.section;
+      break;
+
+    case "cta_click":
+      if (!event.ctaId) {
+        return null;
+      }
+
+      kind = "cta";
+      value = event.ctaId;
+      break;
+
+    case "project_open":
+      if (!event.projectId) {
+        return null;
+      }
+
+      kind = "project";
+      value = event.projectId;
+      break;
+
+    case "code_snippet_view":
+      if (!event.snippetId) {
+        return null;
+      }
+
+      kind = "snippet";
+      value = event.snippetId;
+      break;
+
+    case "deep_link":
+      if (
+        !event.hash &&
+        !event.path
+      ) {
+        return null;
+      }
+
+      kind = "deep_link";
+
+      value =
+        event.hash ||
+        event.path ||
+        "";
+
+      break;
+
+    default:
+      return null;
+  }
+
+  // StringSet order is intentionally irrelevant.
+  //
+  // Phase 6C.3 reconstructs chronological order using:
+  //   ts ASC
+  //   event fingerprint ASC
+  //
+  // We store only a fingerprint of eventId here to keep
+  // each Dynamo value compact.
+  return JSON.stringify({
+    t:
+      event.ts,
+
+    i:
+      sha256(
+        event.eventId
+      ).slice(
+        0,
+        20
+      ),
+
+    k:
+      kind,
+
+    v:
+      value,
+  });
+}
+
 function buildSessionFragmentInit(
   event: NonNullable<
     ReturnType<
@@ -622,8 +720,15 @@ function buildSessionFragmentInit(
 
 function buildSessionEventUpdate(
   event: NonNullable<
-    ReturnType<typeof normalizeEvent>
-  >
+    ReturnType<
+      typeof normalizeEvent
+    >
+  >,
+  {
+    includeJourney = true,
+  }: {
+    includeJourney?: boolean;
+  } = {}
 ) {
   const day = ymd(event.ts);
 
@@ -679,6 +784,38 @@ function buildSessionEventUpdate(
     "#processedEventIds :eventIds",
     "#eventCount :one",
   ];
+
+  const conditions: string[] = [
+    "attribute_not_exists(#processedEventIds) " +
+    "OR NOT contains(#processedEventIds, :eventId)",
+  ];
+
+  const journeyToken =
+    includeJourney
+      ? buildJourneyToken(event)
+      : null;
+
+  if (journeyToken) {
+    names["#journeyEvents"] =
+      "journeyEvents";
+
+    values[":journeyEvents"] =
+      new Set([
+        journeyToken,
+      ]);
+
+    values[":journeyLimit"] =
+      MAX_JOURNEY_EVENTS_PER_FRAGMENT;
+
+    adds.push(
+      "#journeyEvents :journeyEvents"
+    );
+
+    conditions.push(
+      "attribute_not_exists(#journeyEvents) " +
+      "OR size(#journeyEvents) < :journeyLimit"
+    );
+  }
 
   // Any event with a public section proves this
   // session reached that section.
@@ -843,8 +980,12 @@ function buildSessionEventUpdate(
       marshall(values),
 
     ConditionExpression:
-      "attribute_not_exists(#processedEventIds) " +
-      "OR NOT contains(#processedEventIds, :eventId)",
+      conditions
+        .map(
+          (condition) =>
+            `(${condition})`
+        )
+        .join(" AND "),
 
     UpdateExpression:
       `SET ${sets.join(", ")} ` +
@@ -997,6 +1138,12 @@ async function applyEventToSessionFragment(
     return {
       accepted: false,
       duplicate: false,
+
+      journeyRecorded:
+        false,
+
+      journeyTruncated:
+        false,
     };
   }
 
@@ -1014,8 +1161,19 @@ async function applyEventToSessionFragment(
     })
   );
 
+  const journeyToken =
+    buildJourneyToken(event);
+
   const update =
-    buildSessionEventUpdate(event);
+    buildSessionEventUpdate(
+      event,
+      {
+        includeJourney:
+          Boolean(
+            journeyToken
+          ),
+      }
+    );
 
   try {
     await ddb.send(
@@ -1029,19 +1187,99 @@ async function applyEventToSessionFragment(
     return {
       accepted: true,
       duplicate: false,
+
+      journeyRecorded:
+        Boolean(
+          journeyToken
+        ),
+
+      journeyTruncated:
+        false,
     };
   } catch (e: any) {
     if (
-      e?.name ===
+      e?.name !==
       "ConditionalCheckFailedException"
     ) {
+      throw e;
+    }
+
+    // For non-journey events, the only relevant conditional
+    // failure is normal event-id deduplication.
+    if (!journeyToken) {
       return {
         accepted: false,
         duplicate: true,
+
+        journeyRecorded:
+          false,
+
+        journeyTruncated:
+          false,
       };
     }
 
-    throw e;
+    // A journey event can fail the first update for two reasons:
+    //
+    // 1. event is a duplicate
+    // 2. journeyEvents already reached its bounded capacity
+    //
+    // Retry the SAME event update without the journey token.
+    //
+    // - duplicate -> dedupe condition fails again
+    // - journey full -> metrics/event write succeeds
+    //
+    // This avoids an extra read while preserving exact
+    // event idempotency.
+    const fallback =
+      buildSessionEventUpdate(
+        event,
+        {
+          includeJourney:
+            false,
+        }
+      );
+
+    try {
+      await ddb.send(
+        new UpdateItemCommand({
+          TableName:
+            ANALYTICS_TABLE,
+          ...fallback,
+        })
+      );
+
+      return {
+        accepted: true,
+        duplicate: false,
+
+        journeyRecorded:
+          false,
+
+        journeyTruncated:
+          true,
+      };
+    } catch (
+      fallbackError: any
+    ) {
+      if (
+        fallbackError?.name ===
+        "ConditionalCheckFailedException"
+      ) {
+        return {
+          accepted: false,
+          duplicate: true,
+
+          journeyRecorded:
+            false,
+
+          journeyTruncated:
+            false,
+        };
+      }
+
+      throw fallbackError;
+    }
   }
 }
 
@@ -1200,6 +1438,9 @@ async function handleIngest(event: APIGatewayV2Event) {
   let acceptedCount = 0;
   let duplicateCount = 0;
 
+  let journeyRecordedCount = 0;
+  let journeyTruncatedCount = 0;
+
   const fragmentBounds =
     new Map<
       string,
@@ -1343,6 +1584,20 @@ async function handleIngest(event: APIGatewayV2Event) {
       duplicateCount += 1;
     }
 
+    if (
+      result.journeyRecorded
+    ) {
+      journeyRecordedCount +=
+        1;
+    }
+
+    if (
+      result.journeyTruncated
+    ) {
+      journeyTruncatedCount +=
+        1;
+    }
+
     const day =
       ymd(analyticsEvent.ts);
 
@@ -1442,6 +1697,12 @@ async function handleIngest(event: APIGatewayV2Event) {
 
       rejected:
         rejectedCount,
+
+      journeyRecorded:
+        journeyRecordedCount,
+
+      journeyTruncated:
+        journeyTruncatedCount,
 
       rawBatches,
     },
