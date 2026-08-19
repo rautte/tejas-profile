@@ -634,18 +634,30 @@ function buildSessionEventUpdate(
     `#SESSION#${event.sessionHash}`;
 
   const names: Record<string, string> = {
-    "#processedEventIds": "processedEventIds",
-    "#eventCount": "eventCount",
-    "#lastEventAt": "lastEventAt",
-    "#updatedAt": "updatedAt",
+    "#processedEventIds":
+      "processedEventIds",
+
+    "#eventCount":
+      "eventCount",
+
+    "#updatedAt":
+      "updatedAt",
   };
 
   const values: Record<string, any> = {
-    ":eventId": event.eventId,
-    ":eventIds": new Set([event.eventId]),
-    ":one": 1,
-    ":eventTs": event.ts,
-    ":now": nowIso(),
+    ":eventId":
+      event.eventId,
+
+    ":eventIds":
+      new Set([
+        event.eventId,
+      ]),
+
+    ":one":
+      1,
+
+    ":now":
+      nowIso(),
   };
 
   let metricsExpressionReady = false;
@@ -660,7 +672,6 @@ function buildSessionEventUpdate(
   }
 
   const sets: string[] = [
-    "#lastEventAt = :eventTs",
     "#updatedAt = :now",
   ];
 
@@ -839,6 +850,130 @@ function buildSessionEventUpdate(
       `SET ${sets.join(", ")} ` +
       `ADD ${adds.join(", ")}`,
   };
+}
+
+async function updateSessionTimestampBounds(
+  event: NonNullable<
+    ReturnType<
+      typeof normalizeEvent
+    >
+  >,
+  minTs: number,
+  maxTs: number
+) {
+  if (!ANALYTICS_TABLE) {
+    return;
+  }
+
+  const day =
+    ymd(event.ts);
+
+  const key = {
+    pk:
+      `DAY#${day}`,
+
+    sk:
+      `PV#${event.profileVersionId}` +
+      `#SESSION#${event.sessionHash}`,
+  };
+
+  // -------------------------
+  // Exact firstEventAt = MIN
+  // -------------------------
+
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName:
+          ANALYTICS_TABLE,
+
+        Key:
+          marshall(key),
+
+        ExpressionAttributeNames: {
+          "#firstEventAt":
+            "firstEventAt",
+
+          "#updatedAt":
+            "updatedAt",
+        },
+
+        ExpressionAttributeValues:
+          marshall({
+            ":minTs":
+              minTs,
+
+            ":now":
+              nowIso(),
+          }),
+
+        ConditionExpression:
+          "attribute_not_exists(#firstEventAt) " +
+          "OR #firstEventAt > :minTs",
+
+        UpdateExpression:
+          "SET " +
+          "#firstEventAt = :minTs, " +
+          "#updatedAt = :now",
+      })
+    );
+  } catch (e: any) {
+    if (
+      e?.name !==
+      "ConditionalCheckFailedException"
+    ) {
+      throw e;
+    }
+  }
+
+  // -------------------------
+  // Exact lastEventAt = MAX
+  // -------------------------
+
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName:
+          ANALYTICS_TABLE,
+
+        Key:
+          marshall(key),
+
+        ExpressionAttributeNames: {
+          "#lastEventAt":
+            "lastEventAt",
+
+          "#updatedAt":
+            "updatedAt",
+        },
+
+        ExpressionAttributeValues:
+          marshall({
+            ":maxTs":
+              maxTs,
+
+            ":now":
+              nowIso(),
+          }),
+
+        ConditionExpression:
+          "attribute_not_exists(#lastEventAt) " +
+          "OR #lastEventAt < :maxTs",
+
+        UpdateExpression:
+          "SET " +
+          "#lastEventAt = :maxTs, " +
+          "#updatedAt = :now",
+      })
+    );
+  } catch (e: any) {
+    if (
+      e?.name !==
+      "ConditionalCheckFailedException"
+    ) {
+      throw e;
+    }
+  }
 }
 
 async function applyEventToSessionFragment(
@@ -1065,6 +1200,75 @@ async function handleIngest(event: APIGatewayV2Event) {
   let acceptedCount = 0;
   let duplicateCount = 0;
 
+  const fragmentBounds =
+    new Map<
+      string,
+      {
+        event:
+          NonNullable<
+            ReturnType<
+              typeof normalizeEvent
+            >
+          >;
+
+        minTs:
+          number;
+
+        maxTs:
+          number;
+      }
+    >();
+
+  for (
+    const analyticsEvent of
+      events
+  ) {
+    const day =
+      ymd(
+        analyticsEvent.ts
+      );
+
+    const key =
+      `${day}::` +
+      `${analyticsEvent.profileVersionId}::` +
+      `${analyticsEvent.sessionHash}`;
+
+    const existing =
+      fragmentBounds.get(
+        key
+      );
+
+    if (!existing) {
+      fragmentBounds.set(
+        key,
+        {
+          event:
+            analyticsEvent,
+
+          minTs:
+            analyticsEvent.ts,
+
+          maxTs:
+            analyticsEvent.ts,
+        }
+      );
+
+      continue;
+    }
+
+    existing.minTs =
+      Math.min(
+        existing.minTs,
+        analyticsEvent.ts
+      );
+
+    existing.maxTs =
+      Math.max(
+        existing.maxTs,
+        analyticsEvent.ts
+      );
+  }
+
   // One incoming batch normally belongs to a single browser visitor,
   // but the API contract does not rely on that assumption.
   //
@@ -1167,6 +1371,17 @@ async function handleIngest(event: APIGatewayV2Event) {
 
     group.events.push(
       analyticsEvent
+    );
+  }
+
+  for (
+    const bounds of
+      fragmentBounds.values()
+  ) {
+    await updateSessionTimestampBounds(
+      bounds.event,
+      bounds.minTs,
+      bounds.maxTs
     );
   }
 
@@ -2939,7 +3154,7 @@ function aggregateSessionFragments(
             b.sessions -
               a.sessions
         ),
-        
+
     cities:
       [...cities.values()]
         .map(
