@@ -218,6 +218,67 @@ function formatRangeLabel(
 }
 
 
+function formatTimestampUtc(
+  value
+) {
+  const ts =
+    Number(value);
+
+  if (
+    !Number.isFinite(ts)
+  ) {
+    return "—";
+  }
+
+  try {
+    return new Date(
+      ts
+    ).toLocaleString(
+      undefined,
+      {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        timeZone: "UTC",
+        timeZoneName: "short",
+      }
+    );
+  } catch {
+    return "—";
+  }
+}
+
+function journeyTypeLabel(
+  type
+) {
+  switch (type) {
+    case "section":
+      return "Section";
+
+    case "cta":
+      return "CTA";
+
+    case "project":
+      return "Project";
+
+    case "snippet":
+      return "Snippet";
+
+    case "deep_link":
+      return "Deep link";
+
+    default:
+      return (
+        type ||
+        "Event"
+      );
+  }
+}
+
+
 // -----------------------------
 // Formatting helpers
 // -----------------------------
@@ -498,6 +559,25 @@ function EmptyState({
     <div className="rounded-xl border border-dashed border-gray-300/80 dark:border-white/15 px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
       {children}
     </div>
+  );
+}
+
+function JourneyNode({
+  type,
+  value,
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/70 dark:bg-purple-500/10 px-2 py-1">
+      <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-purple-600 dark:text-purple-300">
+        {journeyTypeLabel(
+          type
+        )}
+      </span>
+
+      <span className="min-w-0 truncate text-xs font-medium text-gray-800 dark:text-gray-200">
+        {value || "—"}
+      </span>
+    </span>
   );
 }
 
@@ -1134,6 +1214,816 @@ function CountriesTable({
 }
 
 
+function CitiesTable({
+  cities,
+}) {
+  if (
+    !Array.isArray(cities) ||
+    !cities.length
+  ) {
+    return (
+      <EmptyState>
+        City data is not available yet.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-sm">
+        <thead>
+          <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+            <th className="py-2 pr-4">
+              Location
+            </th>
+
+            <th className="py-2 pr-4 text-right">
+              Visitors
+            </th>
+
+            <th className="py-2 pr-4 text-right">
+              Sessions
+            </th>
+
+            <th className="py-2 text-right">
+              Active
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {cities
+            .slice(0, 12)
+            .map(
+              (city) => {
+                const region = [
+                  city.regionCode,
+                  city.countryCode,
+                ]
+                  .filter(Boolean)
+                  .join(", ");
+
+                return (
+                  <tr
+                    key={[
+                      city.countryCode ||
+                        "unknown-country",
+                      city.regionCode ||
+                        "unknown-region",
+                      city.city ||
+                        "unknown-city",
+                    ].join(":")}
+                    className="border-t border-gray-200/70 dark:border-white/10"
+                  >
+                    <td className="py-3 pr-4">
+                      <div className="font-medium text-gray-800 dark:text-gray-200">
+                        {city.city ||
+                          "Unknown"}
+                      </div>
+
+                      {region ? (
+                        <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                          {region}
+                        </div>
+                      ) : null}
+                    </td>
+
+                    <td className="py-3 pr-4 text-right text-gray-700 dark:text-gray-300">
+                      {formatNumber(
+                        city.visitors
+                      )}
+                    </td>
+
+                    <td className="py-3 pr-4 text-right text-gray-700 dark:text-gray-300">
+                      {formatNumber(
+                        city.sessions
+                      )}
+                    </td>
+
+                    <td className="py-3 text-right font-medium text-gray-900 dark:text-gray-100">
+                      {formatDuration(
+                        city.activeMs
+                      )}
+                    </td>
+                  </tr>
+                );
+              }
+            )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+function SessionCoverageSummary({
+  coverage,
+}) {
+  const stats = [
+    {
+      label:
+        "Logical sessions",
+
+      value:
+        coverage
+          ?.logicalSessions ||
+        0,
+
+      sub:
+        "merged across fragments",
+    },
+    {
+      label:
+        "With journey",
+
+      value:
+        coverage
+          ?.sessionsWithJourney ||
+        0,
+
+      sub:
+        "chronology available",
+    },
+    {
+      label:
+        "Without journey",
+
+      value:
+        coverage
+          ?.sessionsWithoutJourney ||
+        0,
+
+      sub:
+        "legacy / non-journey data",
+    },
+    {
+      label:
+        "Partial journeys",
+
+      value:
+        coverage
+          ?.journeyTruncatedSessions ||
+        0,
+
+      sub:
+        "bounded journey storage",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {stats.map(
+        (item) => (
+          <div
+            key={
+              item.label
+            }
+            className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/50 dark:bg-white/5 px-4 py-3"
+          >
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+              {item.label}
+            </div>
+
+            <div className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+              {formatNumber(
+                item.value
+              )}
+            </div>
+
+            <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+              {item.sub}
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+
+function TopSectionPaths({
+  paths,
+}) {
+  if (
+    !Array.isArray(paths) ||
+    !paths.length
+  ) {
+    return (
+      <EmptyState>
+        No multi-section journey paths recorded yet.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {paths
+        .slice(0, 10)
+        .map(
+          (
+            item,
+            index
+          ) => (
+            <div
+              key={
+                JSON.stringify(
+                  item.path
+                )
+              }
+              className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                    Path #
+                    {index + 1}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      item.path ||
+                      []
+                    ).map(
+                      (
+                        section,
+                        pathIndex
+                      ) => (
+                        <div
+                          key={`${section}-${pathIndex}`}
+                          className="inline-flex items-center gap-1.5"
+                        >
+                          {pathIndex >
+                          0 ? (
+                            <span className="text-gray-400 dark:text-gray-500">
+                              →
+                            </span>
+                          ) : null}
+
+                          <JourneyNode
+                            type="section"
+                            value={
+                              section
+                            }
+                          />
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                    {formatNumber(
+                      item.sessions
+                    )}
+                  </div>
+
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                    sessions
+                  </div>
+
+                  <div className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+                    {formatNumber(
+                      item.visitors
+                    )}{" "}
+                    visitors
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        )}
+    </div>
+  );
+}
+
+
+function TopTransitionsTable({
+  transitions,
+}) {
+  if (
+    !Array.isArray(
+      transitions
+    ) ||
+    !transitions.length
+  ) {
+    return (
+      <EmptyState>
+        No journey transitions recorded yet.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[720px] text-sm">
+        <thead>
+          <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
+            <th className="py-2 pr-3">
+              From
+            </th>
+
+            <th className="py-2 px-3">
+              To
+            </th>
+
+            <th className="py-2 px-3 text-right">
+              Transitions
+            </th>
+
+            <th className="py-2 px-3 text-right">
+              Sessions
+            </th>
+
+            <th className="py-2 text-right">
+              Visitors
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {transitions
+            .slice(0, 12)
+            .map(
+              (
+                item,
+                index
+              ) => (
+                <tr
+                  key={[
+                    item.from
+                      ?.type,
+                    item.from
+                      ?.value,
+                    item.to?.type,
+                    item.to
+                      ?.value,
+                    index,
+                  ].join(
+                    ":"
+                  )}
+                  className="border-t border-gray-200/70 dark:border-white/10"
+                >
+                  <td className="py-3 pr-3">
+                    <JourneyNode
+                      type={
+                        item.from
+                          ?.type
+                      }
+                      value={
+                        item.from
+                          ?.value
+                      }
+                    />
+                  </td>
+
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 dark:text-gray-500">
+                        →
+                      </span>
+
+                      <JourneyNode
+                        type={
+                          item.to
+                            ?.type
+                        }
+                        value={
+                          item.to
+                            ?.value
+                        }
+                      />
+                    </div>
+                  </td>
+
+                  <td className="py-3 px-3 text-right font-semibold text-gray-900 dark:text-gray-100">
+                    {formatNumber(
+                      item.count
+                    )}
+                  </td>
+
+                  <td className="py-3 px-3 text-right text-gray-700 dark:text-gray-300">
+                    {formatNumber(
+                      item.sessions
+                    )}
+                  </td>
+
+                  <td className="py-3 text-right text-gray-700 dark:text-gray-300">
+                    {formatNumber(
+                      item.visitors
+                    )}
+                  </td>
+                </tr>
+              )
+            )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+function RecentSessions({
+  sessions,
+}) {
+  const [
+    expanded,
+    setExpanded,
+  ] =
+    useState(
+      () =>
+        new Set()
+    );
+
+  const [
+    visibleCount,
+    setVisibleCount,
+  ] =
+    useState(10);
+
+  useEffect(() => {
+    setExpanded(
+      new Set()
+    );
+
+    setVisibleCount(
+      10
+    );
+  }, [sessions]);
+
+  if (
+    !Array.isArray(sessions) ||
+    !sessions.length
+  ) {
+    return (
+      <EmptyState>
+        No session journeys are available for this period.
+      </EmptyState>
+    );
+  }
+
+  function toggle(
+    sessionId
+  ) {
+    setExpanded(
+      (previous) => {
+        const next =
+          new Set(
+            previous
+          );
+
+        if (
+          next.has(
+            sessionId
+          )
+        ) {
+          next.delete(
+            sessionId
+          );
+        } else {
+          next.add(
+            sessionId
+          );
+        }
+
+        return next;
+      }
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {sessions
+        .slice(
+          0,
+          visibleCount
+        )
+        .map(
+          (session) => {
+            const isExpanded =
+              expanded.has(
+                session.sessionId
+              );
+
+            const profileVersions =
+              Array.isArray(
+                session
+                  .profileVersionIds
+              )
+                ? session.profileVersionIds
+                : [];
+
+            const journey =
+              Array.isArray(
+                session.journey
+              )
+                ? session.journey
+                : [];
+
+            const location = [
+              session.city,
+              session.regionCode,
+              session.countryCode,
+            ]
+              .filter(Boolean)
+              .join(", ");
+
+            return (
+              <div
+                key={
+                  session.sessionId
+                }
+                className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 overflow-hidden"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      journey.length
+                    ) {
+                      toggle(
+                        session.sessionId
+                      );
+                    }
+                  }}
+                  aria-expanded={
+                    journey.length
+                      ? isExpanded
+                      : undefined
+                  }
+                  className="w-full text-left px-4 py-3 hover:bg-white/50 dark:hover:bg-white/5 transition"
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-semibold text-gray-900 dark:text-gray-100">
+                          {
+                            session.sessionId
+                          }
+                        </span>
+
+                        {session
+                          .journeyTruncated ? (
+                          <span className="rounded-full border border-amber-300/70 dark:border-amber-400/25 bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                            partial journey
+                          </span>
+                        ) : null}
+
+                        {profileVersions.length >
+                        1 ? (
+                          <span className="rounded-full border border-purple-200/70 dark:border-purple-400/20 bg-purple-50 dark:bg-purple-500/10 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:text-purple-300">
+                            {
+                              profileVersions.length
+                            }{" "}
+                            releases
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                        {formatTimestampUtc(
+                          session.startedAt
+                        )}
+
+                        {location
+                          ? ` · ${location}`
+                          : ""}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(
+                          session.sections ||
+                          []
+                        )
+                          .slice(
+                            0,
+                            9
+                          )
+                          .map(
+                            (
+                              section
+                            ) => (
+                              <span
+                                key={
+                                  section
+                                }
+                                className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2 py-0.5 text-[10px] text-gray-600 dark:text-gray-300"
+                              >
+                                {
+                                  section
+                                }
+                              </span>
+                            )
+                          )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4 gap-x-5 gap-y-2 shrink-0">
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Span
+                        </div>
+
+                        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                          {formatDuration(
+                            session.durationMs
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Active
+                        </div>
+
+                        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                          {formatDuration(
+                            session.activeMs
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Events
+                        </div>
+
+                        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                          {formatNumber(
+                            session.eventCount
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Journey
+                        </div>
+
+                        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                          {formatNumber(
+                            session.journeyEventCount
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={cx(
+                      "mt-2 text-[10px] font-semibold",
+                      journey.length
+                        ? "text-purple-600 dark:text-purple-300"
+                        : "text-gray-500 dark:text-gray-400"
+                    )}
+                  >
+                    {journey.length
+                      ? (
+                          isExpanded
+                            ? "Hide journey ↑"
+                            : "View journey ↓"
+                        )
+                      : "No journey recorded"}
+                  </div>
+                </button>
+
+                {isExpanded ? (
+                  <div className="border-t border-gray-200/70 dark:border-white/10 px-4 py-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4 text-xs">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                          Releases
+                        </div>
+
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {profileVersions.length ? (
+                            profileVersions.map(
+                              (
+                                id
+                              ) => (
+                                <span
+                                  key={
+                                    id
+                                  }
+                                  className="max-w-full break-all rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2 py-1 font-mono text-[10px] text-gray-700 dark:text-gray-300"
+                                >
+                                  {
+                                    id
+                                  }
+                                </span>
+                              )
+                            )
+                          ) : (
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Unknown
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                          Fragment coverage
+                        </div>
+
+                        <div className="mt-1 text-gray-700 dark:text-gray-300">
+                          {formatNumber(
+                            session.fragmentCount
+                          )}{" "}
+                          session-day fragment
+                          {Number(
+                            session.fragmentCount ||
+                              0
+                          ) === 1
+                            ? ""
+                            : "s"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {session
+                      .journeyTruncated ? (
+                      <div className="mb-3 rounded-lg border border-amber-300/60 dark:border-amber-400/20 bg-amber-50/70 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                        This journey is partial because bounded analytics storage reached its journey limit.
+                      </div>
+                    ) : null}
+
+                    {journey.length ? (
+                      <div className="max-h-[440px] overflow-y-auto pr-1">
+                        <div className="relative ml-2 border-l border-gray-200 dark:border-white/10">
+                          {journey.map(
+                            (
+                              event,
+                              index
+                            ) => (
+                              <div
+                                key={[
+                                  event.ts,
+                                  event.type,
+                                  event.value,
+                                  index,
+                                ].join(
+                                  ":"
+                                )}
+                                className="relative pl-5 pb-4 last:pb-0"
+                              >
+                                <span className="absolute -left-[4.5px] top-2 w-2 h-2 rounded-full bg-purple-500 ring-4 ring-white dark:ring-[#151521]" />
+
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                  {formatTimestampUtc(
+                                    event.ts
+                                  )}
+                                </div>
+
+                                <div className="mt-1">
+                                  <JourneyNode
+                                    type={
+                                      event.type
+                                    }
+                                    value={
+                                      event.value
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <EmptyState>
+                        No ordered journey events are available for this session.
+                      </EmptyState>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
+        )}
+
+      {visibleCount <
+      sessions.length ? (
+        <div className="pt-1 text-center">
+          <SmallActionButton
+            onClick={() =>
+              setVisibleCount(
+                (value) =>
+                  Math.min(
+                    sessions.length,
+                    value + 10
+                  )
+              )
+            }
+          >
+            Show more sessions
+          </SmallActionButton>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // -----------------------------
 // Release table
 // -----------------------------
@@ -1547,19 +2437,14 @@ export default function AdminAnalytics() {
           }
 
           setData(null);
-            setPreviousData(null);
-
-            setError(
-              String(
-                e?.message || e
-              )
-            );
+          setPreviousData(null);
 
           setError(
             String(
               e?.message || e
             )
           );
+
         } finally {
           if (
             !signal?.aborted
@@ -1614,6 +2499,42 @@ export default function AdminAnalytics() {
       data?.daily
     )
       ? data.daily
+      : [];
+
+  const sessionIntelligence =
+    data?.sessionIntelligence ||
+    {};
+
+  const sessionCoverage =
+    sessionIntelligence
+      ?.coverage ||
+    {};
+
+  const recentSessions =
+    Array.isArray(
+      sessionIntelligence
+        ?.recentSessions
+    )
+      ? sessionIntelligence
+          .recentSessions
+      : [];
+
+  const topTransitions =
+    Array.isArray(
+      sessionIntelligence
+        ?.topTransitions
+    )
+      ? sessionIntelligence
+          .topTransitions
+      : [];
+
+  const topSectionPaths =
+    Array.isArray(
+      sessionIntelligence
+        ?.topSectionPaths
+    )
+      ? sessionIntelligence
+          .topSectionPaths
       : [];
 
   const applyCustomRange =
@@ -2033,7 +2954,7 @@ export default function AdminAnalytics() {
                 ) : null
               }
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KpiCard
                   title="Unique visitors"
                   value={formatNumber(
@@ -2049,6 +2970,53 @@ export default function AdminAnalytics() {
                       : null
                   }
                   sub="exact distinct visitor hashes"
+                />
+
+                <KpiCard
+                  title="New visitors"
+                  value={formatNumber(
+                    overview.newVisitors
+                  )}
+                  delta={
+                    comparePrevious
+                      ? comparisonDelta(
+                          overview.newVisitors,
+                          previousOverview
+                            ?.newVisitors
+                        )
+                      : null
+                  }
+                  sub="first seen during this period"
+                />
+
+                <KpiCard
+                  title="Returning visitors"
+                  value={formatNumber(
+                    overview.returningVisitors
+                  )}
+                  delta={
+                    comparePrevious
+                      ? comparisonDelta(
+                          overview.returningVisitors,
+                          previousOverview
+                            ?.returningVisitors
+                        )
+                      : null
+                  }
+                  sub={
+                    `${formatPercent(
+                      overview.returningVisitorPct
+                    )} of classified visitors${
+                      Number(
+                        overview.unclassifiedVisitors ||
+                          0
+                      ) > 0
+                        ? ` · ${formatNumber(
+                            overview.unclassifiedVisitors
+                          )} unclassified`
+                        : ""
+                    }`
+                  }
                 />
 
                 <KpiCard
@@ -2238,13 +3206,72 @@ export default function AdminAnalytics() {
               </SectionCard>
             </div>
 
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+              <SectionCard
+                title="Top countries"
+                subtitle="Exact visitor and session reach by country"
+              >
+                <CountriesTable
+                  countries={
+                    data.countries
+                  }
+                />
+              </SectionCard>
+
+              <SectionCard
+                title="Top cities"
+                subtitle="Trusted edge-derived city and region enrichment"
+              >
+                <CitiesTable
+                  cities={
+                    data.cities
+                  }
+                />
+              </SectionCard>
+            </div>
+
             <SectionCard
-              title="Top countries"
-              subtitle="Country enrichment available on stored session fragments"
+              title="Session intelligence"
+              subtitle="Anonymous logical-session coverage reconstructed across day and release fragments"
             >
-              <CountriesTable
-                countries={
-                  data.countries
+              <SessionCoverageSummary
+                coverage={
+                  sessionCoverage
+                }
+              />
+            </SectionCard>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+              <SectionCard
+                title="Top journey paths"
+                subtitle="Most common ordered public-section paths for the selected period"
+              >
+                <TopSectionPaths
+                  paths={
+                    topSectionPaths
+                  }
+                />
+              </SectionCard>
+
+              <SectionCard
+                title="Top transitions"
+                subtitle="Most frequent semantic steps between sections and interactions"
+              >
+                <TopTransitionsTable
+                  transitions={
+                    topTransitions
+                  }
+                />
+              </SectionCard>
+            </div>
+
+            <SectionCard
+              title="Recent sessions"
+              subtitle="Privacy-safe anonymous sessions ordered by most recent activity"
+            >
+              <RecentSessions
+                sessions={
+                  recentSessions
                 }
               />
             </SectionCard>
