@@ -1,6 +1,9 @@
 import React from "react";
 import { FaGithub, FaLinkedin, FaGlobe, FaEnvelope } from "react-icons/fa";
 import { FOOTER_LINKS } from "../../data/footer";
+import {
+  quickConnectCtaId,
+} from "../../utils/analytics/ids";
 
 const ICONS = {
   linkedin: FaLinkedin,
@@ -41,6 +44,7 @@ export default function QuickConnectPill({ className = "" }) {
             rel={l.href.startsWith("mailto:") ? undefined : "noopener noreferrer"}
             className={`${l.colorClass} transition`}
             aria-label={l.label}
+            data-analytics={quickConnectCtaId(l.key)}
           >
             <Icon size={24} />
           </a>

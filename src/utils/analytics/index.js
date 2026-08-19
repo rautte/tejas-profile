@@ -1,47 +1,104 @@
 // src/utils/analytics/index.js
 
-// Public API: local analytics + backend ingestion tracker (compat layer)
 import { trackEvent } from "./tracker";
 
-// Re-export your existing local analytics utilities:
+
+// -----------------------------
+// Local/debug compatibility
+// -----------------------------
+
 export * from "./store";
 export * from "./aggregations";
+export * from "./ids";
 
-// Export tracker primitives:
-export { analyticsStart, analyticsStart as analyticsInit, trackEvent, flushAndClose } from "./tracker";
+export {
+  readEvents as getAllEvents,
+  clearEvents as resetAnalytics,
+} from "./store";
 
-// ---- Admin compatibility ----
-export { readEvents as getAllEvents, clearEvents as resetAnalytics } from "./store";
 
-// ---- App compatibility wrappers ----
-export function trackSectionEnter(sectionLabel) {
-  trackEvent({ type: "section_view", section: sectionLabel });
-}
+// -----------------------------
+// Production tracker API
+// -----------------------------
 
-export function trackClick({ id, text, href } = {}) {
+export {
+  analyticsStart,
+  analyticsStart as analyticsInit,
+  trackEvent,
+  trackSectionEnter,
+  trackScrollDepth,
+  flushAndClose,
+} from "./tracker";
+
+
+// -----------------------------
+// Canonical interaction wrappers
+// -----------------------------
+
+export function trackClick({
+  id,
+  href,
+} = {}) {
+  const ctaId =
+    String(id || "").trim();
+
+  if (!ctaId) return;
+
   trackEvent({
     type: "cta_click",
-    ctaId: String(id || "").trim(),
+    ctaId,
     path: href || null,
-    metaText: text ? String(text).slice(0, 80) : null,
   });
 }
 
-let _lastDepthSent = {};
-export function trackScrollDepth(sectionLabel, el) {
-  if (!el) return;
+export function trackProjectOpen({
+  projectId,
+} = {}) {
+  const id =
+    String(projectId || "").trim();
 
-  const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
-  const pct = Math.max(0, Math.min(100, Math.round((el.scrollTop / maxScroll) * 100)));
-
-  const prev = _lastDepthSent[sectionLabel] ?? -1;
-  if (pct < prev + 5 && pct !== 100) return;
-
-  _lastDepthSent[sectionLabel] = pct;
+  if (!id) return;
 
   trackEvent({
-    type: "scroll_depth",
-    section: sectionLabel,
-    depthPct: pct,
+    type: "project_open",
+    projectId: id,
+  });
+}
+
+export function trackCodeSnippetView({
+  snippetId,
+} = {}) {
+  const id =
+    String(snippetId || "").trim();
+
+  if (!id) return;
+
+  trackEvent({
+    type: "code_snippet_view",
+    snippetId: id,
+  });
+}
+
+export function trackDeepLinkLanding({
+  path,
+  hash,
+} = {}) {
+  const normalizedPath =
+    String(path || "").trim();
+
+  const normalizedHash =
+    String(hash || "").trim();
+
+  if (
+    !normalizedPath &&
+    !normalizedHash
+  ) {
+    return;
+  }
+
+  trackEvent({
+    type: "deep_link",
+    path: normalizedPath || null,
+    hash: normalizedHash || null,
   });
 }

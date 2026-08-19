@@ -11,6 +11,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as apigwv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
 type SnapshotsStackProps = cdk.StackProps & {
   githubPagesOrigin?: string; // optional (legacy)
@@ -27,7 +28,15 @@ export class SnapshotsStack extends cdk.Stack {
     // const allowedOrigins = ["http://localhost:3000", "https://rautte.github.io"];
     const allowedOrigins = props.allowedOrigins;
 
-    const githubToken = process.env.GITHUB_TOKEN;
+    const githubTokenSecretName =
+      `tejas-profile/${props.stage}/github-token`;
+
+    const githubTokenSecret =
+      secretsmanager.Secret.fromSecretNameV2(
+        this,
+        "GithubTokenSecret",
+        githubTokenSecretName
+      );
 
     // -----------------------------
     // 1) Snapshots bucket (JSON snapshots + trash)
@@ -133,8 +142,10 @@ export class SnapshotsStack extends cdk.Stack {
         GITHUB_WORKFLOW_FILE: "redeploy.yml",
         GITHUB_REF: "main",
 
-        // ✅ ONLY set if present (prevents wiping prod)
-        ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
+        // Secret value is NOT stored in Lambda env / CloudFormation.
+        GITHUB_TOKEN_SECRET_ID:
+          githubTokenSecret.secretName,
+
       },
     });
 
@@ -161,6 +172,8 @@ export class SnapshotsStack extends cdk.Stack {
             STAGE: props.stage,
         },
     });
+
+    githubTokenSecret.grantRead(fn);
 
     // -----------------------------
     // S3 permissions (strict + correct)

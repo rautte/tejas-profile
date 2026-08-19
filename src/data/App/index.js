@@ -4,12 +4,13 @@
 export const DEFAULT_SECTION = "About Me";
 
 /**
- * Section order for:
- * - keyboard / boundary navigation (next/prev)
- * - snap traversal
- * - any linear flows
+ * Public sections visible to normal visitors.
+ *
+ * IMPORTANT:
+ * This is also the canonical analytics section registry.
+ * Admin pages must never appear in visitor engagement metrics.
  */
-export const SECTION_ORDER = [
+export const PUBLIC_SECTION_ORDER = [
   "About Me",
   "Experience",
   "Skills",
@@ -19,6 +20,9 @@ export const SECTION_ORDER = [
   "Code Lab",
   "Fun Zone",
   "Timeline",
+];
+
+export const ADMIN_SECTION_ORDER = [
   "Analytics",
   "Snapshots",
   "Data",
@@ -26,13 +30,17 @@ export const SECTION_ORDER = [
 ];
 
 /**
- * Sidebar nav composition.
- * Keep these as label strings so UI can decide icons, styling, etc.
+ * Full app navigation order.
  */
+export const SECTION_ORDER = [
+  ...PUBLIC_SECTION_ORDER,
+  ...ADMIN_SECTION_ORDER,
+];
+
 export const SIDEBAR_GROUPS = {
   pinned: ["About Me"],
   recruiter: ["Experience", "Skills", "Education", "Resume"],
   hiringManager: ["Projects", "Code Lab", "Fun Zone"],
   explore: ["Timeline"],
-  admin: ["Analytics", "Snapshots", "Data", "Settings"],
+  admin: ADMIN_SECTION_ORDER,
 };

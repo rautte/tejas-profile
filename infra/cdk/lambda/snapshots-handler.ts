@@ -12,6 +12,10 @@ import {
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} from "@aws-sdk/client-secrets-manager";
 
 type Event = {
   requestContext?: { http?: { method?: string; path?: string } };
@@ -23,6 +27,7 @@ type Event = {
 };
 
 const s3 = new S3Client({});
+const secretsManager = new SecretsManagerClient({});
 
 const SNAPSHOTS_BUCKET = process.env.SNAPSHOTS_BUCKET!;
 const REPO_BUCKET = process.env.REPO_BUCKET || SNAPSHOTS_BUCKET; // Option 2 sets this to a different bucket
@@ -31,10 +36,15 @@ const TRASH_PREFIX = process.env.TRASH_PREFIX || "trash/";
 const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
 const PROFILES_PREFIX = process.env.PROFILES_PREFIX || "profiles/";
 
-const GITHUB_REPO = process.env.GITHUB_REPO || ""; // "rautte/tejas-profile"
-const GITHUB_WORKFLOW_FILE = process.env.GITHUB_WORKFLOW_FILE || "redeploy.yml";
+const GITHUB_REPO = process.env.GITHUB_REPO || "";
+const GITHUB_WORKFLOW_FILE =
+  process.env.GITHUB_WORKFLOW_FILE || "redeploy.yml";
 const GITHUB_REF = process.env.GITHUB_REF || "main";
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || ""; // PAT or GitHub App token (secret!)
+
+const GITHUB_TOKEN_SECRET_ID =
+  process.env.GITHUB_TOKEN_SECRET_ID || "";
+
+let cachedGithubToken: string | null = null;
 
 const DEPLOY_HISTORY_KEY = process.env.DEPLOY_HISTORY_KEY || "deploy/history.json";
 
@@ -105,36 +115,154 @@ function requireOwner(headers: Record<string, string> | undefined) {
   return { ok: true as const };
 }
 
+async function getGithubToken() {
+  if (cachedGithubToken) {
+    return cachedGithubToken;
+  }
+
+  if (!GITHUB_TOKEN_SECRET_ID) {
+    throw new Error(
+      "GITHUB_TOKEN_SECRET_ID not configured"
+    );
+  }
+
+  const out = await secretsManager.send(
+    new GetSecretValueCommand({
+      SecretId: GITHUB_TOKEN_SECRET_ID,
+    })
+  );
+
+  const token =
+    String(out.SecretString || "").trim();
+
+  if (!token) {
+    throw new Error(
+      "GitHub token secret is empty"
+    );
+  }
+
+  cachedGithubToken = token;
+
+  return token;
+}
+
 function requireGithubConfig() {
-  if (!GITHUB_REPO) return { ok: false, status: 500, msg: "GITHUB_REPO not configured" };
-  if (!GITHUB_WORKFLOW_FILE) return { ok: false, status: 500, msg: "GITHUB_WORKFLOW_FILE not configured" };
-  if (!GITHUB_TOKEN) return { ok: false, status: 500, msg: "GITHUB_TOKEN not configured" };
+  if (!GITHUB_REPO) {
+    return {
+      ok: false,
+      status: 500,
+      msg: "GITHUB_REPO not configured",
+    };
+  }
+
+  if (!GITHUB_WORKFLOW_FILE) {
+    return {
+      ok: false,
+      status: 500,
+      msg: "GITHUB_WORKFLOW_FILE not configured",
+    };
+  }
+
+  if (!GITHUB_TOKEN_SECRET_ID) {
+    return {
+      ok: false,
+      status: 500,
+      msg: "GITHUB_TOKEN_SECRET_ID not configured",
+    };
+  }
+
   return { ok: true as const };
 }
 
-async function dispatchGithubWorkflow(inputs: Record<string, string>) {
-  const url = `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/${GITHUB_WORKFLOW_FILE}/dispatches`;
+async function dispatchGithubWorkflow(
+  inputs: Record<string, string>
+) {
+  let githubToken: string;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${GITHUB_TOKEN}`,
-      "user-agent": "tejas-profile-snapshots-handler",
-      accept: "application/vnd.github+json",
-      "x-github-api-version": "2022-11-28",
-    },
-    body: JSON.stringify({
-      ref: GITHUB_REF,
-      inputs,
-    }),
-  });
+  try {
+    githubToken =
+      await getGithubToken();
+  } catch (e: any) {
+    console.error(
+      "GitHub credential load failed",
+      {
+        secretConfigured:
+          Boolean(GITHUB_TOKEN_SECRET_ID),
+        error: String(
+          e?.message || e
+        ),
+      }
+    );
 
-  // GitHub returns 204 No Content on success
-  if (res.status === 204) return { ok: true as const };
+    return {
+      ok: false as const,
+      status: 500,
+      error:
+        "GitHub credential unavailable",
+    };
+  }
 
-  const txt = await res.text().catch(() => "");
-  return { ok: false as const, status: res.status, error: txt || "dispatch failed" };
+  const url =
+    `https://api.github.com/repos/` +
+    `${GITHUB_REPO}/actions/workflows/` +
+    `${GITHUB_WORKFLOW_FILE}/dispatches`;
+
+  let res: any;
+
+  try {
+    res = await fetch(url, {
+      method: "POST",
+
+      headers: {
+        "content-type":
+          "application/json",
+
+        authorization:
+          `Bearer ${githubToken}`,
+
+        "user-agent":
+          "tejas-profile-snapshots-handler",
+
+        accept:
+          "application/vnd.github+json",
+
+        "x-github-api-version":
+          "2022-11-28",
+      },
+
+      body: JSON.stringify({
+        ref: GITHUB_REF,
+        inputs,
+      }),
+    });
+  } catch {
+    return {
+      ok: false as const,
+      status: 502,
+      error:
+        "GitHub request failed",
+    };
+  }
+
+  // GitHub returns 204 No Content on success.
+  if (res.status === 204) {
+    return {
+      ok: true as const,
+    };
+  }
+
+  const txt =
+    await res
+      .text()
+      .catch(() => "");
+
+  return {
+    ok: false as const,
+    status: res.status,
+    error:
+      txt ||
+      "GitHub workflow dispatch failed",
+  };
 }
 
 // -----------------------------

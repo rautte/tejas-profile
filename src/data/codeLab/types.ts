@@ -1,6 +1,7 @@
 // data/codeLab/types.ts
 
 export type CodeSnippet = {
+  id: string;
   title: string;
   lang: string;
   from: string;

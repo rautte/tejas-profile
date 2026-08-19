@@ -1,10 +1,11 @@
 // data/codeLab/snippets.ts
 
-import { CodeSnippet } from "./types";
+import type { CodeSnippet } from "./types";
 
 export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
 
     {
+        id: "databricks-adls-keyvault-mount",
         title: "Databricks: ADLS Gen2 mount via Key Vault secrets (idempotent + safe logs)",
         lang: "python",
         from: "Formula1 Databricks Project",
@@ -68,6 +69,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "spark-schema-builder",
         title: "Spark: Programmatic schema builder (nested StructType + strict types)",
         lang: "python",
         from: "Formula1 Ingestion Utilities",
@@ -113,6 +115,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "spark-typed-read-wrappers",
         title: "Spark: Typed read wrappers (consistent options + bad records path)",
         lang: "python",
         from: "Formula1 Ingestion Utilities",
@@ -167,6 +170,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "spark-transform-helpers",
         title: "Spark: Transform helpers (audit columns + safe rename + drop)",
         lang: "python",
         from: "Formula1 Ingestion Utilities",
@@ -203,6 +207,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "spark-parquet-write-wrapper",
         title: "Spark: Parquet write wrapper (mode validation + partition support)",
         lang: "python",
         from: "Formula1 Ingestion Utilities",
@@ -234,6 +239,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "cash-reconciliation-idempotent-api",
         title: "API Design: Idempotent cash reconciliation endpoint (202 + poll URL)",
         lang: "python",
         from: "Production Reconciliation Platform",
@@ -312,6 +318,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "go-cobra-root-command",
         title: "Go CLI: Cobra root command (global flags + clean error behavior)",
         lang: "go",
         from: "syzmaniac CLI",
@@ -348,6 +355,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "go-install-command",
         title: "Go CLI: install command (flags + installer routing + context propagation)",
         lang: "go",
         from: "syzmaniac CLI",
@@ -387,6 +395,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "tsparticles-init",
         title: "Frontend: tsParticles init (links preset + grab/push interactions)",
         lang: "javascript",
         from: "Portfolio Hero Section",
@@ -407,6 +416,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-quick-resume",
         title: "Battleship: Save quick-resume blob on tab close (TTL + version tag)",
         lang: "typescript",
         from: "Battleship Multiplayer UX",
@@ -439,6 +449,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-defensive-snapshot",
         title: "Battleship: Apply state snapshot defensively (shape guards + no-crash sync)",
         lang: "typescript",
         from: "Battleship State Management",
@@ -478,6 +489,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-s3-asset-sync-session",
         title: "DevOps: S3 asset sync with session validation (SSO fallback + quiet logs)",
         lang: "bash",
         from: "Battleship Asset Pipeline",
@@ -525,6 +537,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-cloudfront-invalidation-safe",
         title: "DevOps: CloudFront invalidation (paths + SSO fallback + safe arg parsing)",
         lang: "bash",
         from: "Battleship CDN Ops",
@@ -576,6 +589,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "blender-fbx-glb-batch",
         title: "3D Assets: Batch FBX → GLB via Blender CLI (deterministic exports)",
         lang: "python",
         from: "Battleship 3D Asset Pipeline",
@@ -625,6 +639,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "timeline-active-card-progress",
         title: "UI: Timeline active-card detection + discrete progress (snappy + bounded)",
         lang: "javascript",
         from: "Timeline Carousel UX",
@@ -659,6 +674,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "tictactoe-starter-gate",
         title: "UI: Starter chooser gates board interaction (prevents weird states)",
         lang: "tsx",
         from: "Tic Tac Toe Web",
@@ -705,6 +721,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "dotfiles-vscode-migration",
         title: "Dotfiles: VS Code config migration (version-aware + safe symlinks)",
         lang: "bash",
         from: "sys_managed dotfiles migration",
@@ -762,6 +779,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "dotfiles-drift-healthcheck",
         title: "Healthcheck: Dotfiles drift detection (structured diff results + logs)",
         lang: "bash",
         from: "sys_managed healthcheck",
@@ -822,6 +840,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-prepush-asset-cdn",
         title: "Git Hook: Pre-push asset sync + CloudFront invalidation (fast fail + cache headers)",
         lang: "bash",
         from: "Battleship asset pipeline",
@@ -864,6 +883,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-s3-sync",
         title: "Bash: Asset sync to S3 (env-driven + auth check + quiet output)",
         lang: "bash",
         from: "Battleship assets / sync-assets.sh",
@@ -894,6 +914,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "battleship-cdn-invalidate",
         title: "Bash: CloudFront invalidation (CDN cache bust after deploy)",
         lang: "bash",
         from: "Battleship CDN / cdn-invalidate.sh",
@@ -926,6 +947,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "snowflake-multicluster-warehouse",
         title: "Snowflake: Dedicated multi-cluster warehouse (guardrails + predictable scaling)",
         lang: "sql",
         from: "Data Platform Ops (Snowflake)",
@@ -956,6 +978,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "snowflake-rbac-baseline",
         title: "Snowflake: RBAC baseline (role hierarchy + least privilege grants)",
         lang: "sql",
         from: "Security / Access Control",
@@ -990,6 +1013,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "snowflake-s3-storage-integration",
         title: "Snowflake: S3 storage integration + external stage (no access keys in SQL)",
         lang: "sql",
         from: "External Data Access (S3 → Snowflake)",
@@ -1026,6 +1050,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "snowflake-snowpipe-stream-tasks",
         title: "Snowflake: Snowpipe + Stream + Tasks (error capture + stream-gated processing)",
         lang: "sql",
         from: "Orchestration / Near-Real-Time Ingestion",
@@ -1115,6 +1140,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "snowflake-rejected-row-quarantine",
         title: "Snowflake: Quarantine rejected rows + deduped evidence (pipe validate pattern)",
         lang: "sql",
         from: "Data Quality / Cleaning",
@@ -1171,6 +1197,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "airflow-tabular-partition-sensor",
         from: "Tabular Iceberg API - Backoff & Retry",
         title: "Airflow Partition Sensor (Tabular Iceberg API) — token refresh + bounded retries",
         lang: "python",
@@ -1273,6 +1300,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "airflow-scd-history-dag",
         from: "Airflow Orchestration SCD Type-II",
         title: "Airflow Orchestration — SCD history build with partition gate + DQ check (Trino + Iceberg)",
         lang: "python",
@@ -1424,6 +1452,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "dbt-snowflake-config",
         from: "dbt Snowflake Configuration",
         title: "dbt (Snowflake) — profiles + project + packages (CI-friendly defaults)",
         lang: "yaml",
@@ -1498,6 +1527,7 @@ export const CODE_LAB_SNIPPETS: CodeSnippet[] = [
       },
 
       {
+        id: "airflow-dbt-taskgroup",
         from: "Airflow dbt Orchestration Taskgroup",
         title: "Airflow → dbt orchestration (deps → run → test) — TaskGroup template",
         lang: "python",

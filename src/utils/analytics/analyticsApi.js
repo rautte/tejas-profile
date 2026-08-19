@@ -1,72 +1,262 @@
 // src/utils/analytics/analyticsApi.js
-import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "../../config/owner";
 
-const API = process.env.REACT_APP_SNAPSHOTS_API || ""; // same base API you already use
+import {
+  OWNER_SESSION_KEY,
+  OWNER_TOKEN_KEY,
+} from "../../config/owner";
+
+const API =
+  process.env.REACT_APP_SNAPSHOTS_API || "";
 
 function mustHaveApi() {
-  if (!API) throw new Error("Missing REACT_APP_SNAPSHOTS_API");
+  if (!API) {
+    throw new Error(
+      "Missing REACT_APP_SNAPSHOTS_API"
+    );
+  }
+
   return API.replace(/\/$/, "");
 }
 
 function isOwnerEnabled() {
   try {
-    return sessionStorage.getItem(OWNER_SESSION_KEY) === "1";
-  } catch {}
-  return false;
+    return (
+      sessionStorage.getItem(
+        OWNER_SESSION_KEY
+      ) === "1"
+    );
+  } catch {
+    return false;
+  }
 }
 
 function ownerToken() {
   try {
-    return sessionStorage.getItem(OWNER_TOKEN_KEY) || "";
-  } catch {}
-  return "";
+    return (
+      sessionStorage.getItem(
+        OWNER_TOKEN_KEY
+      ) || ""
+    );
+  } catch {
+    return "";
+  }
 }
 
-function headers() {
-  const h = { "content-type": "application/json" };
-  if (isOwnerEnabled()) {
-    const t = ownerToken();
-    if (t) h["x-owner-token"] = t;
+function analyticsHeaders({
+  requireOwner = false,
+} = {}) {
+  const headers = {
+    "content-type":
+      "application/json",
+  };
+
+  const ownerEnabled =
+    isOwnerEnabled();
+
+  const token =
+    ownerToken();
+
+  if (
+    ownerEnabled &&
+    token
+  ) {
+    headers["x-owner-token"] =
+      token;
   }
-  return h;
+
+  if (
+    requireOwner &&
+    (!ownerEnabled || !token)
+  ) {
+    throw new Error(
+      "Owner mode is required to view analytics."
+    );
+  }
+
+  return headers;
 }
 
-export async function ingestAnalyticsBatch(payload) {
-  const url = `${mustHaveApi()}/analytics/ingest`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(payload),
-    keepalive: true, // important for unload flush
-  });
-  // ingest returns 200 or 204 (bot ignored)
-  if (!res.ok && res.status !== 204) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`ingest failed: ${res.status} ${txt}`);
+async function readJsonResponse(
+  res,
+  operation
+) {
+  const text =
+    await res.text();
+
+  let data = null;
+
+  if (text) {
+    try {
+      data =
+        JSON.parse(text);
+    } catch {
+      data = null;
+    }
   }
+
+  if (!res.ok) {
+    const detail =
+      data?.error ||
+      text ||
+      "Unknown error";
+
+    throw new Error(
+      `${operation} failed: ${res.status} ${detail}`
+    );
+  }
+
+  return data;
+}
+
+export async function ingestAnalyticsBatch(
+  payload
+) {
+  const url =
+    `${mustHaveApi()}/analytics/ingest`;
+
+  const res =
+    await fetch(url, {
+      method: "POST",
+
+      headers:
+        analyticsHeaders(),
+
+      body:
+        JSON.stringify(payload),
+
+      // Gives the browser a chance to finish
+      // lifecycle flushes during page exit.
+      keepalive: true,
+    });
+
+  // Ingest may intentionally return 204
+  // for owner/bot traffic.
+  if (
+    !res.ok &&
+    res.status !== 204
+  ) {
+    const text =
+      await res
+        .text()
+        .catch(() => "");
+
+    throw new Error(
+      `ingest failed: ${res.status} ${text}`
+    );
+  }
+
   return true;
 }
 
-export async function queryAnalyticsAgg({ profileVersionId, from, to }) {
-  const base = mustHaveApi();
-  const qs = new URLSearchParams();
-  qs.set("profileVersionId", String(profileVersionId || "unknown"));
-  if (from) qs.set("from", from);
-  if (to) qs.set("to", to);
+/**
+ * Canonical production analytics query.
+ *
+ * profileVersionId:
+ * - "all" => all releases
+ * - specific PV id => one release
+ *
+ * from/to are UTC day partitions:
+ * YYYY-MM-DD
+ */
+export async function queryAnalyticsAgg({
+  profileVersionId = "all",
+  from,
+  to,
+  signal,
+} = {}) {
+  const base =
+    mustHaveApi();
 
-  const url = `${base}/analytics/query?${qs.toString()}`;
-  const res = await fetch(url, { method: "GET", headers: headers() });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`query failed: ${res.status} ${txt}`);
+  const qs =
+    new URLSearchParams();
+
+  qs.set(
+    "profileVersionId",
+    String(
+      profileVersionId ||
+        "all"
+    )
+  );
+
+  if (from) {
+    qs.set(
+      "from",
+      String(from)
+    );
   }
-  return res.json();
+
+  if (to) {
+    qs.set(
+      "to",
+      String(to)
+    );
+  }
+
+  const url =
+    `${base}/analytics/query?${qs.toString()}`;
+
+  const res =
+    await fetch(url, {
+      method: "GET",
+
+      headers:
+        analyticsHeaders({
+          requireOwner: true,
+        }),
+
+      signal,
+
+      // Owner dashboard should reflect
+      // newly committed analytics immediately.
+      cache: "no-store",
+    });
+
+  const data =
+    await readJsonResponse(
+      res,
+      "analytics query"
+    );
+
+  if (
+    !data ||
+    data.ok !== true
+  ) {
+    throw new Error(
+      data?.error ||
+        "Analytics query returned an invalid response."
+    );
+  }
+
+  return data;
 }
 
-export async function queryAnalyticsDays({ profileVersionId, from, to } = {}) {
-  const data = await queryAnalyticsAgg({ profileVersionId, from, to });
+/**
+ * Temporary compatibility export.
+ *
+ * The old dashboard consumed `days`.
+ * The Phase-3 backend now returns `daily`.
+ *
+ * New code should use queryAnalyticsAgg().
+ */
+export async function queryAnalyticsDays(
+  {
+    profileVersionId = "all",
+    from,
+    to,
+    signal,
+  } = {}
+) {
+  const data =
+    await queryAnalyticsAgg({
+      profileVersionId,
+      from,
+      to,
+      signal,
+    });
 
-  // backend returns: { ok:true, days:[...] }
-  if (Array.isArray(data)) return data; // safety if you ever change backend shape
-  return Array.isArray(data?.days) ? data.days : [];
+  return Array.isArray(
+    data?.daily
+  )
+    ? data.daily
+    : [];
 }

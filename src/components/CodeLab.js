@@ -18,6 +18,10 @@ import { vscDarkPlus, oneLight } from "react-syntax-highlighter/dist/esm/styles/
 
 import { CODE_LAB_SNIPPETS } from "../data/codeLab";
 
+import {
+  trackCodeSnippetView,
+} from "../utils/analytics";
+
 /**
  * Small constants, big sanity.
  * If you tweak sizing/UX later, do it once here.
@@ -257,13 +261,6 @@ export default function CodeLab({ darkMode }) {
   const filterBtnRef = React.useRef(null);
   const sectionRef = React.useRef(null);
 
-  const [setHash] = React.useState(() => window.location.hash);
-
-  React.useEffect(() => {
-    const onHashChange = () => setHash(window.location.hash);
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  });
 
   // ✅ Deep-link support: #/code-lab?from=battleship OR #/code-lab?from=syzmaniac,sys_managed
   const [deepLinkFromList, setDeepLinkFromList] = React.useState([]);
@@ -586,16 +583,28 @@ export default function CodeLab({ darkMode }) {
   }, []);
 
   const toggle = (idx) => {
+    const snippet = snippets[idx];
     const cardEl = cardRefs.current[idx];
-    // Dynamic pin offset: sits just under the Hero bottom *only when Hero is visible*.
+
     const pinTopPx = getDynamicPinTopPx();
 
-    // Hide current (restore to where user was before opening)
+    // Closing an already-open snippet is not another view.
     if (openIdx === idx) {
       const y = expandScrollYRef.current[idx];
-      if (typeof y === "number") pendingRestoreYRef.current = y;
+
+      if (typeof y === "number") {
+        pendingRestoreYRef.current = y;
+      }
+
       setOpenIdx(null);
       return;
+    }
+
+    // Opening / switching to this snippet is a genuine snippet view.
+    if (snippet?.id) {
+      trackCodeSnippetView({
+        snippetId: snippet.id,
+      });
     }
 
     // Always store where the user clicked from, but use the dynamic pinTop.
@@ -604,7 +613,7 @@ export default function CodeLab({ darkMode }) {
       : window.scrollY;
 
     expandScrollYRef.current[idx] = anchorY;
-    markExpanded(snippets[idx]?.title);
+    markExpanded(snippet?.title);
 
     // If something else is open, collapse it first, then pin the new one.
     // This prevents the “expand both then jump” ping-pong.
@@ -1115,7 +1124,7 @@ export default function CodeLab({ darkMode }) {
         <div className="grid grid-cols-1 gap-6">
           {visibleSnippets.map((snip) => (
             <SnippetCard
-              key={`${snip.__idx}-${snip.title}`}
+              key={snip.id}
               snippet={snip}
               idx={snip.__idx}
             />

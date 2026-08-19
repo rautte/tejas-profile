@@ -3,6 +3,9 @@ import React from "react";
 import { FaGithub, FaLinkedin, FaGlobe, FaEnvelope } from "react-icons/fa";
 
 import { FOOTER_LINKS, FOOTER_DRAG } from "../data/footer";
+import {
+  footerCtaId,
+} from "../utils/analytics/ids";
 
 const ICONS = {
   linkedin: FaLinkedin,
@@ -120,6 +123,7 @@ export default function Footer() {
               rel={l.href.startsWith("mailto:") ? undefined : "noopener noreferrer"}
               className={`${l.colorClass} transition`}
               aria-label={l.label}
+              data-analytics={footerCtaId(l.key)}
             >
               <Icon size={20} />
             </a>

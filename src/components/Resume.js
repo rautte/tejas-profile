@@ -18,6 +18,9 @@ import Pill from "./shared/Pill";
 
 import { cx } from "../utils/cx";
 import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../utils/ui";
+import {
+  CTA_IDS,
+} from "../utils/analytics/ids";
 
 // -----------------------------
 // Local helpers (keep local: Resume-specific)
@@ -150,12 +153,22 @@ export default function Resume() {
             <div className="flex gap-2">
               <button
                 onClick={() => setIsPdfPreviewOpen(true)}
+                data-analytics={CTA_IDS.RESUME_VIEW_PDF}
                 className="inline-flex items-center gap-2 text-xs px-3 py-2 bg-green-600 text-white rounded-lg shadow hover:bg-green-700 transition font-small"
                 type="button"
               >
                 <HiOutlineEye className="text-base" />
                 View PDF
               </button>
+
+              <a
+                href={pdfSrc}
+                download="Tejas_Raut_Resume.pdf"
+                data-analytics={CTA_IDS.RESUME_DOWNLOAD_PDF}
+                className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/10 text-gray-800 dark:text-gray-100 hover:bg-white/80 dark:hover:bg-white/15 transition font-medium shadow-sm"
+              >
+                Download PDF
+              </a>
             </div>
           }
         >
@@ -176,7 +189,13 @@ export default function Resume() {
                   </Pill>
                 </span>
 
-                 <a href={linkedinUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
+                <a
+                  href={linkedinUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:opacity-90 transition"
+                  data-analytics={CTA_IDS.RESUME_LINKEDIN}
+                >
                   <span className="group">
                     <Pill
                       variant="grayStatic"
@@ -188,7 +207,7 @@ export default function Resume() {
                   </span>
                 </a>
 
-                <a href={mailto(hdr.email)} className="hover:opacity-90 transition">
+                <a href={mailto(hdr.email)} className="hover:opacity-90 transition" data-analytics={CTA_IDS.RESUME_EMAIL}>
                   <span className="group">
                     <Pill
                       variant="grayStatic"
@@ -200,7 +219,7 @@ export default function Resume() {
                   </span>
                 </a>
 
-                <a href={websiteUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition">
+                <a href={websiteUrl} target="_blank" rel="noreferrer" className="hover:opacity-90 transition" data-analytics={CTA_IDS.RESUME_WEBSITE}>
                   <span className="group">
                     <Pill
                       variant="grayStatic"
@@ -298,7 +317,11 @@ export default function Resume() {
                       </span>
 
                       {codeLabFrom && (
-                        <a href={`#/code-lab?from=${codeLabFrom}`} className={CODE_SNIPPETS_CLASS}>
+                        <a
+                          href={`#/code-lab?from=${codeLabFrom}`}
+                          className={CODE_SNIPPETS_CLASS}
+                          data-analytics={CTA_IDS.RESUME_CODE_SNIPPETS}
+                        >
                           Code Snippets
                         </a>
                       )}

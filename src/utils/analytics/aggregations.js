@@ -104,71 +104,187 @@ export function computeOverview(eventsOrDays) {
     return backendComputeOverview(eventsOrDays);
   }
 
-  const events = eventsOrDays; // existing path
+  const events = Array.isArray(eventsOrDays)
+    ? eventsOrDays
+    : [];
+
   const sessions = new Set();
-  const sessionsStart = new Map(); // sessionId -> ts
-  const sessionsEnd = new Map();   // sessionId -> ts
+
+  const sessionSections = new Map();
+  const sessionActiveMs = new Map();
 
   const sectionViews = new Map();
   const sectionTimeMs = new Map();
-  const sectionMaxScroll = new Map(); // section -> max depth observed via section_time snapshots
-
-  let totalSectionViews = 0;
+  const sectionMaxScroll = new Map();
 
   for (const e of events) {
-    if (e.sessionId) sessions.add(e.sessionId);
+    const sessionId = String(e?.sessionId || "").trim();
 
-    if (e.type === "session_start" && e.sessionId) {
-      const prev = sessionsStart.get(e.sessionId);
-      if (!prev || e.ts < prev) sessionsStart.set(e.sessionId, e.ts);
-    }
-    if (e.type === "session_end" && e.sessionId) {
-      const prev = sessionsEnd.get(e.sessionId);
-      if (!prev || e.ts > prev) sessionsEnd.set(e.sessionId, e.ts);
+    if (sessionId) {
+      sessions.add(sessionId);
     }
 
-    if (e.type === "section_view" && e.section) {
-      totalSectionViews++;
-      sectionViews.set(e.section, (sectionViews.get(e.section) ?? 0) + 1);
+    // -----------------------------
+    // Section visits
+    // -----------------------------
+    if (
+      e?.type === "section_view" &&
+      e?.section
+    ) {
+      const section = String(e.section);
+
+      sectionViews.set(
+        section,
+        (sectionViews.get(section) ?? 0) + 1
+      );
+
+      if (sessionId) {
+        if (!sessionSections.has(sessionId)) {
+          sessionSections.set(
+            sessionId,
+            new Set()
+          );
+        }
+
+        sessionSections
+          .get(sessionId)
+          .add(section);
+      }
     }
 
-    if (e.type === "section_time" && e.section) {
-      const dur = Number(e.meta?.durMs ?? 0);
-      sectionTimeMs.set(e.section, (sectionTimeMs.get(e.section) ?? 0) + dur);
+    // -----------------------------
+    // Active section time
+    // -----------------------------
+    if (
+      e?.type === "section_time" &&
+      e?.section
+    ) {
+      const section = String(e.section);
 
-      const ms = Number(e.meta?.maxScroll ?? 0);
-      const prev = sectionMaxScroll.get(e.section) ?? 0;
-      if (ms > prev) sectionMaxScroll.set(e.section, ms);
+      // Canonical Phase-2 schema is top-level `ms`.
+      // meta.durMs remains only as temporary backward compatibility
+      // for old local events.
+      const durationMs = Math.max(
+        0,
+        Number(
+          e?.ms ??
+          e?.meta?.durMs ??
+          0
+        ) || 0
+      );
+
+      sectionTimeMs.set(
+        section,
+        (sectionTimeMs.get(section) ?? 0) +
+          durationMs
+      );
+
+      if (sessionId) {
+        sessionActiveMs.set(
+          sessionId,
+          (sessionActiveMs.get(sessionId) ?? 0) +
+            durationMs
+        );
+      }
+    }
+
+    // -----------------------------
+    // Maximum observed scroll depth
+    // -----------------------------
+    if (
+      e?.type === "scroll_depth" &&
+      e?.section
+    ) {
+      const section = String(e.section);
+
+      const depth = Math.max(
+        0,
+        Math.min(
+          100,
+          Number(e?.depthPct ?? 0) || 0
+        )
+      );
+
+      const previous =
+        sectionMaxScroll.get(section) ?? 0;
+
+      if (depth > previous) {
+        sectionMaxScroll.set(
+          section,
+          depth
+        );
+      }
     }
   }
 
   const sessionCount = sessions.size;
 
-  // avg time per session (based on start/end when available)
-  let totalSessionMs = 0;
-  let sessionDurCount = 0;
-  for (const sid of sessions) {
-    const s = sessionsStart.get(sid);
-    const en = sessionsEnd.get(sid);
-    if (s && en && en >= s) {
-      totalSessionMs += (en - s);
-      sessionDurCount++;
-    }
-  }
-  const avgSessionMs = sessionDurCount ? Math.round(totalSessionMs / sessionDurCount) : 0;
+  // Average ACTIVE engagement time per session.
+  //
+  // Do not use wall-clock session_start/session_end duration.
+  // Background/hidden time must not count.
+  const totalActiveMs =
+    [...sessionActiveMs.values()].reduce(
+      (sum, value) => sum + value,
+      0
+    );
 
-  const avgSectionsPerSession = sessionCount ? (totalSectionViews / sessionCount) : 0;
+  const avgSessionMs = sessionCount
+    ? Math.round(totalActiveMs / sessionCount)
+    : 0;
+
+  // Breadth of exploration.
+  //
+  // Count each section at most once per session rather than
+  // counting repeated section_view events.
+  const uniqueSectionSessionPairs =
+    [...sessionSections.values()].reduce(
+      (sum, sections) =>
+        sum + sections.size,
+      0
+    );
+
+  const avgSectionsPerSession =
+    sessionCount
+      ? uniqueSectionSessionPairs / sessionCount
+      : 0;
 
   const topSection =
-    [...sectionViews.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    [...sectionViews.entries()]
+      .sort(
+        (a, b) =>
+          (b[1] || 0) - (a[1] || 0)
+      )[0]?.[0] ?? null;
 
   return {
     sessionCount,
     avgSessionMs,
     avgSectionsPerSession,
-    sectionViews: [...sectionViews.entries()].map(([section, value]) => ({ section, value })),
-    sectionTimeMs: [...sectionTimeMs.entries()].map(([section, value]) => ({ section, value })),
-    sectionMaxScroll: [...sectionMaxScroll.entries()].map(([section, value]) => ({ section, value })),
+
+    sectionViews:
+      [...sectionViews.entries()].map(
+        ([section, value]) => ({
+          section,
+          value,
+        })
+      ),
+
+    sectionTimeMs:
+      [...sectionTimeMs.entries()].map(
+        ([section, value]) => ({
+          section,
+          value,
+        })
+      ),
+
+    sectionMaxScroll:
+      [...sectionMaxScroll.entries()].map(
+        ([section, value]) => ({
+          section,
+          value,
+        })
+      ),
+
     topSection,
   };
 }
@@ -178,7 +294,9 @@ export function computeTimeSeries(eventsOrDays, granularity = "day") {
     return backendComputeTimeSeries(eventsOrDays, granularity);
   }
 
-  const events = eventsOrDays; // existing path
+  const events = Array.isArray(eventsOrDays)
+    ? eventsOrDays
+    : [];
   const keyFn = granularity === "year" ? yearKey : granularity === "month" ? monthKey : dayKey;
 
   // count unique sessions by bucket (session_start is best anchor)
@@ -206,7 +324,9 @@ export function computeRecentSessions(eventsOrDays, limit = 20) {
     return [];
   }
 
-  const events = eventsOrDays; // existing path
+  const events = Array.isArray(eventsOrDays)
+    ? eventsOrDays
+    : [];
   // Build per-session stats from section_time + section_view
   const bySession = new Map();
 
@@ -225,8 +345,20 @@ export function computeRecentSessions(eventsOrDays, limit = 20) {
     s.startTs = Math.min(s.startTs, e.ts);
     s.endTs = Math.max(s.endTs, e.ts);
 
-    if (e.type === "section_view" && e.section) s.sectionsViewed.add(e.section);
-    if (e.type === "section_time") s.totalMs += Number(e.meta?.durMs ?? 0);
+    if (e.type === "section_view" && e.section) {
+      s.sectionsViewed.add(e.section);
+    }
+
+    if (e.type === "section_time") {
+      s.totalMs += Math.max(
+        0,
+        Number(
+          e?.ms ??
+          e?.meta?.durMs ??
+          0
+        ) || 0
+      );
+    }
   }
 
   return [...bySession.values()]

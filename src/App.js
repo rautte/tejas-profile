@@ -20,10 +20,24 @@ import "./index.css";
 
 import { useLayoutEffect, useEffect, useMemo, useState, useCallback, useRef } from "react";
 
-import { analyticsInit, trackSectionEnter, trackScrollDepth, trackClick, flushAndClose } from "./utils/analytics";
+import {
+  analyticsInit,
+  trackSectionEnter,
+  trackScrollDepth,
+  trackClick,
+  trackDeepLinkLanding,
+  flushAndClose,
+} from "./utils/analytics";
+
+import { excludeCurrentBrowserFromAnalytics, } from "./utils/analytics/exclusion";
 import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
 import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
-import { DEFAULT_SECTION, SECTION_ORDER, SIDEBAR_GROUPS } from "./data/App";
+import {
+  DEFAULT_SECTION,
+  SECTION_ORDER,
+  SIDEBAR_GROUPS,
+  ADMIN_SECTION_ORDER,
+} from "./data/App";
 import { listSnapshots } from "./utils/snapshots/snapshotsApi";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
@@ -89,7 +103,7 @@ const ICONS = {
   // "Connect": <FaEnvelope className="text-sm" />,
 };
 
-const ADMIN_LABELS = ["Analytics", "Snapshots", "Data", "Settings"];
+const ADMIN_LABELS = ADMIN_SECTION_ORDER;
 
 const LABELS = SECTION_ORDER;
 
@@ -235,6 +249,29 @@ function App() {
   }, []);
 
 
+  // Initial-entry analytics only.
+  //
+  // Internal hash navigation is deliberately NOT a deep-link landing.
+  // This runs once for the page load and captures the route the visitor
+  // actually arrived on.
+  useEffect(() => {
+    const path =
+      window.location.pathname || "/";
+
+    const hash =
+      window.location.hash || "";
+
+    // With this app's hash router, a meaningful deep link has
+    // an explicit hash route/query.
+    if (!hash) return;
+
+    trackDeepLinkLanding({
+      path,
+      hash,
+    });
+  }, []);
+
+
   useEffect(() => {
     const onKeyDown = (e) => {
       const isO = (e.key || "").toLowerCase() === "o";
@@ -282,6 +319,10 @@ function App() {
         // ✅ server-verified unlock: if token invalid, API returns 401
         await listSnapshots();
 
+        // Server verified this really is the owner.
+        // Persistently exclude this browser from visitor analytics.
+        excludeCurrentBrowserFromAnalytics();
+
         setIsOwner(true);
         setOwnerError("");
         setOwnerPromptOpen(false);
@@ -301,13 +342,6 @@ function App() {
     },
     [setIsOwner]
   );
-
-  useEffect(() => {
-    analyticsInit();
-    const onUnload = () => flushAndClose();
-    window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
-  }, []);
 
 
   // ------------------------------
@@ -502,6 +536,7 @@ function App() {
   })();
 
   const [selectedSection, setSelectedSection] = useState(initialSection);
+  const isAdminSection = ADMIN_LABELS.includes(selectedSection);
 
   useEffect(() => {
     if (!isOwner && ADMIN_LABELS.includes(selectedSection)) {
@@ -851,7 +886,7 @@ function App() {
   // Mobile swipe sections
   // ------------------------------
   useEffect(() => {
-    if (!isMobile) return;
+    if (!isMobile || isAdminSection) return;
 
     const el = mainScrollRef.current;
     if (!el) return;
@@ -904,7 +939,7 @@ function App() {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [isMobile, selectedSection, goTo]);
+  }, [isMobile, isAdminSection, selectedSection, goTo]);
 
   // ------------------------------
   // Sidebar collapse
@@ -1124,31 +1159,57 @@ function App() {
             title="Owner mode enabled"
           >
             <FaUserShield className="text-[15px] text-purple-600 dark:text-purple-300" />
-            <span>Owner Mode</span>
+
+            <span className="font-medium">
+              Owner Mode
+            </span>
+
+            <span
+              className="
+                inline-flex items-center gap-1
+                px-2 py-[2px]
+                rounded-full
+                bg-emerald-100 dark:bg-emerald-500/10
+                border border-emerald-200/80 dark:border-emerald-400/20
+                text-emerald-700 dark:text-emerald-300
+                text-[10px]
+                font-semibold
+                leading-none
+              "
+              aria-label="Owner mode on"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              ON
+            </span>
 
             <button
               type="button"
               onClick={() => {
                 clearOwnerEnabled();
-                try { sessionStorage.removeItem(OWNER_TOKEN_KEY); } catch {}
+
+                try {
+                  sessionStorage.removeItem(OWNER_TOKEN_KEY);
+                } catch {}
+
                 setIsOwner(false);
-                setSelectedSection(DEFAULT_SECTION); // or goTo(DEFAULT_SECTION)
+                setSelectedSection(DEFAULT_SECTION);
               }}
               className="
-                ml-2
-                px-2 py-[2px]
+                ml-1
+                px-2 py-[3px]
                 rounded-full
-                bg-red-600 hover:bg-red-700
-                text-white
+                border border-red-300/80 dark:border-red-400/30
+                bg-transparent
+                text-red-600 dark:text-red-300
+                hover:bg-red-50 dark:hover:bg-red-500/10
                 text-[10px]
                 font-semibold
                 leading-none
                 transition
-                shadow-sm
               "
               title="Exit owner mode"
             >
-              OFF
+              Exit
             </button>
           </div>
         )}
@@ -1331,15 +1392,17 @@ function App() {
             </div>
           </main>
 
-          <Footer />
+          {!isAdminSection && <Footer />}
         </div>
       </div>
 
-      <MobileQuickConnectFab>
-        <QuickConnectPill />
-      </MobileQuickConnectFab>
+      {!isAdminSection && (
+        <MobileQuickConnectFab>
+          <QuickConnectPill />
+        </MobileQuickConnectFab>
+      )}
 
-      {isMobile && !navHintDismissed && (
+      {isMobile && !isAdminSection && !navHintDismissed && (
         <div className="md:hidden fixed left-1/2 -translate-x-1/2 z-[70] bottom-[calc(env(safe-area-inset-bottom)+72px)]">
           <div
             className="
@@ -1373,7 +1436,7 @@ function App() {
       )}
 
       {/* Navigation tip (desktop only, overlay — does NOT affect layout) */}
-      {!sidebarCollapsed && !navHintDismissed && (
+      {!isAdminSection && !sidebarCollapsed && !navHintDismissed && (
         <div className="hidden md:flex fixed left-1/2 -translate-x-1/2 z-[85] bottom-[62px] px-3">
           <div
             // left-1/2 -translate-x-1/2 This was under relative in below classname 
@@ -1413,11 +1476,13 @@ function App() {
         </div>
       )}
 
-      <MobileDockNav
-        items={mobileDockItems}
-        activeId={selectedSection}
-        onSelect={(id) => goTo(id)}
-      />
+      {!isAdminSection && (
+        <MobileDockNav
+          items={mobileDockItems}
+          activeId={selectedSection}
+          onSelect={(id) => goTo(id)}
+        />
+      )}
 
       <OwnerPasscodeModal
         open={ownerPromptOpen}
