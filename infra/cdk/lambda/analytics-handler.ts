@@ -1,11 +1,14 @@
 // lambda/analytics-handler.ts
 
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+
 import {
   DynamoDBClient,
   UpdateItemCommand,
   QueryCommand,
+  BatchGetItemCommand,
 } from "@aws-sdk/client-dynamodb";
+
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import * as crypto from "node:crypto";
 
@@ -51,6 +54,12 @@ const DEFAULT_QUERY_DAYS = 7;
 const MAX_QUERY_DAYS = 366;
 
 const QUERY_CONCURRENCY = 10;
+
+const MAX_BATCH_GET_KEYS = 100;
+
+const VISITOR_QUERY_CONCURRENCY = 8;
+
+const VISITOR_BATCH_GET_RETRIES = 5;
 
 const PUBLIC_SECTION_ORDER = [
   "About Me",
@@ -196,6 +205,65 @@ function sha256(s: string) {
  *   }]
  * }
  */
+
+async function ensureVisitorFirstSeen(
+  event: NonNullable<
+    ReturnType<typeof normalizeEvent>
+  >
+) {
+  if (!ANALYTICS_TABLE) return;
+
+  const key = {
+    pk: `VISITOR#${event.visitorHash}`,
+    sk: "META",
+  };
+
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName: ANALYTICS_TABLE,
+
+        Key: marshall(key),
+
+        ExpressionAttributeNames: {
+          "#visitorHash": "visitorHash",
+          "#firstSeenAt": "firstSeenAt",
+          "#updatedAt": "updatedAt",
+        },
+
+        ExpressionAttributeValues: marshall({
+          ":visitorHash": event.visitorHash,
+          ":eventTs": event.ts,
+          ":now": nowIso(),
+        }),
+
+        // Important:
+        // - creates firstSeenAt the first time
+        // - corrects it if an older event arrives later
+        // - does nothing for ordinary later events
+        ConditionExpression:
+          "attribute_not_exists(#firstSeenAt) " +
+          "OR #firstSeenAt > :eventTs",
+
+        UpdateExpression:
+          "SET " +
+          "#visitorHash = if_not_exists(#visitorHash, :visitorHash), " +
+          "#firstSeenAt = :eventTs, " +
+          "#updatedAt = :now",
+      })
+    );
+  } catch (e: any) {
+    // Normal case for every event after the visitor's earliest event.
+    if (
+      e?.name ===
+      "ConditionalCheckFailedException"
+    ) {
+      return;
+    }
+
+    throw e;
+  }
+}
 
 function normalizeEvent(e: any) {
   const type = safeStr(e?.type, 64);
@@ -852,6 +920,47 @@ async function handleIngest(event: APIGatewayV2Event) {
   let acceptedCount = 0;
   let duplicateCount = 0;
 
+  // One incoming batch normally belongs to a single browser visitor,
+  // but the API contract does not rely on that assumption.
+  //
+  // Keep only the earliest event for each visitor in this batch.
+  // Across different batches, ensureVisitorFirstSeen() still uses
+  // the atomic "earliest timestamp wins" condition, so delayed or
+  // out-of-order batches remain correct.
+  const earliestEventByVisitor =
+    new Map<
+      string,
+      NonNullable<
+        ReturnType<typeof normalizeEvent>
+      >
+    >();
+
+  for (const analyticsEvent of events) {
+    const existing =
+      earliestEventByVisitor.get(
+        analyticsEvent.visitorHash
+      );
+
+    if (
+      !existing ||
+      analyticsEvent.ts < existing.ts
+    ) {
+      earliestEventByVisitor.set(
+        analyticsEvent.visitorHash,
+        analyticsEvent
+      );
+    }
+  }
+
+  for (
+    const visitorEvent of
+      earliestEventByVisitor.values()
+  ) {
+    await ensureVisitorFirstSeen(
+      visitorEvent
+    );
+  }
+
   // Raw S3 objects are grouped by BOTH day and profile version.
   //
   // Normally a client batch contains one profile version, but grouping
@@ -1256,6 +1365,248 @@ async function queryRangeSessionFragments(
   return byDay;
 }
 
+function sleep(ms: number) {
+  return new Promise<void>(
+    (resolve) =>
+      setTimeout(resolve, ms)
+  );
+}
+
+function collectVisitorHashes(
+  byDay: Map<string, any[]>
+) {
+  const hashes =
+    new Set<string>();
+
+  for (
+    const items of
+      byDay.values()
+  ) {
+    for (
+      const item of items
+    ) {
+      const visitorHash =
+        safeStr(
+          item?.visitorHash,
+          80
+        );
+
+      if (visitorHash) {
+        hashes.add(
+          visitorHash
+        );
+      }
+    }
+  }
+
+  return [...hashes];
+}
+
+async function batchGetVisitorFirstSeen(
+  visitorHashes: string[]
+) {
+  const result =
+    new Map<string, number>();
+
+  if (
+    !ANALYTICS_TABLE ||
+    visitorHashes.length === 0
+  ) {
+    return result;
+  }
+
+  let pendingKeys =
+    visitorHashes.map(
+      (visitorHash) =>
+        marshall({
+          pk:
+            `VISITOR#${visitorHash}`,
+          sk: "META",
+        })
+    );
+
+  for (
+    let attempt = 0;
+    attempt <
+      VISITOR_BATCH_GET_RETRIES &&
+    pendingKeys.length > 0;
+    attempt += 1
+  ) {
+    const response =
+      await ddb.send(
+        new BatchGetItemCommand({
+          RequestItems: {
+            [ANALYTICS_TABLE]: {
+              Keys:
+                pendingKeys,
+
+              ConsistentRead:
+                true,
+
+              ProjectionExpression:
+                "#visitorHash, #firstSeenAt",
+
+              ExpressionAttributeNames:
+                {
+                  "#visitorHash":
+                    "visitorHash",
+
+                  "#firstSeenAt":
+                    "firstSeenAt",
+                },
+            },
+          },
+        })
+      );
+
+    const rawItems =
+      response.Responses?.[
+        ANALYTICS_TABLE
+      ] || [];
+
+    for (
+      const raw of rawItems
+    ) {
+      const item =
+        unmarshall(raw);
+
+      const visitorHash =
+        safeStr(
+          item?.visitorHash,
+          80
+        );
+
+      const firstSeenAt =
+        Number(
+          item?.firstSeenAt
+        );
+
+      if (
+        visitorHash &&
+        Number.isFinite(
+          firstSeenAt
+        )
+      ) {
+        result.set(
+          visitorHash,
+          firstSeenAt
+        );
+      }
+    }
+
+    pendingKeys =
+      response.UnprocessedKeys?.[
+        ANALYTICS_TABLE
+      ]?.Keys || [];
+
+    if (
+      pendingKeys.length > 0
+    ) {
+      await sleep(
+        25 *
+          Math.pow(
+            2,
+            attempt
+          )
+      );
+    }
+  }
+
+  // Do not silently classify visitors incorrectly if Dynamo
+  // failed to return metadata after retries.
+  if (
+    pendingKeys.length > 0
+  ) {
+    throw new Error(
+      "Unable to load all visitor metadata after retries."
+    );
+  }
+
+  return result;
+}
+
+async function queryVisitorFirstSeen(
+  visitorHashes: string[]
+) {
+  const combined =
+    new Map<string, number>();
+
+  if (
+    visitorHashes.length === 0
+  ) {
+    return combined;
+  }
+
+  const chunks:
+    string[][] = [];
+
+  for (
+    let i = 0;
+    i <
+      visitorHashes.length;
+    i += MAX_BATCH_GET_KEYS
+  ) {
+    chunks.push(
+      visitorHashes.slice(
+        i,
+        i +
+          MAX_BATCH_GET_KEYS
+      )
+    );
+  }
+
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index =
+        nextIndex++;
+
+      if (
+        index >=
+        chunks.length
+      ) {
+        return;
+      }
+
+      const values =
+        await batchGetVisitorFirstSeen(
+          chunks[index]
+        );
+
+      for (
+        const [
+          visitorHash,
+          firstSeenAt,
+        ] of values.entries()
+      ) {
+        combined.set(
+          visitorHash,
+          firstSeenAt
+        );
+      }
+    }
+  }
+
+  const workerCount =
+    Math.min(
+      VISITOR_QUERY_CONCURRENCY,
+      chunks.length
+    );
+
+  await Promise.all(
+    Array.from(
+      {
+        length:
+          workerCount,
+      },
+      () => worker()
+    )
+  );
+
+  return combined;
+}
+
 function numericValue(value: any) {
   const n =
     Number(value || 0);
@@ -1359,7 +1710,9 @@ function aggregateSessionFragments(
   days: string[],
   byDay: Map<string, any[]>,
   profileVersionFilter:
-    string | null
+    string | null,
+  visitorFirstSeenByHash:
+    Map<string, number>
 ) {
   const visitors =
     new Set<string>();
@@ -1946,6 +2299,83 @@ function aggregateSessionFragments(
   const uniqueVisitors =
     visitors.size;
 
+  const rangeStartTs =
+    days.length
+      ? Date.parse(
+          `${days[0]}T00:00:00Z`
+        )
+      : NaN;
+
+  const rangeEndExclusiveTs =
+    days.length
+      ? Date.parse(
+          `${shiftUtcDay(
+            days[
+              days.length - 1
+            ],
+            1
+          )}T00:00:00Z`
+        )
+      : NaN;
+
+  let newVisitors = 0;
+  let returningVisitors = 0;
+  let unclassifiedVisitors = 0;
+
+  for (
+    const visitorHash of
+      visitors
+  ) {
+    const firstSeenAt =
+      visitorFirstSeenByHash.get(
+        visitorHash
+      );
+
+    // Historical DEV fragments created before Phase 6A do not
+    // have visitor registry records. Keep them explicitly
+    // unclassified rather than lying about new/returning status.
+    if (
+      !Number.isFinite(
+        firstSeenAt
+      ) ||
+      !Number.isFinite(
+        rangeStartTs
+      ) ||
+      !Number.isFinite(
+        rangeEndExclusiveTs
+      ) ||
+      firstSeenAt! >=
+        rangeEndExclusiveTs
+    ) {
+      unclassifiedVisitors += 1;
+      continue;
+    }
+
+    if (
+      firstSeenAt! <
+      rangeStartTs
+    ) {
+      returningVisitors += 1;
+    } else {
+      newVisitors += 1;
+    }
+  }
+
+  const classifiedVisitors =
+    newVisitors +
+    returningVisitors;
+
+  const returningVisitorPct =
+    classifiedVisitors
+      ? Number(
+          (
+            (returningVisitors /
+              classifiedVisitors) *
+            100
+          ).toFixed(1)
+        )
+      : 0;
+
   const avgActiveMsPerSession =
     sessionCount
       ? Math.round(
@@ -2088,6 +2518,16 @@ function aggregateSessionFragments(
 
     overview: {
       uniqueVisitors,
+
+      newVisitors,
+
+      returningVisitors,
+
+      classifiedVisitors,
+
+      unclassifiedVisitors,
+
+      returningVisitorPct,
 
       sessions:
         sessionCount,
@@ -2366,11 +2806,22 @@ async function handleQuery(
       profileVersionFilter
     );
 
+  const visitorHashes =
+    collectVisitorHashes(
+      byDay
+    );
+
+  const visitorFirstSeenByHash =
+    await queryVisitorFirstSeen(
+      visitorHashes
+    );
+
   const analytics =
     aggregateSessionFragments(
       range.days,
       byDay,
-      profileVersionFilter
+      profileVersionFilter,
+      visitorFirstSeenByHash
     );
 
   return json(
