@@ -111,7 +111,7 @@ function lockMainScroll(modalPanelRef, scrollTopRef) {
 }
 
 export default function Resume() {
-  const pdfSrc = "./downloads/TejasRaut_Resume.pdf";
+  const pdfSrc = `${process.env.PUBLIC_URL}/downloads/Tejas_Resume.pdf`;
 
   const hdr = RESUME_DATA.header;
 
