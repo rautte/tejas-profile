@@ -5,17 +5,33 @@ import {
   OWNER_TOKEN_KEY,
 } from "../../config/owner";
 
-const API =
+const SNAPSHOTS_API =
   process.env.REACT_APP_SNAPSHOTS_API || "";
 
-function mustHaveApi() {
-  if (!API) {
+const ANALYTICS_INGEST_API =
+  process.env.REACT_APP_ANALYTICS_INGEST_API || "";
+
+function mustHaveSnapshotsApi() {
+  if (!SNAPSHOTS_API) {
     throw new Error(
       "Missing REACT_APP_SNAPSHOTS_API"
     );
   }
 
-  return API.replace(/\/$/, "");
+  return SNAPSHOTS_API.replace(/\/+$/, "");
+}
+
+function mustHaveAnalyticsIngestApi() {
+  if (!ANALYTICS_INGEST_API) {
+    throw new Error(
+      "Missing REACT_APP_ANALYTICS_INGEST_API"
+    );
+  }
+
+  return ANALYTICS_INGEST_API.replace(
+    /\/+$/,
+    ""
+  );
 }
 
 function isOwnerEnabled() {
@@ -112,7 +128,7 @@ export async function ingestAnalyticsBatch(
   payload
 ) {
   const url =
-    `${mustHaveApi()}/analytics/ingest`;
+    `${mustHaveAnalyticsIngestApi()}/analytics/ingest`;
 
   const res =
     await fetch(url, {
@@ -165,7 +181,7 @@ export async function queryAnalyticsAgg({
   signal,
 } = {}) {
   const base =
-    mustHaveApi();
+    mustHaveSnapshotsApi();
 
   const qs =
     new URLSearchParams();
