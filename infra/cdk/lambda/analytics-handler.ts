@@ -58,6 +58,18 @@ const MAX_QUERY_DAYS = 366;
 
 const QUERY_CONCURRENCY = 10;
 
+const MAX_RECENT_SESSIONS =
+  50;
+
+const MAX_RECENT_SESSION_JOURNEY_EVENTS =
+  200;
+
+const MAX_TOP_JOURNEY_TRANSITIONS =
+  30;
+
+const MAX_TOP_SECTION_PATHS =
+  20;
+
 const MAX_BATCH_GET_KEYS = 100;
 
 const VISITOR_QUERY_CONCURRENCY = 8;
@@ -726,8 +738,10 @@ function buildSessionEventUpdate(
   >,
   {
     includeJourney = true,
+    markJourneyTruncated = false,
   }: {
     includeJourney?: boolean;
+    markJourneyTruncated?: boolean;
   } = {}
 ) {
   const day = ymd(event.ts);
@@ -779,6 +793,18 @@ function buildSessionEventUpdate(
   const sets: string[] = [
     "#updatedAt = :now",
   ];
+
+  if (markJourneyTruncated) {
+    names["#journeyTruncated"] =
+      "journeyTruncated";
+
+    values[":journeyTruncated"] =
+      true;
+
+    sets.push(
+      "#journeyTruncated = :journeyTruncated"
+    );
+  }
 
   const adds: string[] = [
     "#processedEventIds :eventIds",
@@ -1237,6 +1263,9 @@ async function applyEventToSessionFragment(
         {
           includeJourney:
             false,
+
+          markJourneyTruncated:
+            true,
         }
       );
 
@@ -2310,6 +2339,70 @@ function stringSetValues(
   }
 
   return [];
+}
+
+type ParsedJourneyEvent = {
+  ts: number;
+  fingerprint: string;
+  type: string;
+  value: string;
+};
+
+const JOURNEY_KINDS =
+  new Set([
+    "section",
+    "cta",
+    "project",
+    "snippet",
+    "deep_link",
+  ]);
+
+function parseJourneyToken(
+  token: string
+): ParsedJourneyEvent | null {
+  try {
+    const parsed =
+      JSON.parse(token);
+
+    const ts =
+      Number(parsed?.t);
+
+    const fingerprint =
+      safeStr(
+        parsed?.i,
+        40
+      );
+
+    const type =
+      safeStr(
+        parsed?.k,
+        32
+      );
+
+    const value =
+      safeStr(
+        parsed?.v,
+        240
+      );
+
+    if (
+      !Number.isFinite(ts) ||
+      !fingerprint ||
+      !JOURNEY_KINDS.has(type) ||
+      !value
+    ) {
+      return null;
+    }
+
+    return {
+      ts,
+      fingerprint,
+      type,
+      value,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function numericMap(
@@ -3511,6 +3604,910 @@ function aggregateSessionFragments(
   };
 }
 
+function buildSessionIntelligence(
+  days: string[],
+  byDay: Map<string, any[]>
+) {
+  type LogicalSessionState = {
+    sessionHash: string;
+    visitorHash: string;
+
+    firstEventAt:
+      number | null;
+
+    lastEventAt:
+      number | null;
+
+    activeMs:
+      number;
+
+    eventCount:
+      number;
+
+    fragmentCount:
+      number;
+
+    sections:
+      Set<string>;
+
+    profileVersions:
+      Map<string, number>;
+
+    journey:
+      Map<
+        string,
+        ParsedJourneyEvent
+      >;
+
+    journeyTruncated:
+      boolean;
+
+    geo:
+      {
+        firstSeenAt: number;
+
+        countryCode:
+          string | null;
+
+        regionCode:
+          string | null;
+
+        city:
+          string | null;
+      } | null;
+  };
+
+  const sessions =
+    new Map<
+      string,
+      LogicalSessionState
+    >();
+
+  for (const day of days) {
+    const items =
+      byDay.get(day) || [];
+
+    for (const item of items) {
+      const sessionHash =
+        safeStr(
+          item?.sessionHash,
+          80
+        );
+
+      const visitorHash =
+        safeStr(
+          item?.visitorHash,
+          80
+        );
+
+      if (
+        !sessionHash ||
+        !visitorHash
+      ) {
+        continue;
+      }
+
+      let state =
+        sessions.get(
+          sessionHash
+        );
+
+      if (!state) {
+        state = {
+          sessionHash,
+          visitorHash,
+
+          firstEventAt:
+            null,
+
+          lastEventAt:
+            null,
+
+          activeMs:
+            0,
+
+          eventCount:
+            0,
+
+          fragmentCount:
+            0,
+
+          sections:
+            new Set<string>(),
+
+          profileVersions:
+            new Map<
+              string,
+              number
+            >(),
+
+          journey:
+            new Map<
+              string,
+              ParsedJourneyEvent
+            >(),
+
+          journeyTruncated:
+            false,
+
+          geo:
+            null,
+        };
+
+        sessions.set(
+          sessionHash,
+          state
+        );
+      }
+
+      state.fragmentCount +=
+        1;
+
+      state.activeMs +=
+        numericValue(
+          item?.activeMs
+        );
+
+      state.eventCount +=
+        numericValue(
+          item?.eventCount
+        );
+
+      const firstEventAt =
+        Number(
+          item?.firstEventAt
+        );
+
+      const lastEventAt =
+        Number(
+          item?.lastEventAt
+        );
+
+      if (
+        Number.isFinite(
+          firstEventAt
+        )
+      ) {
+        if (
+          state.firstEventAt ===
+            null ||
+          firstEventAt <
+            state.firstEventAt
+        ) {
+          state.firstEventAt =
+            firstEventAt;
+        }
+      }
+
+      if (
+        Number.isFinite(
+          lastEventAt
+        )
+      ) {
+        if (
+          state.lastEventAt ===
+            null ||
+          lastEventAt >
+            state.lastEventAt
+        ) {
+          state.lastEventAt =
+            lastEventAt;
+        }
+      }
+
+      for (
+        const section of
+          stringSetValues(
+            item?.sectionsSeen
+          )
+      ) {
+        if (
+          PUBLIC_SECTIONS.has(
+            section
+          )
+        ) {
+          state.sections.add(
+            section
+          );
+        }
+      }
+
+      const profileVersionId =
+        safeStr(
+          item?.profileVersionId,
+          120
+        ) ||
+        "unknown";
+
+      const existingPvTs =
+        state.profileVersions.get(
+          profileVersionId
+        );
+
+      const pvTs =
+        Number.isFinite(
+          firstEventAt
+        )
+          ? firstEventAt
+          : Number.MAX_SAFE_INTEGER;
+
+      if (
+        existingPvTs ===
+          undefined ||
+        pvTs <
+          existingPvTs
+      ) {
+        state.profileVersions.set(
+          profileVersionId,
+          pvTs
+        );
+      }
+
+      for (
+        const rawToken of
+          stringSetValues(
+            item?.journeyEvents
+          )
+      ) {
+        const parsed =
+          parseJourneyToken(
+            rawToken
+          );
+
+        if (!parsed) {
+          continue;
+        }
+
+        const existing =
+          state.journey.get(
+            parsed.fingerprint
+          );
+
+        if (
+          !existing ||
+          parsed.ts <
+            existing.ts
+        ) {
+          state.journey.set(
+            parsed.fingerprint,
+            parsed
+          );
+        }
+      }
+
+      if (
+        item?.journeyTruncated ===
+        true
+      ) {
+        state.journeyTruncated =
+          true;
+      }
+
+      const countryCode =
+        safeStr(
+          item?.countryCode,
+          2
+        ).toUpperCase();
+
+      const regionCode =
+        safeStr(
+          item?.regionCode,
+          8
+        ).toUpperCase();
+
+      const city =
+        safeStr(
+          item?.city,
+          120
+        );
+
+      const hasGeo =
+        Boolean(
+          countryCode ||
+          regionCode ||
+          city
+        );
+
+      if (hasGeo) {
+        const geoTs =
+          Number.isFinite(
+            firstEventAt
+          )
+            ? firstEventAt
+            : Number.MAX_SAFE_INTEGER;
+
+        if (
+          !state.geo ||
+          geoTs <
+            state.geo.firstSeenAt
+        ) {
+          state.geo = {
+            firstSeenAt:
+              geoTs,
+
+            countryCode:
+              /^[A-Z]{2}$/.test(
+                countryCode
+              )
+                ? countryCode
+                : null,
+
+            regionCode:
+              regionCode ||
+              null,
+
+            city:
+              city ||
+              null,
+          };
+        }
+      }
+    }
+  }
+
+  function orderedJourney(
+    state:
+      LogicalSessionState
+  ) {
+    return [
+      ...state.journey.values(),
+    ].sort(
+      (a, b) =>
+        a.ts -
+          b.ts ||
+        a.fingerprint.localeCompare(
+          b.fingerprint
+        )
+    );
+  }
+
+  function semanticNodeKey(
+    event:
+      ParsedJourneyEvent
+  ) {
+    return JSON.stringify([
+      event.type,
+      event.value,
+    ]);
+  }
+
+  function collapseConsecutive(
+    journey:
+      ParsedJourneyEvent[]
+  ) {
+    const out:
+      ParsedJourneyEvent[] =
+        [];
+
+    let previousKey =
+      "";
+
+    for (
+      const event of journey
+    ) {
+      const key =
+        semanticNodeKey(
+          event
+        );
+
+      if (
+        key ===
+        previousKey
+      ) {
+        continue;
+      }
+
+      previousKey =
+        key;
+
+      out.push(event);
+    }
+
+    return out;
+  }
+
+  type TransitionState = {
+    fromType: string;
+    fromValue: string;
+
+    toType: string;
+    toValue: string;
+
+    count: number;
+
+    visitors:
+      Set<string>;
+
+    sessions:
+      Set<string>;
+  };
+
+  const transitions =
+    new Map<
+      string,
+      TransitionState
+    >();
+
+  type PathState = {
+    path:
+      string[];
+
+    visitors:
+      Set<string>;
+
+    sessions:
+      Set<string>;
+  };
+
+  const sectionPaths =
+    new Map<
+      string,
+      PathState
+    >();
+
+  let sessionsWithJourney =
+    0;
+
+  let sessionsWithoutJourney =
+    0;
+
+  let journeyTruncatedSessions =
+    0;
+
+  for (
+    const state of
+      sessions.values()
+  ) {
+    const journey =
+      orderedJourney(state);
+
+    if (journey.length) {
+      sessionsWithJourney +=
+        1;
+    } else {
+      sessionsWithoutJourney +=
+        1;
+    }
+
+    if (
+      state.journeyTruncated
+    ) {
+      journeyTruncatedSessions +=
+        1;
+    }
+
+    const semanticJourney =
+      collapseConsecutive(
+        journey
+      );
+
+    for (
+      let i = 0;
+      i <
+        semanticJourney.length -
+          1;
+      i += 1
+    ) {
+      const from =
+        semanticJourney[i];
+
+      const to =
+        semanticJourney[
+          i + 1
+        ];
+
+      const key =
+        JSON.stringify([
+          from.type,
+          from.value,
+          to.type,
+          to.value,
+        ]);
+
+      let transition =
+        transitions.get(key);
+
+      if (!transition) {
+        transition = {
+          fromType:
+            from.type,
+
+          fromValue:
+            from.value,
+
+          toType:
+            to.type,
+
+          toValue:
+            to.value,
+
+          count:
+            0,
+
+          visitors:
+            new Set<string>(),
+
+          sessions:
+            new Set<string>(),
+        };
+
+        transitions.set(
+          key,
+          transition
+        );
+      }
+
+      transition.count +=
+        1;
+
+      transition.visitors.add(
+        state.visitorHash
+      );
+
+      transition.sessions.add(
+        state.sessionHash
+      );
+    }
+
+    const sectionPath:
+      string[] = [];
+
+    for (
+      const event of
+        semanticJourney
+    ) {
+      if (
+        event.type !==
+          "section" ||
+        !PUBLIC_SECTIONS.has(
+          event.value
+        )
+      ) {
+        continue;
+      }
+
+      sectionPath.push(
+        event.value
+      );
+    }
+
+    if (
+      sectionPath.length >= 2
+    ) {
+      const pathKey =
+        JSON.stringify(
+          sectionPath
+        );
+
+      let pathState =
+        sectionPaths.get(
+          pathKey
+        );
+
+      if (!pathState) {
+        pathState = {
+          path:
+            sectionPath,
+
+          visitors:
+            new Set<string>(),
+
+          sessions:
+            new Set<string>(),
+        };
+
+        sectionPaths.set(
+          pathKey,
+          pathState
+        );
+      }
+
+      pathState.visitors.add(
+        state.visitorHash
+      );
+
+      pathState.sessions.add(
+        state.sessionHash
+      );
+    }
+  }
+
+  const recentSessions =
+    [
+      ...sessions.values(),
+    ]
+      .sort(
+        (a, b) =>
+          (
+            b.lastEventAt ||
+            0
+          ) -
+            (
+              a.lastEventAt ||
+              0
+            ) ||
+          (
+            b.firstEventAt ||
+            0
+          ) -
+            (
+              a.firstEventAt ||
+              0
+            )
+      )
+      .slice(
+        0,
+        MAX_RECENT_SESSIONS
+      )
+      .map((state) => {
+        const fullJourney =
+          orderedJourney(state);
+
+        const journeyOutputTruncated =
+          fullJourney.length >
+          MAX_RECENT_SESSION_JOURNEY_EVENTS;
+
+        const journey =
+          fullJourney
+            .slice(
+              0,
+              MAX_RECENT_SESSION_JOURNEY_EVENTS
+            )
+            .map(
+              (event) => ({
+                ts:
+                  event.ts,
+
+                type:
+                  event.type,
+
+                value:
+                  event.value,
+              })
+            );
+
+        const chronologicalSections:
+          string[] = [];
+
+        const sectionSet =
+          new Set<string>();
+
+        for (
+          const event of
+            fullJourney
+        ) {
+          if (
+            event.type !==
+              "section" ||
+            !PUBLIC_SECTIONS.has(
+              event.value
+            ) ||
+            sectionSet.has(
+              event.value
+            )
+          ) {
+            continue;
+          }
+
+          sectionSet.add(
+            event.value
+          );
+
+          chronologicalSections.push(
+            event.value
+          );
+        }
+
+        for (
+          const section of
+            PUBLIC_SECTION_ORDER
+        ) {
+          if (
+            state.sections.has(
+              section
+            ) &&
+            !sectionSet.has(
+              section
+            )
+          ) {
+            chronologicalSections.push(
+              section
+            );
+          }
+        }
+
+        const startedAt =
+          state.firstEventAt;
+
+        const lastEventAt =
+          state.lastEventAt;
+
+        const durationMs =
+          startedAt !== null &&
+          lastEventAt !== null
+            ? Math.max(
+                0,
+                lastEventAt -
+                  startedAt
+              )
+            : null;
+
+        const profileVersionIds =
+          [
+            ...state
+              .profileVersions
+              .entries(),
+          ]
+            .sort(
+              (a, b) =>
+                a[1] -
+                  b[1] ||
+                a[0].localeCompare(
+                  b[0]
+                )
+            )
+            .map(
+              ([id]) =>
+                id
+            );
+
+        return {
+          sessionId:
+            `s_${sha256(
+              `analytics-session:${state.sessionHash}`
+            ).slice(
+              0,
+              16
+            )}`,
+
+          startedAt,
+
+          lastEventAt,
+
+          durationMs,
+
+          activeMs:
+            state.activeMs,
+
+          eventCount:
+            state.eventCount,
+
+          fragmentCount:
+            state.fragmentCount,
+
+          sections:
+            chronologicalSections,
+
+          sectionCount:
+            chronologicalSections
+              .length,
+
+          profileVersionIds,
+
+          countryCode:
+            state.geo
+              ?.countryCode ||
+            null,
+
+          regionCode:
+            state.geo
+              ?.regionCode ||
+            null,
+
+          city:
+            state.geo
+              ?.city ||
+            null,
+
+          journeyEventCount:
+            fullJourney.length,
+
+          journeyTruncated:
+            state
+              .journeyTruncated ||
+            journeyOutputTruncated,
+
+          journey,
+        };
+      });
+
+  const topTransitions =
+    [
+      ...transitions.values(),
+    ]
+      .map(
+        (value) => ({
+          from: {
+            type:
+              value.fromType,
+
+            value:
+              value.fromValue,
+          },
+
+          to: {
+            type:
+              value.toType,
+
+            value:
+              value.toValue,
+          },
+
+          count:
+            value.count,
+
+          sessions:
+            value.sessions.size,
+
+          visitors:
+            value.visitors.size,
+        })
+      )
+      .sort(
+        (a, b) =>
+          b.count -
+            a.count ||
+          b.sessions -
+            a.sessions ||
+          b.visitors -
+            a.visitors
+      )
+      .slice(
+        0,
+        MAX_TOP_JOURNEY_TRANSITIONS
+      );
+
+  const topSectionPaths =
+    [
+      ...sectionPaths.values(),
+    ]
+      .map(
+        (value) => ({
+          path:
+            value.path,
+
+          sessions:
+            value.sessions.size,
+
+          visitors:
+            value.visitors.size,
+        })
+      )
+      .sort(
+        (a, b) =>
+          b.sessions -
+            a.sessions ||
+          b.visitors -
+            a.visitors
+      )
+      .slice(
+        0,
+        MAX_TOP_SECTION_PATHS
+      );
+
+  return {
+    coverage: {
+      logicalSessions:
+        sessions.size,
+
+      sessionsWithJourney,
+
+      sessionsWithoutJourney,
+
+      journeyTruncatedSessions,
+
+      recentSessionLimit:
+        MAX_RECENT_SESSIONS,
+    },
+
+    recentSessions,
+
+    topTransitions,
+
+    topSectionPaths,
+  };
+}
+
 async function handleQuery(
   event: APIGatewayV2Event
 ) {
@@ -3618,12 +4615,21 @@ async function handleQuery(
       visitorFirstSeenByHash
     );
 
+  const sessionIntelligence =
+    buildSessionIntelligence(
+      range.days,
+      byDay
+    );
+
   return json(
     200,
     {
       ok: true,
       stage: STAGE,
+
       ...analytics,
+
+      sessionIntelligence,
     },
     cors
   );
