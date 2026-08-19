@@ -4,10 +4,7 @@ import Particles from "react-tsparticles";
 // import RotatingTitle from "./RotatingTitle";
 import React, { useCallback, useMemo } from "react";
 
-import { loadLinksPreset } from "tsparticles-preset-links";
-import { loadExternalGrabInteraction } from "tsparticles-interaction-external-grab";
-import { loadExternalRepulseInteraction } from "tsparticles-interaction-external-repulse";
-import { loadParticlesCollisionsInteraction } from "tsparticles-interaction-particles-collisions";
+import { loadSlim } from "tsparticles-slim";
 
 import { cx } from "../utils/cx";
 
@@ -31,11 +28,7 @@ export default function Hero({ darkMode }) {
 
   // Particle config init (stable)
   const particlesInit = useCallback(async (engine) => {
-    // preset already loads links, but keep it explicit (your current behavior)
-    await loadLinksPreset(engine);
-    await loadExternalGrabInteraction(engine);
-    await loadExternalRepulseInteraction(engine);
-    await loadParticlesCollisionsInteraction(engine);
+    await loadSlim(engine);
   }, []);
 
   // Memoize options (important for performance + avoids subtle re-init bugs)

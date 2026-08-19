@@ -121,9 +121,9 @@ ok "Wrote .env with profile version metadata."
 
 # ---- 1b) Validate production build
 echo ""
-info "Running production build..."
-npm run build
-ok "Build succeeded."
+info "Running production CI build..."
+CI=true npm run build
+ok "CI build succeeded."
 
 # ---- 2) Commit with UUID + timestamp
 uuid=""
