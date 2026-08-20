@@ -11,7 +11,8 @@
     "synth": "cdk synth",
     "diff": "cdk diff",
     "deploy": "cdk deploy",
-    "bootstrap": "cdk bootstrap"
+    "bootstrap": "cdk bootstrap",
+    "analytics:purge": "node scripts/purge-analytics.mjs"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
