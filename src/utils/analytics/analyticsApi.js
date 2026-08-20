@@ -176,9 +176,15 @@ export async function ingestAnalyticsBatch(
  */
 export async function queryAnalyticsAgg({
   profileVersionId = "all",
+
+  boundaryId = "all",
+
   from,
+
   to,
+
   signal,
+
 } = {}) {
   const base =
     mustHaveSnapshotsApi();
@@ -193,6 +199,18 @@ export async function queryAnalyticsAgg({
         "all"
     )
   );
+
+  if (
+    boundaryId &&
+    boundaryId !== "all"
+  ) {
+    qs.set(
+      "boundaryId",
+      String(
+        boundaryId
+      )
+    );
+  }
 
   if (from) {
     qs.set(
@@ -246,6 +264,134 @@ export async function queryAnalyticsAgg({
   return data;
 }
 
+export async function queryAnalyticsMeta({
+  signal,
+} = {}) {
+  const base =
+    mustHaveSnapshotsApi();
+
+  const url =
+    `${base}/analytics/meta`;
+
+  const res =
+    await fetch(
+      url,
+      {
+        method: "GET",
+
+        headers:
+          analyticsHeaders({
+            requireOwner: true,
+          }),
+
+        signal,
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const data =
+    await readJsonResponse(
+      res,
+      "analytics metadata query"
+    );
+
+  if (
+    !data ||
+    data.ok !== true
+  ) {
+    throw new Error(
+      data?.error ||
+        "Analytics metadata returned an invalid response."
+    );
+  }
+
+  return data;
+}
+
+export async function createAnalyticsBoundary({
+  boundaryId,
+  type,
+  effectiveAt,
+  profileVersionId,
+  note,
+  gitSha,
+  buildTime,
+} = {}) {
+  const base =
+    mustHaveSnapshotsApi();
+
+  const url =
+    `${base}/analytics/boundaries`;
+
+  const payload = {
+    boundaryId,
+    type,
+    effectiveAt,
+  };
+
+  if (profileVersionId) {
+    payload.profileVersionId =
+      profileVersionId;
+  }
+
+  if (note) {
+    payload.note =
+      note;
+  }
+
+  if (gitSha) {
+    payload.gitSha =
+      gitSha;
+  }
+
+  if (buildTime) {
+    payload.buildTime =
+      buildTime;
+  }
+
+  const res =
+    await fetch(
+      url,
+      {
+        method: "POST",
+
+        headers:
+          analyticsHeaders({
+            requireOwner: true,
+          }),
+
+        body:
+          JSON.stringify(
+            payload
+          ),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const data =
+    await readJsonResponse(
+      res,
+      "analytics boundary creation"
+    );
+
+  if (
+    !data ||
+    data.ok !== true ||
+    !data.boundary
+  ) {
+    throw new Error(
+      data?.error ||
+        "Analytics boundary creation returned an invalid response."
+    );
+  }
+
+  return data;
+}
+
 /**
  * Temporary compatibility export.
  *
@@ -257,14 +403,21 @@ export async function queryAnalyticsAgg({
 export async function queryAnalyticsDays(
   {
     profileVersionId = "all",
+
+    boundaryId = "all",
+
     from,
+
     to,
+
     signal,
+
   } = {}
 ) {
   const data =
     await queryAnalyticsAgg({
       profileVersionId,
+      boundaryId,
       from,
       to,
       signal,

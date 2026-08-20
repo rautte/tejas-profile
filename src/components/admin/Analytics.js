@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -25,7 +26,9 @@ import {
 } from "../../utils/profileVersion";
 
 import {
+  createAnalyticsBoundary,
   queryAnalyticsAgg,
+  queryAnalyticsMeta,
 } from "../../utils/analytics/analyticsApi";
 
 
@@ -249,6 +252,92 @@ function formatTimestampUtc(
   } catch {
     return "—";
   }
+}
+
+function boundaryOptionLabel(
+  boundary
+) {
+  if (!boundary) {
+    return "Unknown boundary";
+  }
+
+  const type =
+    boundary.type === "reset"
+      ? "Reset"
+      : "Deploy";
+
+  const release =
+    boundary.type === "deploy" &&
+    boundary.profileVersionId
+      ? ` · ${boundary.profileVersionId}`
+      : "";
+
+  return (
+    `${type}${release} · ` +
+    formatTimestampUtc(
+      boundary.effectiveAt
+    )
+  );
+}
+
+function createResetBoundaryRequest() {
+  const effectiveAt =
+    Date.now();
+
+  const stamp =
+    new Date(
+      effectiveAt
+    )
+      .toISOString()
+      .replace(
+        /\D/g,
+        ""
+      )
+      .slice(
+        0,
+        14
+      );
+
+  let suffix = "";
+
+  try {
+    suffix =
+      window.crypto
+        ?.randomUUID?.()
+        ?.replace(
+          /-/g,
+          ""
+        )
+        ?.slice(
+          0,
+          12
+        ) || "";
+  } catch {
+    suffix = "";
+  }
+
+  if (!suffix) {
+    suffix =
+      Math.random()
+        .toString(36)
+        .slice(
+          2,
+          14
+        );
+  }
+
+  return {
+    boundaryId:
+      `reset-${stamp}-${suffix}`,
+
+    type:
+      "reset",
+
+    effectiveAt,
+
+    note:
+      "Owner analytics baseline reset",
+  };
 }
 
 function journeyTypeLabel(
@@ -2198,6 +2287,63 @@ export default function AdminAnalytics() {
     useState("all");
 
   const [
+    boundaryFilter,
+    setBoundaryFilter,
+  ] =
+    useState("all");
+
+  const [
+    boundaryCatalog,
+    setBoundaryCatalog,
+  ] =
+    useState([]);
+
+  const [
+    metadataReady,
+    setMetadataReady,
+  ] =
+    useState(false);
+
+  const [
+    metaLoading,
+    setMetaLoading,
+  ] =
+    useState(false);
+
+  const [
+    metaError,
+    setMetaError,
+  ] =
+    useState("");
+
+  const [
+    resetArmed,
+    setResetArmed,
+  ] =
+    useState(false);
+
+  const [
+    resetting,
+    setResetting,
+  ] =
+    useState(false);
+
+  const [
+    resetError,
+    setResetError,
+  ] =
+    useState("");
+
+  const [
+    pendingResetRequest,
+    setPendingResetRequest,
+  ] =
+    useState(null);
+
+  const defaultBaselineInitialized =
+    useRef(false);
+
+  const [
     comparePrevious,
     setComparePrevious,
   ] =
@@ -2279,55 +2425,213 @@ export default function AdminAnalytics() {
 
   const releaseOptions =
     useMemo(() => {
-      const ids =
+      const ids = [];
+      const seen =
         new Set();
 
+      function add(id) {
+        const clean =
+          String(
+            id || ""
+          ).trim();
+
+        if (
+          !clean ||
+          seen.has(clean)
+        ) {
+          return;
+        }
+
+        seen.add(clean);
+        ids.push(clean);
+      }
+
+      // /analytics/meta already returns
+      // releases newest-first.
       for (
         const release of
           releaseCatalog || []
       ) {
-        const id =
-          String(
-            release
-              ?.profileVersionId ||
-              ""
-          ).trim();
-
-        if (id) {
-          ids.add(id);
-        }
-      }
-
-      const currentId =
-        String(
-          profileVersion?.id ||
-            ""
-        ).trim();
-
-      if (currentId) {
-        ids.add(
-          currentId
+        add(
+          release
+            ?.profileVersionId
         );
       }
 
+      // Current build may not yet have
+      // been registered by deployment CI.
+      add(
+        profileVersion?.id
+      );
+
+      // Never make a previously selected
+      // value disappear from the control.
       if (
-        profileVersionFilter &&
         profileVersionFilter !==
-          "all"
+        "all"
       ) {
-        ids.add(
+        add(
           profileVersionFilter
         );
       }
 
-      return [
-        ...ids,
-      ].sort();
+      return ids;
     }, [
       releaseCatalog,
       profileVersion,
       profileVersionFilter,
     ]);
+
+  const boundaryOptions =
+    useMemo(
+      () =>
+        Array.isArray(
+          boundaryCatalog
+        )
+          ? boundaryCatalog
+          : [],
+      [
+        boundaryCatalog,
+      ]
+    );
+
+  const selectedBoundary =
+    useMemo(
+      () => {
+        if (
+          boundaryFilter ===
+          "all"
+        ) {
+          return null;
+        }
+
+        return (
+          boundaryOptions.find(
+            (boundary) =>
+              boundary
+                ?.boundaryId ===
+              boundaryFilter
+          ) ||
+          null
+        );
+      },
+      [
+        boundaryFilter,
+        boundaryOptions,
+      ]
+    );
+
+  const selectedFromLabel =
+    boundaryFilter === "all"
+      ? "All history"
+      : selectedBoundary
+        ? boundaryOptionLabel(
+            selectedBoundary
+          )
+        : boundaryFilter;
+
+  const loadAnalyticsMetadata =
+    useCallback(
+      async (
+        signal
+      ) => {
+        setMetaLoading(
+          true
+        );
+
+        setMetaError(
+          ""
+        );
+
+        try {
+          const meta =
+            await queryAnalyticsMeta({
+              signal,
+            });
+
+          const releases =
+            Array.isArray(
+              meta?.releases
+            )
+              ? meta.releases
+              : [];
+
+          const boundaries =
+            Array.isArray(
+              meta?.boundaries
+            )
+              ? meta.boundaries
+              : [];
+
+          setReleaseCatalog(
+            releases
+          );
+
+          setBoundaryCatalog(
+            boundaries
+          );
+
+          // A reset changes the dashboard's
+          // default baseline.
+          //
+          // Deploy boundaries remain selectable
+          // but do NOT silently reset analytics.
+          if (
+            !defaultBaselineInitialized
+              .current
+          ) {
+            const now =
+              Date.now();
+
+            const latestReset =
+              boundaries.find(
+                (boundary) =>
+                  boundary?.type ===
+                    "reset" &&
+                  Number(
+                    boundary
+                      ?.effectiveAt
+                  ) <= now
+              );
+
+            setBoundaryFilter(
+              latestReset
+                ?.boundaryId ||
+                "all"
+            );
+
+            defaultBaselineInitialized
+              .current = true;
+          }
+        } catch (e) {
+          if (
+            e?.name ===
+            "AbortError"
+          ) {
+            return;
+          }
+
+          setMetaError(
+            String(
+              e?.message || e
+            )
+          );
+        } finally {
+          if (
+            !signal?.aborted
+          ) {
+            setMetaLoading(
+              false
+            );
+
+            setMetadataReady(
+              true
+            );
+          }
+        }
+      },
+      []
+    );
 
   const loadAnalytics =
     useCallback(
@@ -2338,14 +2642,13 @@ export default function AdminAnalytics() {
         setError("");
 
         try {
-          // Always query All Releases for the current period.
-          // This gives the selector a release catalogue for the
-          // selected window without coupling the displayed result
-          // to the active release filter.
-          const allReleasesPromise =
+          const currentPromise =
             queryAnalyticsAgg({
               profileVersionId:
-                "all",
+                profileVersionFilter,
+
+              boundaryId:
+                boundaryFilter,
 
               from:
                 range.from,
@@ -2356,25 +2659,6 @@ export default function AdminAnalytics() {
               signal,
             });
 
-          const currentPromise =
-            profileVersionFilter ===
-            "all"
-              ? allReleasesPromise
-              : queryAnalyticsAgg(
-                  {
-                    profileVersionId:
-                      profileVersionFilter,
-
-                    from:
-                      range.from,
-
-                    to:
-                      range.to,
-
-                    signal,
-                  }
-                );
-
           const previousPromise =
             comparePrevious &&
             comparisonRange
@@ -2382,6 +2666,9 @@ export default function AdminAnalytics() {
                   {
                     profileVersionId:
                       profileVersionFilter,
+
+                    boundaryId:
+                      boundaryFilter,
 
                     from:
                       comparisonRange.from,
@@ -2397,25 +2684,13 @@ export default function AdminAnalytics() {
                 );
 
           const [
-            allReleasesData,
             currentData,
             previousResult,
           ] =
             await Promise.all([
-              allReleasesPromise,
               currentPromise,
               previousPromise,
             ]);
-
-          setReleaseCatalog(
-            Array.isArray(
-              allReleasesData
-                ?.profileVersions
-            )
-              ? allReleasesData
-                  .profileVersions
-              : []
-          );
 
           setData(
             currentData
@@ -2444,7 +2719,6 @@ export default function AdminAnalytics() {
               e?.message || e
             )
           );
-
         } finally {
           if (
             !signal?.aborted
@@ -2459,12 +2733,33 @@ export default function AdminAnalytics() {
         range.from,
         range.to,
         profileVersionFilter,
+        boundaryFilter,
         comparePrevious,
         comparisonRange,
       ]
     );
 
   useEffect(() => {
+    const controller =
+      new AbortController();
+
+    loadAnalyticsMetadata(
+      controller.signal
+    );
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    loadAnalyticsMetadata,
+    refreshVersion,
+  ]);
+
+  useEffect(() => {
+    if (!metadataReady) {
+      return undefined;
+    }
+
     const controller =
       new AbortController();
 
@@ -2478,6 +2773,7 @@ export default function AdminAnalytics() {
   }, [
     loadAnalytics,
     refreshVersion,
+    metadataReady,
   ]);
 
   const overview =
@@ -2593,6 +2889,148 @@ export default function AdminAnalytics() {
       customTo,
     ]);
 
+  const armBaselineReset =
+    useCallback(() => {
+      setResetError(
+        ""
+      );
+
+      setPendingResetRequest(
+        (existing) =>
+          existing ||
+          createResetBoundaryRequest()
+      );
+
+      setResetArmed(
+        true
+      );
+    }, []);
+
+  const cancelBaselineReset =
+    useCallback(() => {
+      if (resetting) {
+        return;
+      }
+
+      setResetArmed(
+        false
+      );
+
+      setResetError(
+        ""
+      );
+
+      setPendingResetRequest(
+        null
+      );
+    }, [
+      resetting,
+    ]);
+
+  const confirmBaselineReset =
+    useCallback(
+      async () => {
+        const request =
+          pendingResetRequest ||
+          createResetBoundaryRequest();
+
+        setPendingResetRequest(
+          request
+        );
+
+        setResetting(
+          true
+        );
+
+        setResetError(
+          ""
+        );
+
+        try {
+          const result =
+            await createAnalyticsBoundary(
+              request
+            );
+
+          const boundary =
+            result?.boundary;
+
+          if (
+            !boundary
+              ?.boundaryId
+          ) {
+            throw new Error(
+              "Reset boundary was created but the response did not include a boundary ID."
+            );
+          }
+
+          // The POST response is authoritative,
+          // so make the new boundary immediately
+          // available to the selector.
+          setBoundaryCatalog(
+            (current) => {
+              const remaining =
+                (
+                  current ||
+                  []
+                ).filter(
+                  (item) =>
+                    item
+                      ?.boundaryId !==
+                    boundary
+                      .boundaryId
+                );
+
+              return [
+                boundary,
+                ...remaining,
+              ].sort(
+                (a, b) =>
+                  Number(
+                    b?.effectiveAt ||
+                      0
+                  ) -
+                  Number(
+                    a?.effectiveAt ||
+                      0
+                  )
+              );
+            }
+          );
+
+          // A manual reset becomes the active
+          // dashboard baseline immediately.
+          setBoundaryFilter(
+            boundary.boundaryId
+          );
+
+          setResetArmed(
+            false
+          );
+
+          setPendingResetRequest(
+            null
+          );
+        } catch (e) {
+          // Keep pendingResetRequest intact.
+          // A retry therefore uses the SAME
+          // boundary ID and effective timestamp.
+          setResetError(
+            String(
+              e?.message || e
+            )
+          );
+        } finally {
+          setResetting(
+            false
+          );
+        }
+      },
+      [
+        pendingResetRequest,
+      ]
+    );
+
   const downloadCurrentJson =
     useCallback(() => {
       if (!data) return;
@@ -2609,12 +3047,35 @@ export default function AdminAnalytics() {
           "_"
         );
 
+      const baselineLabel =
+        boundaryFilter === "all"
+          ? "all-history"
+          : boundaryFilter;
+
+      const safeBaseline =
+        baselineLabel.replace(
+          /[^a-zA-Z0-9._-]+/g,
+          "_"
+        );
+
       downloadJsonFile(
-        `tejas-profile-analytics_${range.from}_to_${range.to}_${safeRelease}.json`,
+        `tejas-profile-analytics_${range.from}_to_${range.to}_${safeRelease}_${safeBaseline}.json`,
         {
           exportedAt:
             new Date()
               .toISOString(),
+
+          filters: {
+            period,
+
+            range,
+
+            profileVersionId:
+              profileVersionFilter,
+
+            boundaryId:
+              boundaryFilter,
+          },
 
           analytics:
             data,
@@ -2626,7 +3087,9 @@ export default function AdminAnalytics() {
     }, [
       data,
       previousData,
+      period,
       profileVersionFilter,
+      boundaryFilter,
       range,
     ]);
 
@@ -2652,6 +3115,13 @@ export default function AdminAnalytics() {
                   {formatRangeLabel(
                     range
                   )}
+                </span>
+              </span>
+
+              <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
+                From:{" "}
+                <span className="font-semibold text-gray-800 dark:text-gray-100 break-all">
+                  {selectedFromLabel}
                 </span>
               </span>
 
@@ -2683,10 +3153,15 @@ export default function AdminAnalytics() {
                     v + 1
                 )
               }
-              disabled={loading}
+              disabled={
+                loading ||
+                metaLoading ||
+                resetting
+              }
               title="Reload exact analytics from the backend"
             >
-              {loading
+              {loading ||
+              metaLoading
                 ? "Refreshing…"
                 : "Refresh"}
             </SmallActionButton>
@@ -2708,7 +3183,7 @@ export default function AdminAnalytics() {
 
         <SectionCard
           title="Analytics window"
-          subtitle="Period and release filters are independent. Comparison uses the immediately preceding period of equal length."
+          subtitle="Period, baseline and release are independent filters. Comparison uses the immediately preceding period of equal length."
         >
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -2768,7 +3243,7 @@ export default function AdminAnalytics() {
                 <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                   <label className="flex-1">
                     <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      From
+                      Start date
                     </div>
 
                     <input
@@ -2790,7 +3265,7 @@ export default function AdminAnalytics() {
 
                   <label className="flex-1">
                     <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      To
+                      End date
                     </div>
 
                     <input
@@ -2829,7 +3304,7 @@ export default function AdminAnalytics() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
                 <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
                   Selected range
@@ -2853,6 +3328,7 @@ export default function AdminAnalytics() {
                   ) === 1
                     ? ""
                     : "s"}
+
                   {comparePrevious &&
                   comparisonRange
                     ? ` · Previous: ${formatRangeLabel(
@@ -2864,6 +3340,69 @@ export default function AdminAnalytics() {
 
               <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
                 <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                  From
+                </div>
+
+                <select
+                  value={
+                    boundaryFilter
+                  }
+                  disabled={
+                    metaLoading ||
+                    resetting
+                  }
+                  onChange={(
+                    e
+                  ) => {
+                    setBoundaryFilter(
+                      e.target.value
+                    );
+
+                    setResetArmed(
+                      false
+                    );
+
+                    setPendingResetRequest(
+                      null
+                    );
+
+                    setResetError(
+                      ""
+                    );
+                  }}
+                  className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                >
+                  <option value="all">
+                    All history
+                  </option>
+
+                  {boundaryOptions.map(
+                    (boundary) => (
+                      <option
+                        key={
+                          boundary
+                            .boundaryId
+                        }
+                        value={
+                          boundary
+                            .boundaryId
+                        }
+                      >
+                        {boundaryOptionLabel(
+                          boundary
+                        )}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  Baseline lower bound. The selected period still applies.
+                </div>
+              </label>
+
+              <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
+                <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
                   Release
                 </div>
 
@@ -2871,15 +3410,17 @@ export default function AdminAnalytics() {
                   value={
                     profileVersionFilter
                   }
+                  disabled={
+                    metaLoading
+                  }
                   onChange={(
                     e
                   ) =>
                     setProfileVersionFilter(
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
-                  className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                  className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
                 >
                   <option value="all">
                     All releases
@@ -2900,10 +3441,111 @@ export default function AdminAnalytics() {
                     )
                   )}
                 </select>
+
+                <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  Global release catalogue, independent of the selected period.
+                </div>
               </label>
+            </div>
+
+            <div className="rounded-xl border border-amber-200/80 dark:border-amber-400/20 bg-amber-50/60 dark:bg-amber-500/5 p-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    Analytics baseline
+                  </div>
+
+                  <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                    Resetting creates a new baseline boundary only.
+                    Historical aggregates and raw analytics are not deleted.
+                  </div>
+                </div>
+
+                {!resetArmed ? (
+                  <SmallActionButton
+                    onClick={
+                      armBaselineReset
+                    }
+                    disabled={
+                      resetting
+                    }
+                    title="Create a new analytics baseline without deleting history"
+                  >
+                    Reset baseline
+                  </SmallActionButton>
+                ) : null}
+              </div>
+
+              {resetArmed ? (
+                <div className="mt-4 rounded-lg border border-amber-300/70 dark:border-amber-400/25 bg-white/60 dark:bg-white/5 p-3">
+                  <div className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                    Confirm baseline reset
+                  </div>
+
+                  <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                    New analytics will use this boundary as the default
+                    "From" point. You can still select "All history"
+                    afterward to view older data.
+                  </div>
+
+                  {pendingResetRequest
+                    ?.effectiveAt ? (
+                    <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                      Effective:{" "}
+                      <span className="font-semibold text-gray-700 dark:text-gray-300">
+                        {formatTimestampUtc(
+                          pendingResetRequest
+                            .effectiveAt
+                        )}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={
+                        confirmBaselineReset
+                      }
+                      disabled={
+                        resetting
+                      }
+                      className="inline-flex items-center justify-center rounded-lg border border-amber-500/40 bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {resetting
+                        ? "Resetting…"
+                        : "Confirm reset"}
+                    </button>
+
+                    <SmallActionButton
+                      onClick={
+                        cancelBaselineReset
+                      }
+                      disabled={
+                        resetting
+                      }
+                    >
+                      Cancel
+                    </SmallActionButton>
+                  </div>
+
+                  {resetError ? (
+                    <div className="mt-2 text-xs text-red-600 dark:text-red-400 break-words">
+                      {resetError}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </SectionCard>
+
+        {metaError ? (
+          <div className="rounded-xl border border-amber-300/60 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 whitespace-pre-wrap break-words">
+            Analytics metadata failed:{" "}
+            {metaError}
+          </div>
+        ) : null}
 
         {error ? (
           <div className="rounded-xl border border-red-300/60 dark:border-red-500/40 bg-red-50/60 dark:bg-red-950/30 px-4 py-3 text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap break-words">
