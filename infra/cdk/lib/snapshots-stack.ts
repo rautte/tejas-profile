@@ -413,6 +413,33 @@ export class SnapshotsStack extends cdk.Stack {
         integration: analyticsIntegration,
     });
 
+    httpApi.addRoutes({
+      path: "/analytics/meta",
+      methods: [
+        apigwv2.HttpMethod.GET,
+      ],
+      integration:
+        analyticsIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/analytics/releases",
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+      integration:
+        analyticsIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/analytics/boundaries",
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+      integration:
+        analyticsIntegration,
+    });
+
     const httpApiDomain =
       cdk.Fn.select(
         2,

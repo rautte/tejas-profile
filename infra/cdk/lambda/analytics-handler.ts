@@ -7,6 +7,8 @@ import {
   UpdateItemCommand,
   QueryCommand,
   BatchGetItemCommand,
+  PutItemCommand,
+  GetItemCommand,
 } from "@aws-sdk/client-dynamodb";
 
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
@@ -75,6 +77,18 @@ const MAX_BATCH_GET_KEYS = 100;
 const VISITOR_QUERY_CONCURRENCY = 8;
 
 const VISITOR_BATCH_GET_RETRIES = 5;
+
+const ANALYTICS_CONTROL_PK =
+  "CONTROL#ANALYTICS";
+
+const ANALYTICS_RELEASE_PREFIX =
+  "RELEASE#";
+
+const ANALYTICS_BOUNDARY_PREFIX =
+  "BOUNDARY#";
+
+const CONTROL_ID_RE =
+  /^[A-Za-z0-9._:-]+$/;
 
 const PUBLIC_SECTION_ORDER = [
   "About Me",
@@ -279,6 +293,80 @@ function getGeoFromHeaders(
 
 function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
+}
+
+function sortableTimestamp(
+  value: number
+) {
+  return String(
+    Math.round(value)
+  ).padStart(
+    13,
+    "0"
+  );
+}
+
+function releaseControlSk(
+  profileVersionId: string
+) {
+  return (
+    ANALYTICS_RELEASE_PREFIX +
+    sha256(
+      profileVersionId
+    ).slice(
+      0,
+      32
+    )
+  );
+}
+
+function boundaryControlSk(
+  boundaryId: string
+) {
+  return (
+    ANALYTICS_BOUNDARY_PREFIX +
+    sha256(
+      boundaryId
+    ).slice(
+      0,
+      32
+    )
+  );
+}
+
+function normalizeControlTimestamp(
+  value: any,
+  {
+    defaultNow = false,
+  }: {
+    defaultNow?: boolean;
+  } = {}
+) {
+  const raw =
+    value == null &&
+    defaultNow
+      ? Date.now()
+      : Number(value);
+
+  if (
+    !Number.isFinite(raw) ||
+    raw <= 0
+  ) {
+    return null;
+  }
+
+  const ts =
+    Math.round(raw);
+
+  if (
+    ts >
+    Date.now() +
+      MAX_FUTURE_SKEW_MS
+  ) {
+    return null;
+  }
+
+  return ts;
 }
 
 /**
@@ -1367,6 +1455,1020 @@ async function putRawBatchToS3(
   );
 
   return key;
+}
+
+async function upsertReleaseRecord(
+  params: {
+    profileVersionId:
+      string;
+
+    releasedAt:
+      number;
+
+    gitSha?:
+      string | null;
+
+    buildTime?:
+      string | null;
+
+    note?:
+      string | null;
+
+    source?:
+      string | null;
+  }
+) {
+  if (!ANALYTICS_TABLE) {
+    throw new Error(
+      "ANALYTICS_TABLE not configured"
+    );
+  }
+
+  const profileVersionId =
+    safeStr(
+      params.profileVersionId,
+      120
+    );
+
+  if (!profileVersionId) {
+    throw new Error(
+      "profileVersionId is required"
+    );
+  }
+
+  const key = {
+    pk:
+      ANALYTICS_CONTROL_PK,
+
+    sk:
+      releaseControlSk(
+        profileVersionId
+      ),
+  };
+
+  const names:
+    Record<string, string> = {
+      "#kind":
+        "kind",
+
+      "#profileVersionId":
+        "profileVersionId",
+
+      "#releasedAt":
+        "releasedAt",
+
+      "#registeredAt":
+        "registeredAt",
+
+      "#updatedAt":
+        "updatedAt",
+
+      "#stage":
+        "stage",
+    };
+
+  const values:
+    Record<string, any> = {
+      ":kind":
+        "release",
+
+      ":profileVersionId":
+        profileVersionId,
+
+      ":releasedAt":
+        params.releasedAt,
+
+      ":registeredAt":
+        nowIso(),
+
+      ":updatedAt":
+        nowIso(),
+
+      ":stage":
+        STAGE,
+    };
+
+  const sets = [
+    "#kind = if_not_exists(#kind, :kind)",
+
+    "#profileVersionId = " +
+      "if_not_exists(" +
+      "#profileVersionId, " +
+      ":profileVersionId)",
+
+    "#releasedAt = " +
+      "if_not_exists(" +
+      "#releasedAt, " +
+      ":releasedAt)",
+
+    "#registeredAt = " +
+      "if_not_exists(" +
+      "#registeredAt, " +
+      ":registeredAt)",
+
+    "#updatedAt = :updatedAt",
+
+    "#stage = if_not_exists(" +
+      "#stage, :stage)",
+  ];
+
+  const gitSha =
+    safeStr(
+      params.gitSha,
+      80
+    );
+
+  if (gitSha) {
+    names["#gitSha"] =
+      "gitSha";
+
+    values[":gitSha"] =
+      gitSha;
+
+    sets.push(
+      "#gitSha = :gitSha"
+    );
+  }
+
+  const buildTime =
+    safeStr(
+      params.buildTime,
+      80
+    );
+
+  if (buildTime) {
+    names["#buildTime"] =
+      "buildTime";
+
+    values[":buildTime"] =
+      buildTime;
+
+    sets.push(
+      "#buildTime = :buildTime"
+    );
+  }
+
+  const note =
+    safeStr(
+      params.note,
+      240
+    );
+
+  if (note) {
+    names["#note"] =
+      "note";
+
+    values[":note"] =
+      note;
+
+    sets.push(
+      "#note = :note"
+    );
+  }
+
+  const source =
+    safeStr(
+      params.source,
+      40
+    );
+
+  if (source) {
+    names["#source"] =
+      "source";
+
+    values[":source"] =
+      source;
+
+    sets.push(
+      "#source = :source"
+    );
+  }
+
+  const result =
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName:
+          ANALYTICS_TABLE,
+
+        Key:
+          marshall(key),
+
+        ExpressionAttributeNames:
+          names,
+
+        ExpressionAttributeValues:
+          marshall(values),
+
+        UpdateExpression:
+          `SET ${sets.join(
+            ", "
+          )}`,
+
+        ReturnValues:
+          "ALL_NEW",
+      })
+    );
+
+  return result.Attributes
+    ? unmarshall(
+        result.Attributes
+      )
+    : null;
+}
+
+async function queryAnalyticsControlItems(
+  prefix: string
+) {
+  if (!ANALYTICS_TABLE) {
+    throw new Error(
+      "ANALYTICS_TABLE not configured"
+    );
+  }
+
+  const items:
+    any[] = [];
+
+  let lastEvaluatedKey:
+    | Record<string, any>
+    | undefined;
+
+  do {
+    const response =
+      await ddb.send(
+        new QueryCommand({
+          TableName:
+            ANALYTICS_TABLE,
+
+          KeyConditionExpression:
+            "#pk = :pk " +
+            "AND begins_with(" +
+            "#sk, :prefix)",
+
+          ExpressionAttributeNames: {
+            "#pk":
+              "pk",
+
+            "#sk":
+              "sk",
+          },
+
+          ExpressionAttributeValues:
+            marshall({
+              ":pk":
+                ANALYTICS_CONTROL_PK,
+
+              ":prefix":
+                prefix,
+            }),
+
+          ExclusiveStartKey:
+            lastEvaluatedKey,
+
+          ConsistentRead:
+            true,
+        })
+      );
+
+    for (
+      const raw of
+        response.Items || []
+    ) {
+      items.push(
+        unmarshall(raw)
+      );
+    }
+
+    lastEvaluatedKey =
+      response.LastEvaluatedKey;
+  } while (
+    lastEvaluatedKey
+  );
+
+  return items;
+}
+
+function releaseForResponse(
+  item: any
+) {
+  return {
+    profileVersionId:
+      safeStr(
+        item?.profileVersionId,
+        120
+      ),
+
+    releasedAt:
+      Number(
+        item?.releasedAt
+      ) || null,
+
+    registeredAt:
+      safeStr(
+        item?.registeredAt,
+        80
+      ) || null,
+
+    updatedAt:
+      safeStr(
+        item?.updatedAt,
+        80
+      ) || null,
+
+    gitSha:
+      safeStr(
+        item?.gitSha,
+        80
+      ) || null,
+
+    buildTime:
+      safeStr(
+        item?.buildTime,
+        80
+      ) || null,
+
+    note:
+      safeStr(
+        item?.note,
+        240
+      ) || null,
+
+    source:
+      safeStr(
+        item?.source,
+        40
+      ) || null,
+  };
+}
+
+function boundaryForResponse(
+  item: any
+) {
+  return {
+    boundaryId:
+      safeStr(
+        item?.boundaryId,
+        120
+      ),
+
+    type:
+      safeStr(
+        item?.boundaryType,
+        20
+      ),
+
+    effectiveAt:
+      Number(
+        item?.effectiveAt
+      ) || null,
+
+    createdAt:
+      safeStr(
+        item?.createdAt,
+        80
+      ) || null,
+
+    profileVersionId:
+      safeStr(
+        item?.profileVersionId,
+        120
+      ) || null,
+
+    note:
+      safeStr(
+        item?.note,
+        240
+      ) || null,
+  };
+}
+
+async function handleAnalyticsMeta(
+  event:
+    APIGatewayV2Event
+) {
+  const origin =
+    event.headers?.origin ||
+    event.headers?.Origin;
+
+  const headers =
+    event.headers || {};
+
+  const cors =
+    corsHeaders(origin);
+
+  if (!isOwner(headers)) {
+    return json(
+      401,
+      {
+        error:
+          "Unauthorized",
+      },
+      cors
+    );
+  }
+
+  const [
+    releaseItems,
+    boundaryItems,
+  ] =
+    await Promise.all([
+      queryAnalyticsControlItems(
+        ANALYTICS_RELEASE_PREFIX
+      ),
+
+      queryAnalyticsControlItems(
+        ANALYTICS_BOUNDARY_PREFIX
+      ),
+    ]);
+
+  const releases =
+    releaseItems
+      .map(
+        releaseForResponse
+      )
+      .filter(
+        (release) =>
+          Boolean(
+            release
+              .profileVersionId
+          )
+      )
+      .sort(
+        (a, b) =>
+          Number(
+            b.releasedAt ||
+              0
+          ) -
+            Number(
+              a.releasedAt ||
+                0
+            ) ||
+          a.profileVersionId
+            .localeCompare(
+              b.profileVersionId
+            )
+      );
+
+  const boundaries =
+    boundaryItems
+      .map(
+        boundaryForResponse
+      )
+      .filter(
+        (boundary) =>
+          Boolean(
+            boundary
+              .boundaryId
+          ) &&
+          Number.isFinite(
+            boundary
+              .effectiveAt
+          )
+      )
+      .sort(
+        (a, b) =>
+          Number(
+            b.effectiveAt ||
+              0
+          ) -
+            Number(
+              a.effectiveAt ||
+                0
+            ) ||
+          a.boundaryId
+            .localeCompare(
+              b.boundaryId
+            )
+      );
+
+  const now =
+    Date.now();
+
+  const currentBoundary =
+    boundaries.find(
+      (boundary) =>
+        Number(
+          boundary
+            .effectiveAt ||
+            0
+        ) <= now
+    ) || null;
+
+  return json(
+    200,
+    {
+      ok: true,
+
+      schema:
+        "tejas-profile.analytics.meta.v1",
+
+      stage:
+        STAGE,
+
+      releases,
+
+      boundaries,
+
+      currentBoundary,
+    },
+    cors
+  );
+}
+
+async function handleRegisterRelease(
+  event:
+    APIGatewayV2Event
+) {
+  const origin =
+    event.headers?.origin ||
+    event.headers?.Origin;
+
+  const headers =
+    event.headers || {};
+
+  const cors =
+    corsHeaders(origin);
+
+  if (!isOwner(headers)) {
+    return json(
+      401,
+      {
+        error:
+          "Unauthorized",
+      },
+      cors
+    );
+  }
+
+  let payload:
+    any = {};
+
+  try {
+    payload =
+      event.body
+        ? JSON.parse(
+            event.body
+          )
+        : {};
+  } catch {
+    return json(
+      400,
+      {
+        error:
+          "Invalid JSON",
+      },
+      cors
+    );
+  }
+
+  const profileVersionId =
+    safeStr(
+      payload
+        ?.profileVersionId,
+      120
+    );
+
+  if (!profileVersionId) {
+    return json(
+      400,
+      {
+        error:
+          "profileVersionId is required",
+      },
+      cors
+    );
+  }
+
+  const releasedAt =
+    normalizeControlTimestamp(
+      payload
+        ?.releasedAt,
+      {
+        defaultNow:
+          true,
+      }
+    );
+
+  if (
+    releasedAt === null
+  ) {
+    return json(
+      400,
+      {
+        error:
+          "Invalid releasedAt timestamp",
+      },
+      cors
+    );
+  }
+
+  const item =
+    await upsertReleaseRecord(
+      {
+        profileVersionId,
+
+        releasedAt,
+
+        gitSha:
+          safeStr(
+            payload
+              ?.gitSha,
+            80
+          ) || null,
+
+        buildTime:
+          safeStr(
+            payload
+              ?.buildTime,
+            80
+          ) || null,
+
+        note:
+          safeStr(
+            payload
+              ?.note,
+            240
+          ) || null,
+
+        source:
+          safeStr(
+            payload
+              ?.source,
+            40
+          ) ||
+          "manual",
+      }
+    );
+
+  return json(
+    200,
+    {
+      ok: true,
+
+      release:
+        releaseForResponse(
+          item
+        ),
+    },
+    cors
+  );
+}
+
+async function handleCreateBoundary(
+  event:
+    APIGatewayV2Event
+) {
+  const origin =
+    event.headers?.origin ||
+    event.headers?.Origin;
+
+  const headers =
+    event.headers || {};
+
+  const cors =
+    corsHeaders(origin);
+
+  if (!isOwner(headers)) {
+    return json(
+      401,
+      {
+        error:
+          "Unauthorized",
+      },
+      cors
+    );
+  }
+
+  let payload:
+    any = {};
+
+  try {
+    payload =
+      event.body
+        ? JSON.parse(
+            event.body
+          )
+        : {};
+  } catch {
+    return json(
+      400,
+      {
+        error:
+          "Invalid JSON",
+      },
+      cors
+    );
+  }
+
+  const boundaryId =
+    safeStr(
+      payload
+        ?.boundaryId,
+      120
+    );
+
+  if (
+    !boundaryId ||
+    !CONTROL_ID_RE.test(
+      boundaryId
+    )
+  ) {
+    return json(
+      400,
+      {
+        error:
+          "boundaryId is required and may contain only letters, numbers, '.', '_', ':', or '-'.",
+      },
+      cors
+    );
+  }
+
+  const boundaryType =
+    safeStr(
+      payload?.type,
+      20
+    ).toLowerCase();
+
+  if (
+    boundaryType !==
+      "reset" &&
+    boundaryType !==
+      "deploy"
+  ) {
+    return json(
+      400,
+      {
+        error:
+          "Boundary type must be 'reset' or 'deploy'.",
+      },
+      cors
+    );
+  }
+
+  // Boundaries require an explicit timestamp.
+  //
+  // This is deliberate: the caller keeps the same timestamp
+  // when retrying the same boundary request.
+  const effectiveAt =
+    normalizeControlTimestamp(
+      payload
+        ?.effectiveAt
+    );
+
+  if (
+    effectiveAt === null
+  ) {
+    return json(
+      400,
+      {
+        error:
+          "A valid effectiveAt timestamp is required.",
+      },
+      cors
+    );
+  }
+
+  const profileVersionId =
+    safeStr(
+      payload
+        ?.profileVersionId,
+      120
+    );
+
+  if (
+    boundaryType ===
+      "deploy" &&
+    !profileVersionId
+  ) {
+    return json(
+      400,
+      {
+        error:
+          "profileVersionId is required for a deploy boundary.",
+      },
+      cors
+    );
+  }
+
+  const note =
+    safeStr(
+      payload?.note,
+      240
+    );
+
+  const key = {
+    pk:
+      ANALYTICS_CONTROL_PK,
+
+    sk:
+      boundaryControlSk(
+        boundaryId
+      ),
+  };
+
+  const boundaryItem = {
+    ...key,
+
+    kind:
+      "boundary",
+
+    boundaryId,
+
+    boundaryType,
+
+    effectiveAt,
+
+    createdAt:
+      nowIso(),
+
+    stage:
+      STAGE,
+
+    profileVersionId:
+      profileVersionId ||
+      null,
+
+    note:
+      note ||
+      null,
+  };
+
+  let created =
+    false;
+
+  let storedBoundary:
+    any = null;
+
+  try {
+    await ddb.send(
+      new PutItemCommand({
+        TableName:
+          ANALYTICS_TABLE,
+
+        Item:
+          marshall(
+            boundaryItem
+          ),
+
+        ExpressionAttributeNames: {
+          "#pk":
+            "pk",
+
+          "#sk":
+            "sk",
+        },
+
+        ConditionExpression:
+          "attribute_not_exists(#pk) " +
+          "AND attribute_not_exists(#sk)",
+      })
+    );
+
+    created =
+      true;
+
+    storedBoundary =
+      boundaryItem;
+  } catch (e: any) {
+    if (
+      e?.name !==
+      "ConditionalCheckFailedException"
+    ) {
+      throw e;
+    }
+
+    const existingResult =
+      await ddb.send(
+        new GetItemCommand({
+          TableName:
+            ANALYTICS_TABLE,
+
+          Key:
+            marshall(
+              key
+            ),
+
+          ConsistentRead:
+            true,
+        })
+      );
+
+    const existing =
+      existingResult.Item
+        ? unmarshall(
+            existingResult.Item
+          )
+        : null;
+
+    const sameBoundary =
+      existing &&
+      safeStr(
+        existing
+          ?.boundaryId,
+        120
+      ) ===
+        boundaryId &&
+      safeStr(
+        existing
+          ?.boundaryType,
+        20
+      ) ===
+        boundaryType &&
+      Number(
+        existing
+          ?.effectiveAt
+      ) ===
+        effectiveAt &&
+      (
+        safeStr(
+          existing
+            ?.profileVersionId,
+          120
+        ) ||
+        ""
+      ) ===
+        profileVersionId &&
+      (
+        safeStr(
+          existing
+            ?.note,
+          240
+        ) ||
+        ""
+      ) ===
+        note;
+
+    if (!sameBoundary) {
+      return json(
+        409,
+        {
+          error:
+            "Boundary key already exists with different metadata.",
+        },
+        cors
+      );
+    }
+
+    storedBoundary =
+      existing;
+  }
+
+  // A deploy boundary also establishes its release in the
+  // trusted global release catalogue.
+  //
+  // This happens after boundary idempotency has been resolved.
+  // If this write transiently fails, retrying the same boundary
+  // safely completes release registration.
+  if (
+    boundaryType ===
+      "deploy"
+  ) {
+    await upsertReleaseRecord(
+      {
+        profileVersionId,
+
+        releasedAt:
+          effectiveAt,
+
+        gitSha:
+          safeStr(
+            payload
+              ?.gitSha,
+            80
+          ) || null,
+
+        buildTime:
+          safeStr(
+            payload
+              ?.buildTime,
+            80
+          ) || null,
+
+        note:
+          note ||
+          null,
+
+        source:
+          "deploy",
+      }
+    );
+  }
+
+  return json(
+    created
+      ? 201
+      : 200,
+    {
+      ok: true,
+
+      created,
+
+      boundary:
+        boundaryForResponse(
+          storedBoundary
+        ),
+    },
+    cors
+  );
 }
 
 async function handleIngest(event: APIGatewayV2Event) {
@@ -4681,6 +5783,39 @@ export async function handler(
       )
     ) {
       return await handleQuery(
+        event
+      );
+    }
+
+    if (
+      path.endsWith(
+        "/analytics/meta"
+      ) &&
+      method === "GET"
+    ) {
+      return await handleAnalyticsMeta(
+        event
+      );
+    }
+
+    if (
+      path.endsWith(
+        "/analytics/releases"
+      ) &&
+      method === "POST"
+    ) {
+      return await handleRegisterRelease(
+        event
+      );
+    }
+
+    if (
+      path.endsWith(
+        "/analytics/boundaries"
+      ) &&
+      method === "POST"
+    ) {
+      return await handleCreateBoundary(
         event
       );
     }
