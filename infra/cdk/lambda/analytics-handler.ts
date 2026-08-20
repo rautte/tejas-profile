@@ -295,17 +295,6 @@ function sha256(s: string) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
-function sortableTimestamp(
-  value: number
-) {
-  return String(
-    Math.round(value)
-  ).padStart(
-    13,
-    "0"
-  );
-}
-
 function releaseControlSk(
   profileVersionId: string
 ) {
@@ -367,6 +356,85 @@ function normalizeControlTimestamp(
   }
 
   return ts;
+}
+
+type AnalyticsBoundaryRecord = {
+  boundaryId: string;
+
+  boundaryType:
+    | "reset"
+    | "deploy";
+
+  effectiveAt: number;
+
+  createdAt:
+    string | null;
+
+  profileVersionId:
+    string | null;
+
+  note:
+    string | null;
+};
+
+function normalizeBoundaryRecord(
+  item: any
+): AnalyticsBoundaryRecord | null {
+  const boundaryId =
+    safeStr(
+      item?.boundaryId,
+      120
+    );
+
+  const boundaryType =
+    safeStr(
+      item?.boundaryType,
+      20
+    ).toLowerCase();
+
+  const effectiveAt =
+    Number(
+      item?.effectiveAt
+    );
+
+  if (
+    !boundaryId ||
+    (
+      boundaryType !== "reset" &&
+      boundaryType !== "deploy"
+    ) ||
+    !Number.isFinite(
+      effectiveAt
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    boundaryId,
+
+    boundaryType,
+
+    effectiveAt,
+
+    createdAt:
+      safeStr(
+        item?.createdAt,
+        80
+      ) || null,
+
+    profileVersionId:
+      safeStr(
+        item?.profileVersionId,
+        120
+      ) || null,
+
+    note:
+      safeStr(
+        item?.note,
+        240
+      ) || null,
+  };
 }
 
 /**
@@ -699,6 +767,35 @@ function buildJourneyToken(
   });
 }
 
+function sessionFragmentKey(
+  event: NonNullable<
+    ReturnType<
+      typeof normalizeEvent
+    >
+  >,
+  boundary:
+    AnalyticsBoundaryRecord | null
+) {
+  const pk =
+    `DAY#${ymd(
+      event.ts
+    )}`;
+
+  let sk =
+    `PV#${event.profileVersionId}` +
+    `#SESSION#${event.sessionHash}`;
+
+  if (boundary) {
+    sk +=
+      `#BOUNDARY#${boundary.boundaryId}`;
+  }
+
+  return {
+    pk,
+    sk,
+  };
+}
+
 function buildSessionFragmentInit(
   event: NonNullable<
     ReturnType<
@@ -714,15 +811,18 @@ function buildSessionFragmentInit(
 
     city:
       string | null;
-  }
+  },
+  boundary:
+    AnalyticsBoundaryRecord | null
 ) {
-  const day = ymd(event.ts);
-
-  const pk = `DAY#${day}`;
-
-  const sk =
-    `PV#${event.profileVersionId}` +
-    `#SESSION#${event.sessionHash}`;
+  const {
+    pk,
+    sk,
+  } =
+    sessionFragmentKey(
+      event,
+      boundary
+    );
 
   const metrics = {
     sectionVisits: {},
@@ -805,6 +905,47 @@ function buildSessionFragmentInit(
     );
   }
 
+  if (boundary) {
+    names["#boundaryId"] =
+      "boundaryId";
+
+    names["#boundaryType"] =
+      "boundaryType";
+
+    names["#boundaryEffectiveAt"] =
+      "boundaryEffectiveAt";
+
+    values[":boundaryId"] =
+      boundary.boundaryId;
+
+    values[":boundaryType"] =
+      boundary.boundaryType;
+
+    values[":boundaryEffectiveAt"] =
+      boundary.effectiveAt;
+
+    sets.push(
+      "#boundaryId = " +
+        "if_not_exists(" +
+        "#boundaryId, " +
+        ":boundaryId)"
+    );
+
+    sets.push(
+      "#boundaryType = " +
+        "if_not_exists(" +
+        "#boundaryType, " +
+        ":boundaryType)"
+    );
+
+    sets.push(
+      "#boundaryEffectiveAt = " +
+        "if_not_exists(" +
+        "#boundaryEffectiveAt, " +
+        ":boundaryEffectiveAt)"
+    );
+  }
+
   return {
     Key: marshall({ pk, sk }),
 
@@ -824,6 +965,8 @@ function buildSessionEventUpdate(
       typeof normalizeEvent
     >
   >,
+  boundary:
+    AnalyticsBoundaryRecord | null,
   {
     includeJourney = true,
     markJourneyTruncated = false,
@@ -832,13 +975,14 @@ function buildSessionEventUpdate(
     markJourneyTruncated?: boolean;
   } = {}
 ) {
-  const day = ymd(event.ts);
-
-  const pk = `DAY#${day}`;
-
-  const sk =
-    `PV#${event.profileVersionId}` +
-    `#SESSION#${event.sessionHash}`;
+  const {
+    pk,
+    sk,
+  } =
+    sessionFragmentKey(
+      event,
+      boundary
+    );
 
   const names: Record<string, string> = {
     "#processedEventIds":
@@ -1113,6 +1257,8 @@ async function updateSessionTimestampBounds(
       typeof normalizeEvent
     >
   >,
+  boundary:
+    AnalyticsBoundaryRecord | null,
   minTs: number,
   maxTs: number
 ) {
@@ -1120,17 +1266,11 @@ async function updateSessionTimestampBounds(
     return;
   }
 
-  const day =
-    ymd(event.ts);
-
-  const key = {
-    pk:
-      `DAY#${day}`,
-
-    sk:
-      `PV#${event.profileVersionId}` +
-      `#SESSION#${event.sessionHash}`,
-  };
+  const key =
+    sessionFragmentKey(
+      event,
+      boundary
+    );
 
   // -------------------------
   // Exact firstEventAt = MIN
@@ -1246,7 +1386,9 @@ async function applyEventToSessionFragment(
 
     city:
       string | null;
-  }
+  },
+  boundary:
+    AnalyticsBoundaryRecord | null
 ) {
   if (!ANALYTICS_TABLE) {
     return {
@@ -1264,7 +1406,8 @@ async function applyEventToSessionFragment(
   const init =
     buildSessionFragmentInit(
       event,
-      geo
+      geo,
+      boundary
     );
 
   await ddb.send(
@@ -1281,6 +1424,7 @@ async function applyEventToSessionFragment(
   const update =
     buildSessionEventUpdate(
       event,
+      boundary,
       {
         includeJourney:
           Boolean(
@@ -1348,6 +1492,7 @@ async function applyEventToSessionFragment(
     const fallback =
       buildSessionEventUpdate(
         event,
+        boundary,
         {
           includeJourney:
             false,
@@ -1745,6 +1890,127 @@ async function queryAnalyticsControlItems(
   );
 
   return items;
+}
+
+async function loadAnalyticsBoundaries() {
+  const items =
+    await queryAnalyticsControlItems(
+      ANALYTICS_BOUNDARY_PREFIX
+    );
+
+  return items
+    .map(
+      normalizeBoundaryRecord
+    )
+    .filter(
+      (
+        boundary
+      ): boundary is AnalyticsBoundaryRecord =>
+        boundary !== null
+    );
+}
+
+function resolveBoundaryForTimestamp(
+  boundaries:
+    AnalyticsBoundaryRecord[],
+  ts: number
+) {
+  let best:
+    AnalyticsBoundaryRecord | null =
+      null;
+
+  for (
+    const boundary of
+      boundaries
+  ) {
+    if (
+      boundary.effectiveAt >
+      ts
+    ) {
+      continue;
+    }
+
+    if (
+      !best ||
+      boundary.effectiveAt >
+        best.effectiveAt ||
+      (
+        boundary.effectiveAt ===
+          best.effectiveAt &&
+        boundary.boundaryId.localeCompare(
+          best.boundaryId
+        ) < 0
+      )
+    ) {
+      best =
+        boundary;
+    }
+  }
+
+  return best;
+}
+
+async function getAnalyticsBoundaryById(
+  boundaryId: string
+) {
+  if (!ANALYTICS_TABLE) {
+    throw new Error(
+      "ANALYTICS_TABLE not configured"
+    );
+  }
+
+  const cleanId =
+    safeStr(
+      boundaryId,
+      120
+    );
+
+  if (!cleanId) {
+    return null;
+  }
+
+  const result =
+    await ddb.send(
+      new GetItemCommand({
+        TableName:
+          ANALYTICS_TABLE,
+
+        Key:
+          marshall({
+            pk:
+              ANALYTICS_CONTROL_PK,
+
+            sk:
+              boundaryControlSk(
+                cleanId
+              ),
+          }),
+
+        ConsistentRead:
+          true,
+      })
+    );
+
+  if (!result.Item) {
+    return null;
+  }
+
+  const boundary =
+    normalizeBoundaryRecord(
+      unmarshall(
+        result.Item
+      )
+    );
+
+  if (
+    !boundary ||
+    boundary.boundaryId !==
+      cleanId
+  ) {
+    return null;
+  }
+
+  return boundary;
 }
 
 function releaseForResponse(
@@ -2566,6 +2832,9 @@ async function handleIngest(event: APIGatewayV2Event) {
     );
   }
 
+  const boundaries =
+    await loadAnalyticsBoundaries();
+
   let acceptedCount = 0;
   let duplicateCount = 0;
 
@@ -2582,6 +2851,9 @@ async function handleIngest(event: APIGatewayV2Event) {
               typeof normalizeEvent
             >
           >;
+
+        boundary:
+          AnalyticsBoundaryRecord | null;
 
         minTs:
           number;
@@ -2600,10 +2872,17 @@ async function handleIngest(event: APIGatewayV2Event) {
         analyticsEvent.ts
       );
 
+    const boundary =
+      resolveBoundaryForTimestamp(
+        boundaries,
+        analyticsEvent.ts
+      );
+
     const key =
-      `${day}::` +
-      `${analyticsEvent.profileVersionId}::` +
-      `${analyticsEvent.sessionHash}`;
+    `${day}::` +
+    `${analyticsEvent.profileVersionId}::` +
+    `${analyticsEvent.sessionHash}::` +
+    `${boundary?.boundaryId || "legacy"}`;
 
     const existing =
       fragmentBounds.get(
@@ -2616,6 +2895,8 @@ async function handleIngest(event: APIGatewayV2Event) {
         {
           event:
             analyticsEvent,
+
+          boundary,
 
           minTs:
             analyticsEvent.ts,
@@ -2701,10 +2982,18 @@ async function handleIngest(event: APIGatewayV2Event) {
   >();
 
   for (const analyticsEvent of events) {
+
+    const boundary =
+      resolveBoundaryForTimestamp(
+        boundaries,
+        analyticsEvent.ts
+      );
+
     const result =
       await applyEventToSessionFragment(
         analyticsEvent,
-        geo
+        geo,
+        boundary
       );
 
     if (result.accepted) {
@@ -2766,6 +3055,7 @@ async function handleIngest(event: APIGatewayV2Event) {
   ) {
     await updateSessionTimestampBounds(
       bounds.event,
+      bounds.boundary,
       bounds.minTs,
       bounds.maxTs
     );
@@ -3003,7 +3293,10 @@ function resolveQueryRange(
 
 async function queryDaySessionFragments(
   day: string,
-  profileVersionId: string | null
+  profileVersionId:
+    string | null,
+  boundaryFrom:
+    AnalyticsBoundaryRecord | null
 ) {
   if (!ANALYTICS_TABLE) {
     throw new Error(
@@ -3100,6 +3393,24 @@ async function queryDaySessionFragments(
         continue;
       }
 
+      if (boundaryFrom) {
+        const itemBoundaryAt =
+          Number(
+            item
+              ?.boundaryEffectiveAt
+          );
+
+        if (
+          !Number.isFinite(
+            itemBoundaryAt
+          ) ||
+          itemBoundaryAt <
+            boundaryFrom.effectiveAt
+        ) {
+          continue;
+        }
+      }
+
       items.push(item);
     }
 
@@ -3112,7 +3423,9 @@ async function queryDaySessionFragments(
 
 async function queryRangeSessionFragments(
   days: string[],
-  profileVersionId: string | null
+  profileVersionId: string | null,
+  boundaryFrom:
+    AnalyticsBoundaryRecord | null
 ) {
   const byDay =
     new Map<string, any[]>();
@@ -3136,7 +3449,8 @@ async function queryRangeSessionFragments(
       const items =
         await queryDaySessionFragments(
           day,
-          profileVersionId
+          profileVersionId,
+          boundaryFrom
         );
 
       byDay.set(
@@ -3572,11 +3886,16 @@ function getInteractionCounter(
 
 function aggregateSessionFragments(
   days: string[],
-  byDay: Map<string, any[]>,
+  byDay:
+    Map<string, any[]>,
   profileVersionFilter:
     string | null,
   visitorFirstSeenByHash:
-    Map<string, number>
+    Map<string, number>,
+  effectiveRangeStartTs:
+    number | null,
+  boundaryFilter:
+    AnalyticsBoundaryRecord | null
 ) {
   const visitors =
     new Set<string>();
@@ -4257,12 +4576,22 @@ function aggregateSessionFragments(
   const uniqueVisitors =
     visitors.size;
 
-  const rangeStartTs =
+  const dayRangeStartTs =
     days.length
       ? Date.parse(
           `${days[0]}T00:00:00Z`
         )
       : NaN;
+
+  const rangeStartTs =
+    Number.isFinite(
+      effectiveRangeStartTs
+    )
+      ? Math.max(
+          dayRangeStartTs,
+          effectiveRangeStartTs!
+        )
+      : dayRangeStartTs;
 
   const rangeEndExclusiveTs =
     days.length
@@ -4454,6 +4783,14 @@ function aggregateSessionFragments(
 
   return {
     range: {
+
+      effectiveFromTs:
+        Number.isFinite(
+          rangeStartTs
+        )
+          ? rangeStartTs
+          : null,
+
       from:
         days[0] || null,
 
@@ -4472,6 +4809,16 @@ function aggregateSessionFragments(
       profileVersionId:
         profileVersionFilter ||
         "all",
+
+      boundaryId:
+        boundaryFilter
+          ?.boundaryId ||
+        null,
+
+      boundaryEffectiveAt:
+        boundaryFilter
+          ?.effectiveAt ||
+        null,
     },
 
     overview: {
@@ -5676,9 +6023,55 @@ async function handleQuery(
       ? null
       : rawProfileVersion;
 
+  const rawBoundaryId =
+    safeStr(
+      qs.boundaryId || "",
+      120
+    );
+
+  const boundaryId =
+    !rawBoundaryId ||
+    rawBoundaryId
+      .toLowerCase() === "all"
+      ? ""
+      : rawBoundaryId;
+
+  let boundaryFilter:
+    AnalyticsBoundaryRecord | null =
+      null;
+
+  if (boundaryId) {
+    boundaryFilter =
+      await getAnalyticsBoundaryById(
+        boundaryId
+      );
+
+    if (!boundaryFilter) {
+      return json(
+        404,
+        {
+          error:
+            "Analytics boundary not found.",
+        },
+        cors
+      );
+    }
+  }
+
+  const resolvedFromInput =
+    fromInput ||
+    (
+      boundaryFilter
+        ? ymd(
+            boundaryFilter
+              .effectiveAt
+          )
+        : ""
+    );
+
   const range =
     resolveQueryRange(
-      fromInput,
+      resolvedFromInput,
       toInput
     );
 
@@ -5696,7 +6089,8 @@ async function handleQuery(
   const byDay =
     await queryRangeSessionFragments(
       range.days,
-      profileVersionFilter
+      profileVersionFilter,
+      boundaryFilter
     );
 
   const visitorHashes =
@@ -5709,12 +6103,28 @@ async function handleQuery(
       visitorHashes
     );
 
+  const dayStartTs =
+    Date.parse(
+      `${range.from}T00:00:00Z`
+    );
+
+  const effectiveRangeStartTs =
+    boundaryFilter
+      ? Math.max(
+          dayStartTs,
+          boundaryFilter
+            .effectiveAt
+        )
+      : dayStartTs;
+
   const analytics =
     aggregateSessionFragments(
       range.days,
       byDay,
       profileVersionFilter,
-      visitorFirstSeenByHash
+      visitorFirstSeenByHash,
+      effectiveRangeStartTs,
+      boundaryFilter
     );
 
   const sessionIntelligence =
