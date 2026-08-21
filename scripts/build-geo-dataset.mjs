@@ -1,4 +1,4 @@
-// scripts/build-geo-dataset.mjs
+// src/scripts/build-geo-dataset.mjs
 import fs from "fs";
 import readline from "readline";
 import path from "path";

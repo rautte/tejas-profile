@@ -1,4 +1,31 @@
 #!/usr/bin/env bash
+# .husky/pre-commit
+
 set -euo pipefail
-[ -f .env.local ] && set -a && . ./.env.local && set +a
-npm run -s sync:assets
+
+
+REPO_ROOT="$(
+  git rev-parse --show-toplevel
+)"
+
+cd "${REPO_ROOT}"
+
+
+echo ""
+echo "Pre-commit validation"
+echo "---------------------"
+echo ""
+
+
+# Purely local source-hygiene validation.
+#
+# No AWS calls.
+# No asset publishing.
+# No CDN invalidation.
+git diff \
+  --cached \
+  --check
+
+
+echo "✅ Staged diff validation passed."
+echo ""

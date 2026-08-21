@@ -1,4 +1,7 @@
+# .github/workflows/infra-deploy.yml
+
 name: Deploy Infra (CDK)
+
 
 on:
   workflow_dispatch:
@@ -12,91 +15,179 @@ on:
           - prod
         default: dev
 
-  push:
-    branches: [ main ]
+      confirm:
+        description: "For PROD only, type DEPLOY-PROD-INFRA"
+        required: false
+        type: string
+        default: ""
+
+  workflow_run:
+    workflows:
+      - "CI Quality Gate"
+    types:
+      - completed
+
 
 concurrency:
   group: "release-main"
-  cancel-in-progress: true
+
+  # Never terminate CloudFormation/CDK midway through a deployment
+  # just because a newer commit arrives.
+  cancel-in-progress: false
+
 
 permissions:
   contents: read
   id-token: write
 
+
 jobs:
+
   cdk:
+    name: Deploy Infrastructure
+
+    # Automatic deployment is allowed only when:
+    #
+    #   CI succeeded
+    #   + CI was triggered by a push
+    #   + that push was to main
+    #
+    # Manual dispatch remains available separately.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+
     runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
     env:
       AWS_REGION: us-east-1
 
+
     steps:
-      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------
+      # SOURCE
+      # ------------------------------------------------------------
+
+      - name: Checkout deployment source
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect infra changes (infra/cdk/**)
-        id: changes
+          # For automatic DEV deployment, deploy the exact SHA that
+          # successfully completed CI.
+          #
+          # For manual dispatch, deploy the selected workflow ref/SHA.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+
+      - name: Verify deployment source
         shell: bash
         run: |
           set -euo pipefail
 
-          # For workflow_dispatch we can’t reliably diff against "before"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+
+          echo "Deployment source"
+          echo ""
+          echo "Event:  ${GITHUB_EVENT_NAME}"
+          echo "Commit: ${ACTUAL_SHA}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            EXPECTED_SHA="${{ github.event.workflow_run.head_sha }}"
+
+            echo "CI SHA: ${EXPECTED_SHA}"
+            echo ""
+
+            if [[ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]]; then
+              echo "ERROR: Deployment checkout does not match the CI-tested commit."
+              exit 1
+            fi
+
+            echo "CI-tested commit verified."
           fi
 
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.sha }}"
 
-          # If BEFORE is missing or invalid, deploy (safe default)
-          if [[ -z "$BEFORE" || "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
-            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
+      # ------------------------------------------------------------
+      # MANUAL PROD SAFETY
+      # ------------------------------------------------------------
+
+      - name: Validate manual PROD request
+        if: >
+          github.event_name == 'workflow_dispatch' &&
+          inputs.target == 'prod'
+        shell: bash
+        env:
+          PROD_CONFIRMATION: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+
+          echo "Validating manual PROD infrastructure request..."
+          echo ""
+
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "ERROR: PROD infrastructure deployment must be dispatched from main."
+            exit 1
           fi
 
-          # Ensure BEFORE exists locally (fetch-depth=0 already helps, but be safe)
-          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [[ "${PROD_CONFIRMATION}" != "DEPLOY-PROD-INFRA" ]]; then
+            echo "ERROR: PROD infrastructure confirmation is invalid."
+            echo ""
+            echo "Type exactly:"
+            echo "  DEPLOY-PROD-INFRA"
+            exit 1
           fi
 
-          echo "Diff: $BEFORE..$AFTER"
-          if git diff --name-only "$BEFORE" "$AFTER" | grep -q '^infra/cdk/'; then
-            echo "infra_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "infra_changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "PROD infrastructure request validated."
 
-      - uses: actions/setup-node@v4
-        if: steps.changes.outputs.infra_changed == 'true'
+
+      # ------------------------------------------------------------
+      # TOOLING
+      # ------------------------------------------------------------
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: infra/cdk/package-lock.json
 
-      - name: Install CDK deps
-        if: steps.changes.outputs.infra_changed == 'true'
+
+      - name: Install CDK dependencies
         working-directory: infra/cdk
         run: npm ci
 
+      - name: Verify manually dispatched infrastructure source
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: infra/cdk
+        env:
+          CI: true
+        run: npm run verify
+
+
       - name: Configure AWS credentials (OIDC)
-        if: steps.changes.outputs.infra_changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-cdk
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: CDK bootstrap (safe no-op if already)
-        if: steps.changes.outputs.infra_changed == 'true'
-        working-directory: infra/cdk
-        run: npx cdk bootstrap aws://978416150779/us-east-1
+
+      # ------------------------------------------------------------
+      # DEV
+      # ------------------------------------------------------------
 
       - name: CDK deploy (DEV)
         if: >
-          steps.changes.outputs.infra_changed == 'true' &&
+          github.event_name == 'workflow_run' ||
           (
-            github.event_name == 'push' ||
+            github.event_name == 'workflow_dispatch' &&
             inputs.target == 'dev'
           )
         working-directory: infra/cdk
@@ -106,12 +197,118 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: >
           npx cdk deploy
+          AssetsCdnStackDev
           TejasProfileSnapshotsStackDev
           --require-approval never
 
+
+      - name: Resolve DEV Analytics endpoints
+        id: dev-analytics
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Resolving DEV stack outputs..."
+          echo ""
+
+          API_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name TejasProfileSnapshotsStackDev \
+              --query "Stacks[0].Outputs[?OutputKey=='SnapshotsApiUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+          EDGE_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name TejasProfileSnapshotsStackDev \
+              --query "Stacks[0].Outputs[?OutputKey=='AnalyticsEdgeUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          if [[ -z "${API_URL}" || "${API_URL}" == "None" ]]; then
+            echo "ERROR: SnapshotsApiUrl was not found in DEV stack outputs."
+            exit 1
+          fi
+
+
+          if [[ -z "${EDGE_URL}" || "${EDGE_URL}" == "None" ]]; then
+            echo "ERROR: AnalyticsEdgeUrl was not found in DEV stack outputs."
+            exit 1
+          fi
+
+
+          echo "API URL resolved."
+          echo "Analytics edge URL resolved."
+
+          echo "api_url=${API_URL}" >> "${GITHUB_OUTPUT}"
+          echo "edge_url=${EDGE_URL}" >> "${GITHUB_OUTPUT}"
+
+
+      - name: Configure DEV asset publisher credentials
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-assets-dev
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Publish DEV assets
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        env:
+          ASSET_STAGE: dev
+        run: npm run sync:assets
+
+
+      - name: Invalidate DEV asset CDN
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        env:
+          ASSET_STAGE: dev
+        run: npm run cdn:invalidate
+
+
+      - name: Smoke test DEV Analytics
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        env:
+          ANALYTICS_API_URL: ${{ steps.dev-analytics.outputs.api_url }}
+          ANALYTICS_EDGE_URL: ${{ steps.dev-analytics.outputs.edge_url }}
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+          SMOKE_PROFILE_VERSION_ID: ci_smoke
+        run: node infra/cdk/scripts/smoke-analytics.mjs
+
+
+      # ------------------------------------------------------------
+      # PROD
+      # ------------------------------------------------------------
+
       - name: CDK deploy (PROD + Assets)
         if: >
-          steps.changes.outputs.infra_changed == 'true' &&
           github.event_name == 'workflow_dispatch' &&
           inputs.target == 'prod' &&
           github.ref == 'refs/heads/main'
@@ -125,7 +322,3 @@ jobs:
           AssetsCdnStack
           TejasProfileSnapshotsStackProd
           --require-approval never
-
-      - name: Skip message (no infra change)
-        if: steps.changes.outputs.infra_changed != 'true'
-        run: echo "No infra/cdk changes detected — skipping CDK deploy."

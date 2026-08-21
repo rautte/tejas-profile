@@ -299,7 +299,37 @@ export class SnapshotsStack extends cdk.Stack {
           resources: [repoBucket.arnForObjects("profiles/*")],
         })
       );
+
+      // Allow the canonical PROD release workflow to resolve this
+      // stack's public runtime outputs (SnapshotsApiUrl,
+      // AnalyticsEdgeUrl, etc.) without hardcoded URLs/secrets.
+      githubRole.addToPrincipalPolicy(
+        new iam.PolicyStatement({
+          actions: [
+            "cloudformation:DescribeStacks",
+          ],
+
+          resources: [
+            this.formatArn({
+              service:
+                "cloudformation",
+
+              resource:
+                "stack",
+
+              resourceName:
+                `${this.stackName}/*`,
+
+              arnFormat:
+                cdk.ArnFormat
+                  .SLASH_RESOURCE_NAME,
+            }),
+          ],
+        })
+      );
     }
+
+
 
     // -----------------------------
     // API Gateway HTTP API

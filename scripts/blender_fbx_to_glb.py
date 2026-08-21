@@ -1,3 +1,5 @@
+# src/scripts/blender-geo-dataset.mjs
+
 # Run from your repo root, this writes all .glb files to src/assets/ships/glb/:
 # /Applications/Blender.app/Contents/MacOS/Blender -b -P scripts/blender_fbx_to_glb.py
 

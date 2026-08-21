@@ -1,3 +1,4 @@
+// src/scripts/write-dev-meta.js
 const { execSync } = require("child_process");
 const fs = require("fs");
 

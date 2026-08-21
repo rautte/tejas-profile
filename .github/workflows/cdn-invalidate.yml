@@ -1,20 +1,163 @@
+# .github/workflows/cdn-invalidate.yml
+
 name: CDN Invalidate
+
+
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+
+      stage:
+        description: "Asset environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+
+      confirm:
+        description: "For PROD only, type INVALIDATE-PROD"
+        required: false
+        default: ""
+        type: string
+
+
 permissions:
-  id-token: write
   contents: read
+  id-token: write
+
+
+concurrency:
+  group: cdn-invalidate-${{ inputs.stage }}
+  cancel-in-progress: false
+
+
 jobs:
+
   invalidate:
+    name: Invalidate ${{ inputs.stage }} asset CDN
+
     runs-on: ubuntu-latest
-    env:
-      AWS_REGION: us-east-1
-      CF_DISTRIBUTION_ID: E2VLTYLWTD0YS4
+
+    timeout-minutes: 10
+
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+
+      # ------------------------------------------------------------
+      # TARGET
+      # ------------------------------------------------------------
+
+      - name: Resolve asset target
+        id: target
+        shell: bash
+        env:
+          STAGE: ${{ inputs.stage }}
+          CONFIRMATION: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+
+
+          case "${STAGE}" in
+
+            dev)
+              STACK_NAME="AssetsCdnStackDev"
+              ROLE_ARN="arn:aws:iam::978416150779:role/tejas-profile-github-assets-dev"
+              ;;
+
+
+            prod)
+              if [[ "${CONFIRMATION}" != "INVALIDATE-PROD" ]]; then
+                echo "ERROR: PROD invalidation requires:"
+                echo "INVALIDATE-PROD"
+                exit 1
+              fi
+
+              STACK_NAME="AssetsCdnStack"
+              ROLE_ARN="arn:aws:iam::978416150779:role/tejas-profile-github-deployer"
+              ;;
+
+
+            *)
+              echo "ERROR: Unsupported stage: ${STAGE}"
+              exit 1
+              ;;
+
+          esac
+
+
+          echo "stage=${STAGE}" >> "${GITHUB_OUTPUT}"
+          echo "stack_name=${STACK_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "role_arn=${ROLE_ARN}" >> "${GITHUB_OUTPUT}"
+
+
+          echo "Asset stage: ${STAGE}"
+          echo "Stack:       ${STACK_NAME}"
+
+
+      # ------------------------------------------------------------
+      # AWS
+      # ------------------------------------------------------------
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
-          aws-region: ${{ env.AWS_REGION }}
-      - run: aws cloudfront create-invalidation --distribution-id "$CF_DISTRIBUTION_ID" --paths "/ships/sprites/*" "/ships/glb/*" "/geo/*"
+          role-to-assume: ${{ steps.target.outputs.role_arn }}
+          aws-region: us-east-1
+
+
+      - name: Resolve CloudFront distribution
+        id: distribution
+        shell: bash
+        env:
+          STACK_NAME: ${{ steps.target.outputs.stack_name }}
+        run: |
+          set -euo pipefail
+
+
+          DISTRIBUTION_ID="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          if [[ -z "${DISTRIBUTION_ID}" || "${DISTRIBUTION_ID}" == "None" ]]; then
+            echo "ERROR: DistributionId not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+
+          echo "distribution_id=${DISTRIBUTION_ID}" >> "${GITHUB_OUTPUT}"
+
+          echo "CloudFront distribution resolved."
+
+
+      # ------------------------------------------------------------
+      # INVALIDATE
+      # ------------------------------------------------------------
+
+      - name: Invalidate asset paths
+        shell: bash
+        env:
+          DISTRIBUTION_ID: ${{ steps.distribution.outputs.distribution_id }}
+        run: |
+          set -euo pipefail
+
+
+          echo "Invalidating asset paths..."
+          echo ""
+
+
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths \
+              "/ships/sprites/*" \
+              "/ships/glb/*" \
+              "/geo/*"
+
+
+          echo ""
+          echo "${{ steps.target.outputs.stage }} CDN invalidation submitted."

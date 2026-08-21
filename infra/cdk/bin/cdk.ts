@@ -8,9 +8,41 @@ import { SnapshotsStack } from "../lib/snapshots-stack";
 
 const app = new cdk.App();
 
-new AssetsCdnStack(app, "AssetsCdnStack", {
-  env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
-});
+const assetEnv = {
+  account:
+    process.env.CDK_DEFAULT_ACCOUNT,
+
+  region:
+    process.env.CDK_DEFAULT_REGION,
+};
+
+
+// Existing stack identity is preserved and explicitly becomes PROD.
+new AssetsCdnStack(
+  app,
+  "AssetsCdnStack",
+  {
+    env:
+      assetEnv,
+
+    stage:
+      "prod",
+  }
+);
+
+
+// New, isolated DEV asset environment.
+new AssetsCdnStack(
+  app,
+  "AssetsCdnStackDev",
+  {
+    env:
+      assetEnv,
+
+    stage:
+      "dev",
+  }
+);
 
 const ownerToken = process.env.OWNER_TOKEN;
 const githubDeployerRoleArn = process.env.GITHUB_DEPLOYER_ROLE_ARN || "";

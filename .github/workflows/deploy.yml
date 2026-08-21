@@ -1,166 +1,547 @@
-name: Build & Deploy (Pages)
+# .github/workflows/deploy.yml
+
+name: Promote Frontend (PROD)
+
 
 on:
-  workflow_run:
-    workflows: ["Deploy Infra (CDK)"]
-    types: [completed]
   workflow_dispatch:
+    inputs:
+      gitSha:
+        description: "Exact 40-character commit SHA from main to promote to PROD"
+        required: true
+        type: string
+
+      confirm:
+        description: "Type PROMOTE-PROD to confirm the production deployment"
+        required: true
+        type: string
+
+  workflow_call:
+    inputs:
+      gitSha:
+        description: "Exact 40-character commit SHA from main"
+        required: true
+        type: string
+
+      confirm:
+        description: "Explicit production confirmation"
+        required: true
+        type: string
+
+      releaseMode:
+        description: "promote or redeploy"
+        required: false
+        default: "promote"
+        type: string
+
+      checkpointTag:
+        description: "Optional immutable checkpoint tag"
+        required: false
+        default: ""
+        type: string
+
+      sourceSnapshotKey:
+        description: "Optional source snapshot metadata"
+        required: false
+        default: ""
+        type: string
+
+      reason:
+        description: "Optional release reason"
+        required: false
+        default: ""
+        type: string
+
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
+
 concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  group: "pages-prod"
+
+  # Never terminate an in-progress production deployment because
+  # another promotion was requested.
+  cancel-in-progress: false
+
 
 jobs:
+
+  # ============================================================
+  # VALIDATE + TEST + BUILD EXACT SOURCE
+  # ============================================================
+
   build:
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    name: Validate & Build PROD
+
     runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
     outputs:
       GIT_SHA: ${{ steps.meta.outputs.GIT_SHA }}
       GIT_SHA_SHORT: ${{ steps.meta.outputs.GIT_SHA_SHORT }}
       PROFILE_VERSION: ${{ steps.meta.outputs.PROFILE_VERSION }}
       BUILD_TIME: ${{ steps.meta.outputs.BUILD_TIME }}
-      REPO_ARTIFACT_KEY: ${{ steps.s3.outputs.S3_KEY }}
+
+      CHECKPOINT_TAG: ${{ steps.meta.outputs.CHECKPOINT_TAG }}
+      RELEASE_MODE: ${{ steps.meta.outputs.RELEASE_MODE }}
+
+      ASSET_DISTRIBUTION_ID: ${{ steps.prod-assets.outputs.distribution_id }}
+      SNAPSHOTS_API_URL: ${{ steps.prod-analytics.outputs.api_url }}
+      ANALYTICS_EDGE_URL: ${{ steps.prod-analytics.outputs.edge_url }}
+
+      REPO_ARTIFACT_KEY: ${{ steps.ziprepo.outputs.S3_KEY }}
       REPO_ARTIFACT_SHA256: ${{ steps.ziprepo.outputs.SHA256 }}
+
       DIFF_FILES_JSON: ${{ steps.diff.outputs.DIFF_FILES_JSON }}
       DIFF_TAG_VALUE: ${{ steps.diff.outputs.DIFF_TAG_VALUE }}
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
-      SNAPSHOTS_BUCKET: ${{ secrets.SNAPSHOTS_BUCKET }}
+
       REPO_BUCKET: ${{ secrets.REPO_BUCKET }}
       REPO_URL: ${{ secrets.REPO_URL }}
 
+
     steps:
-      - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------
+      # EXACT SOURCE VALIDATION
+      # ------------------------------------------------------------
+
+      - name: Checkout main for promotion validation
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: main
+
+
+      - name: Validate PROD promotion request
+        id: promotion
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.gitSha }}
+          PROD_CONFIRMATION: ${{ inputs.confirm }}
+          RELEASE_MODE: ${{ inputs.releaseMode || 'promote' }}
+        run: |
+          set -euo pipefail
+
+          echo "Validating production promotion request..."
+          echo ""
+
+
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "ERROR: PROD promotion workflow must be dispatched from main."
+            exit 1
+          fi
+
+
+          case "${RELEASE_MODE}" in
+            promote|"")
+              EXPECTED_CONFIRMATION="PROMOTE-PROD"
+              RELEASE_MODE="promote"
+              ;;
+
+            redeploy)
+              EXPECTED_CONFIRMATION="REDEPLOY-PROD"
+              ;;
+
+            *)
+              echo "ERROR: Unsupported release mode: ${RELEASE_MODE}"
+              exit 1
+              ;;
+          esac
+
+
+          if [[ "${PROD_CONFIRMATION}" != "${EXPECTED_CONFIRMATION}" ]]; then
+            echo "ERROR: Production confirmation did not match."
+            echo "Required: ${EXPECTED_CONFIRMATION}"
+            exit 1
+          fi
+
+
+          if [[ ! "${REQUESTED_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "ERROR: gitSha must be an exact 40-character Git commit SHA."
+            exit 1
+          fi
+
+
+          git fetch \
+            origin \
+            main:refs/remotes/origin/main \
+            --force
+
+
+          if ! git cat-file -e "${REQUESTED_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: Commit does not exist in this repository:"
+            echo "${REQUESTED_SHA}"
+            exit 1
+          fi
+
+
+          RESOLVED_SHA="$(
+            git rev-parse "${REQUESTED_SHA}^{commit}"
+          )"
+
+
+          if ! git merge-base --is-ancestor "${RESOLVED_SHA}" origin/main; then
+            echo "ERROR: Requested commit is not contained in origin/main."
+            echo "Refusing PROD promotion."
+            exit 1
+          fi
+
+
+          git checkout \
+            --detach \
+            "${RESOLVED_SHA}"
+
+
+          ACTUAL_SHA="$(
+            git rev-parse HEAD
+          )"
+
+
+          if [[ "${ACTUAL_SHA}" != "${RESOLVED_SHA}" ]]; then
+            echo "ERROR: Checkout integrity check failed."
+            exit 1
+          fi
+
+
+          echo ""
+          echo "PROD promotion validated."
+          echo "Commit: ${ACTUAL_SHA}"
+
+
+          echo "DEPLOY_SHA=${ACTUAL_SHA}" >> "${GITHUB_OUTPUT}"
+
+
+          {
+            echo "## PROD frontend promotion"
+            echo ""
+            echo "- Commit: \`${ACTUAL_SHA}\`"
+            echo "- Branch provenance: \`main\`"
+            echo "- Confirmation: validated"
+            echo "- Release mode: \`${RELEASE_MODE}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+
+      # ------------------------------------------------------------
+      # RELEASE METADATA
+      # ------------------------------------------------------------
 
       - name: Ensure zip available
         shell: bash
         run: |
           set -euo pipefail
+
           if ! command -v zip >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y zip
           fi
-      
+
+
       - name: Compute diffFiles (this run)
         id: diff
         shell: bash
         run: |
           set -euo pipefail
 
-          BASE_SHA="$(git rev-parse HEAD^ 2>/dev/null || true)"
+          BASE_SHA="$(
+            git rev-parse HEAD^ 2>/dev/null || true
+          )"
+
 
           CHANGED=""
+
           if [ -n "${BASE_SHA}" ]; then
-            CHANGED="$(git diff --name-only "${BASE_SHA}" HEAD || true)"
+            CHANGED="$(
+              git diff \
+                --name-only \
+                "${BASE_SHA}" \
+                HEAD \
+                || true
+            )"
           fi
 
-          # Ensure jq exists (build job doesn't install jq elsewhere)
-          command -v jq >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y jq)
+
+          command -v jq >/dev/null 2>&1 || (
+            sudo apt-get update &&
+            sudo apt-get install -y jq
+          )
+
 
           arr_json () {
             local s="${1:-}"
+
             if [ -z "${s}" ]; then
               echo '[]'
             else
-              printf '%s\n' "${s}" | jq -R -s 'split("\n")[:-1]'
+              printf '%s\n' "${s}" |
+                jq -R -s 'split("\n")[:-1]'
             fi
           }
 
-          INFRA_FILES="$(printf '%s\n' "${CHANGED}" | grep '^infra/cdk/' || true)"
-          DATA_FILES="$(printf '%s\n' "${CHANGED}" | grep '^src/data/' || true)"
-          UIUX_FILES="$(printf '%s\n' "${CHANGED}" | grep '^src/' | grep -v '^src/data/' || true)"
-          GHWF_FILES="$(printf '%s\n' "${CHANGED}" | grep '^\.github/workflows/' || true)"
 
-          INFRA_JSON="$(arr_json "${INFRA_FILES}")"
-          DATA_JSON="$(arr_json "${DATA_FILES}")"
-          UIUX_JSON="$(arr_json "${UIUX_FILES}")"
-          GHWF_JSON="$(arr_json "${GHWF_FILES}")"
+          INFRA_FILES="$(
+            printf '%s\n' "${CHANGED}" |
+              grep '^infra/cdk/' ||
+              true
+          )"
 
-          DIFF_FILES_JSON="$(jq -n \
-            --argjson infra "${INFRA_JSON}" \
-            --argjson data "${DATA_JSON}" \
-            --argjson uiux "${UIUX_JSON}" \
-            --argjson githubWorkflow "${GHWF_JSON}" \
-            '{infra:$infra, data:$data, uiux:$uiux, githubWorkflow:$githubWorkflow}')"
+
+          DATA_FILES="$(
+            printf '%s\n' "${CHANGED}" |
+              grep '^src/data/' ||
+              true
+          )"
+
+
+          UIUX_FILES="$(
+            printf '%s\n' "${CHANGED}" |
+              grep '^src/' |
+              grep -v '^src/data/' ||
+              true
+          )"
+
+
+          GHWF_FILES="$(
+            printf '%s\n' "${CHANGED}" |
+              grep '^\.github/workflows/' ||
+              true
+          )"
+
+
+          INFRA_JSON="$(
+            arr_json "${INFRA_FILES}"
+          )"
+
+          DATA_JSON="$(
+            arr_json "${DATA_FILES}"
+          )"
+
+          UIUX_JSON="$(
+            arr_json "${UIUX_FILES}"
+          )"
+
+          GHWF_JSON="$(
+            arr_json "${GHWF_FILES}"
+          )"
+
+
+          DIFF_FILES_JSON="$(
+            jq -n \
+              --argjson infra "${INFRA_JSON}" \
+              --argjson data "${DATA_JSON}" \
+              --argjson uiux "${UIUX_JSON}" \
+              --argjson githubWorkflow "${GHWF_JSON}" \
+              '{
+                infra: $infra,
+                data: $data,
+                uiux: $uiux,
+                githubWorkflow: $githubWorkflow
+              }'
+          )"
+
 
           parts=()
-          [ "$(echo "${INFRA_JSON}" | jq 'length')" -gt 0 ] && parts+=("infra")
-          [ "$(echo "${DATA_JSON}" | jq 'length')" -gt 0 ] && parts+=("data")
-          [ "$(echo "${UIUX_JSON}" | jq 'length')" -gt 0 ] && parts+=("uiux")
-          [ "$(echo "${GHWF_JSON}" | jq 'length')" -gt 0 ] && parts+=("githubWorkflow")
+
+          [ "$(
+              echo "${INFRA_JSON}" |
+                jq 'length'
+            )" -gt 0 ] &&
+            parts+=("infra")
+
+          [ "$(
+              echo "${DATA_JSON}" |
+                jq 'length'
+            )" -gt 0 ] &&
+            parts+=("data")
+
+          [ "$(
+              echo "${UIUX_JSON}" |
+                jq 'length'
+            )" -gt 0 ] &&
+            parts+=("uiux")
+
+          [ "$(
+              echo "${GHWF_JSON}" |
+                jq 'length'
+            )" -gt 0 ] &&
+            parts+=("githubWorkflow")
+
 
           if [ "${#parts[@]}" -eq 0 ]; then
             DIFF_TAG_VALUE="none"
           else
-            IFS=_; DIFF_TAG_VALUE="${parts[*]}"; unset IFS
+            IFS=_
+            DIFF_TAG_VALUE="${parts[*]}"
+            unset IFS
           fi
+
 
           {
             echo "DIFF_TAG_VALUE=${DIFF_TAG_VALUE}"
+
             echo "DIFF_FILES_JSON<<EOF"
             echo "${DIFF_FILES_JSON}"
             echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          } >> "${GITHUB_OUTPUT}"
 
+
+          echo ""
           echo "[diff] DIFF_TAG_VALUE=${DIFF_TAG_VALUE}"
+
+          echo ""
           echo "[diff] DIFF_FILES_JSON=${DIFF_FILES_JSON}"
 
 
       - name: Compute version metadata
         id: meta
         shell: bash
+        env:
+          REQUESTED_CHECKPOINT_TAG: ${{ inputs.checkpointTag }}
+          REQUESTED_RELEASE_MODE: ${{ inputs.releaseMode }}
         run: |
           set -euo pipefail
-          GIT_SHA="$(git rev-parse HEAD)"
-          GIT_SHA_SHORT="$(git rev-parse --short HEAD)"
-          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+
+          GIT_SHA="$(
+            git rev-parse HEAD
+          )"
+
+          GIT_SHA_SHORT="$(
+            git rev-parse --short HEAD
+          )"
+
+          BUILD_TIME="$(
+            date -u +%Y-%m-%dT%H:%M:%S.%3NZ
+          )"
+
           PROFILE_VERSION="pv_${GIT_SHA_SHORT}"
 
-          echo "GIT_SHA=$GIT_SHA" >> $GITHUB_OUTPUT
-          echo "GIT_SHA_SHORT=$GIT_SHA_SHORT" >> $GITHUB_OUTPUT
-          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
-          echo "PROFILE_VERSION=$PROFILE_VERSION" >> $GITHUB_OUTPUT
+
+          RELEASE_MODE="${REQUESTED_RELEASE_MODE:-promote}"
+
+          if [[ "${RELEASE_MODE}" != "redeploy" ]]; then
+            RELEASE_MODE="promote"
+          fi
+
+
+          CHECKPOINT_TAG="${REQUESTED_CHECKPOINT_TAG:-}"
+
+          if [[ -z "${CHECKPOINT_TAG}" ]]; then
+            CHECKPOINT_TAG="gha_${GITHUB_RUN_ID}"
+          fi
+
+
+          echo "GIT_SHA=${GIT_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "GIT_SHA_SHORT=${GIT_SHA_SHORT}" >> "${GITHUB_OUTPUT}"
+          echo "BUILD_TIME=${BUILD_TIME}" >> "${GITHUB_OUTPUT}"
+          echo "PROFILE_VERSION=${PROFILE_VERSION}" >> "${GITHUB_OUTPUT}"
+
+          echo "CHECKPOINT_TAG=${CHECKPOINT_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "RELEASE_MODE=${RELEASE_MODE}" >> "${GITHUB_OUTPUT}"
+
+
+      # ------------------------------------------------------------
+      # CREATE REPO SNAPSHOT LOCALLY
+      #
+      # No AWS mutation yet.
+      # ------------------------------------------------------------
 
       - name: Create repo code snapshot zip (allowlist)
         id: ziprepo
         shell: bash
         run: |
           set -euo pipefail
+
           ARTIFACT_NAME="profile_repo__${{ steps.meta.outputs.GIT_SHA_SHORT }}.zip"
           ARTIFACT_PATH="/tmp/${ARTIFACT_NAME}"
 
-          zip -r "$ARTIFACT_PATH" \
-            src public infra scripts data \
-            .husky/pre-commit .husky/pre-push \
+
+          zip -r "${ARTIFACT_PATH}" \
+            src \
+            public \
+            infra \
+            scripts \
+            data \
+            .husky/pre-commit \
+            .husky/pre-push \
             .gitignore \
-            infra/cdk/.gitignore infra/cdk/.npmignore \
-            package.json package-lock.json \
-            tailwind.config.js postcss.config.js tsconfig.json \
+            infra/cdk/.gitignore \
+            infra/cdk/.npmignore \
+            package.json \
+            package-lock.json \
+            tailwind.config.js \
+            postcss.config.js \
+            tsconfig.json \
             README.md \
             -x "public/snapshots/*" \
             -x "**/.DS_Store" \
             -x "**/*.log" \
-            -x ".env" -x ".env.*" \
-            -x "node_modules/*" \
+            -x ".env" \
+            -x ".env.*" \
+            -x "**/node_modules/*" \
+            -x "**/cdk.out/*" \
             -x "build/*" \
             -x "logs/*" \
             -x ".git/*"
 
-          SHA256="$(sha256sum "$ARTIFACT_PATH" | awk '{print $1}')"
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-          echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
-          echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
+
+          SHA256="$(
+            sha256sum "${ARTIFACT_PATH}" |
+              awk '{print $1}'
+          )"
+
+
+          REPO_KEY="profiles/${{ steps.meta.outputs.PROFILE_VERSION }}/repo/${ARTIFACT_NAME}"
+
+
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "ARTIFACT_PATH=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "SHA256=${SHA256}" >> "${GITHUB_OUTPUT}"
+          echo "S3_KEY=${REPO_KEY}" >> "${GITHUB_OUTPUT}"
+
+
+      # ------------------------------------------------------------
+      # QUALITY GATE ON EXACT REQUESTED SHA
+      # ------------------------------------------------------------
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+          cache: npm
+
+          cache-dependency-path: |
+            package-lock.json
+            infra/cdk/package-lock.json
+
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+
+      - name: Run frontend tests
+        env:
+          CI: true
+        run: npm run test:ci
+
+
+      - name: Install infrastructure dependencies
+        working-directory: infra/cdk
+        run: npm ci
+
+
+      - name: Verify infrastructure and backend
+        working-directory: infra/cdk
+        env:
+          CI: true
+        run: npm run verify
+
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -168,59 +549,496 @@ jobs:
           role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload repo code snapshot to S3
-        id: s3
+
+      - name: Resolve PROD asset infrastructure
+        id: prod-assets
         shell: bash
         run: |
           set -euo pipefail
-          REPO_KEY="profiles/${{ steps.meta.outputs.PROFILE_VERSION }}/repo/${{ steps.ziprepo.outputs.ARTIFACT_NAME }}"
-          test -n "${REPO_BUCKET}" || (echo "REPO_BUCKET is empty. Set it in Actions Variables." && exit 1)
-          aws s3 cp "${{ steps.ziprepo.outputs.ARTIFACT_PATH }}" "s3://${REPO_BUCKET}/${REPO_KEY}" --content-type "application/zip"
-          echo "S3_KEY=$REPO_KEY" >> $GITHUB_OUTPUT
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+          STACK_NAME="AssetsCdnStack"
 
-      - run: npm ci
+          echo "Resolving PROD asset infrastructure..."
+          echo ""
 
-      - name: Write build env (.env)
+
+          CDN_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='CdnUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          GEO_DATASET_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='GeoDatasetUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          DISTRIBUTION_ID="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          if [[ -z "${CDN_URL}" || "${CDN_URL}" == "None" ]]; then
+            echo "ERROR: CdnUrl was not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+
+          if [[ -z "${GEO_DATASET_URL}" || "${GEO_DATASET_URL}" == "None" ]]; then
+            echo "ERROR: GeoDatasetUrl was not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+          if [[ -z "${DISTRIBUTION_ID}" ||
+                "${DISTRIBUTION_ID}" == "None" ]]; then
+
+            echo "ERROR: DistributionId was not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+
+          echo "PROD CDN URL resolved."
+          echo "PROD geo dataset URL resolved."
+
+
+          echo "cdn_url=${CDN_URL}" >> "${GITHUB_OUTPUT}"
+          echo "geo_dataset_url=${GEO_DATASET_URL}" >> "${GITHUB_OUTPUT}"
+          echo "distribution_id=${DISTRIBUTION_ID}" >> "${GITHUB_OUTPUT}"
+
+
+      - name: Resolve PROD Analytics infrastructure
+        id: prod-analytics
         shell: bash
         run: |
           set -euo pipefail
-          echo "REACT_APP_SNAPSHOTS_API=${{ secrets.REACT_APP_SNAPSHOTS_API }}" >> .env
-          echo "REACT_APP_CHECKPOINT_TAG=gha_${GITHUB_RUN_ID}" >> .env
-          echo "REACT_APP_CDN_BASE=https://d2n9g8msgr1y81.cloudfront.net" >> .env
-          echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}" >> .env
-          echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}" >> .env
-          echo "REACT_APP_BUILD_TIME=${{ steps.meta.outputs.BUILD_TIME }}" >> .env
-          echo "REACT_APP_OWNER_SECRET=${{ secrets.REACT_APP_OWNER_SECRET }}" >> .env
-          echo "REACT_APP_REPO=${REPO_URL}" >> .env
-          echo "REACT_APP_GIT_REF=${GITHUB_REF}" >> .env
-          echo "REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}" >> .env
-          echo "REACT_APP_REPO_ARTIFACT_KEY=${{ steps.s3.outputs.S3_KEY }}" >> .env
-          echo "REACT_APP_REPO_ARTIFACT_SHA256=${{ steps.ziprepo.outputs.SHA256 }}" >> .env
-          echo "REACT_APP_GEO_DATASET_URL=${{ secrets.REACT_APP_GEO_DATASET_URL }}" >> .env
 
-      - run: npm run build
+          STACK_NAME="TejasProfileSnapshotsStackProd"
 
-      - uses: actions/upload-pages-artifact@v3
+          API_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='SnapshotsApiUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+          EDGE_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='AnalyticsEdgeUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+          if [[ -z "${API_URL}" || "${API_URL}" == "None" ]]; then
+            echo "ERROR: SnapshotsApiUrl was not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+          if [[ -z "${EDGE_URL}" || "${EDGE_URL}" == "None" ]]; then
+            echo "ERROR: AnalyticsEdgeUrl was not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+          case "${API_URL}" in
+            https://*)
+              ;;
+            *)
+              echo "ERROR: Invalid PROD SnapshotsApiUrl."
+              exit 1
+              ;;
+          esac
+
+          case "${EDGE_URL}" in
+            https://*.cloudfront.net)
+              ;;
+            *)
+              echo "ERROR: Invalid PROD AnalyticsEdgeUrl."
+              exit 1
+              ;;
+          esac
+
+          echo "PROD Snapshots API resolved."
+          echo "PROD Analytics ingest edge resolved."
+
+          echo "api_url=${API_URL}" >> "${GITHUB_OUTPUT}"
+          echo "edge_url=${EDGE_URL}" >> "${GITHUB_OUTPUT}"
+
+
+      # ------------------------------------------------------------
+      # FINAL PROD FRONTEND BUILD
+      #
+      # Still no AWS mutation.
+      # ------------------------------------------------------------
+
+      - name: Write PROD build environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          {
+            echo "REACT_APP_SNAPSHOTS_API=${{ steps.prod-analytics.outputs.api_url }}"
+
+            echo "REACT_APP_ANALYTICS_INGEST_API=${{ steps.prod-analytics.outputs.edge_url }}"
+
+            echo "REACT_APP_CHECKPOINT_TAG=${{ steps.meta.outputs.CHECKPOINT_TAG }}"
+
+            echo "REACT_APP_PROFILE_VERSION=${{ steps.meta.outputs.PROFILE_VERSION }}"
+
+            echo "REACT_APP_GIT_SHA=${{ steps.meta.outputs.GIT_SHA }}"
+
+            echo "REACT_APP_BUILD_TIME=${{ steps.meta.outputs.BUILD_TIME }}"
+
+            echo "REACT_APP_REPO=${REPO_URL}"
+
+            echo "REACT_APP_GIT_REF=refs/heads/main"
+
+            echo "REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}"
+
+            echo "REACT_APP_CDN_BASE=${{ steps.prod-assets.outputs.cdn_url }}"
+
+            echo "REACT_APP_REPO_ARTIFACT_KEY=${{ steps.ziprepo.outputs.S3_KEY }}"
+
+            echo "REACT_APP_REPO_ARTIFACT_SHA256=${{ steps.ziprepo.outputs.SHA256 }}"
+
+            echo "REACT_APP_GEO_DATASET_URL=${{ steps.prod-assets.outputs.geo_dataset_url }}"
+
+          } >> .env
+
+
+      - name: Build PROD frontend
+        env:
+          CI: true
+        run: npm run build
+
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: ./build
 
+
+      # ------------------------------------------------------------
+      # PROD MUTATION STARTS HERE
+      #
+      # Everything above this point must succeed first.
+      # ------------------------------------------------------------
+
+      - name: Publish PROD assets
+        env:
+          ASSET_STAGE: prod
+          ASSET_CONFIRMATION: SYNC-PROD
+        run: npm run sync:assets
+
+
+      - name: Upload repo code snapshot to S3
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -n "${REPO_BUCKET}" || (
+            echo "ERROR: REPO_BUCKET is empty."
+            exit 1
+          )
+
+
+          aws s3 cp \
+            "${{ steps.ziprepo.outputs.ARTIFACT_PATH }}" \
+            "s3://${REPO_BUCKET}/${{ steps.ziprepo.outputs.S3_KEY }}" \
+            --content-type "application/zip"
+
+
+          echo ""
+          echo "Repo snapshot uploaded:"
+          echo "${{ steps.ziprepo.outputs.S3_KEY }}"
+
+
+  # ============================================================
+  # EXPLICIT PROD PAGES DEPLOYMENT
+  # ============================================================
+
   deploy:
-    needs: build
+    name: Deploy PROD Pages
+
+    needs:
+      - build
+
     runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SNAPSHOTS_BUCKET: ${{ secrets.SNAPSHOTS_BUCKET }}
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
+
     steps:
-      - id: deployment
+
+      - name: Deploy GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
+
+
+      - name: Ensure jq
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          command -v jq >/dev/null 2>&1 || (
+            sudo apt-get update &&
+            sudo apt-get install -y jq
+          )
+
+
+      - name: Register PROD Analytics deploy boundary
+        shell: bash
+        env:
+          ANALYTICS_API_URL: ${{ needs.build.outputs.SNAPSHOTS_API_URL }}
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+
+          PROFILE_VERSION: ${{ needs.build.outputs.PROFILE_VERSION }}
+          GIT_SHA: ${{ needs.build.outputs.GIT_SHA }}
+          BUILD_TIME: ${{ needs.build.outputs.BUILD_TIME }}
+          RELEASE_MODE: ${{ needs.build.outputs.RELEASE_MODE }}
+        run: |
+          set -euo pipefail
+
+          test -n "${ANALYTICS_API_URL}" || {
+            echo "ERROR: ANALYTICS_API_URL is empty."
+            exit 1
+          }
+
+          test -n "${OWNER_TOKEN}" || {
+            echo "ERROR: OWNER_TOKEN is empty."
+            exit 1
+          }
+
+          test -n "${PROFILE_VERSION}" || {
+            echo "ERROR: PROFILE_VERSION is empty."
+            exit 1
+          }
+
+          test -n "${GIT_SHA}" || {
+            echo "ERROR: GIT_SHA is empty."
+            exit 1
+          }
+
+          BASE_URL="${ANALYTICS_API_URL%/}"
+
+          BOUNDARY_ID="deploy:${PROFILE_VERSION}:${GITHUB_RUN_ID}"
+
+          META="$(
+            curl \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              -H "x-owner-token: ${OWNER_TOKEN}" \
+              "${BASE_URL}/analytics/meta"
+          )"
+
+          EXISTING_BOUNDARY="$(
+            jq -c \
+              --arg boundaryId "${BOUNDARY_ID}" \
+              '
+                .boundaries[]?
+                | select(
+                    .boundaryId ==
+                    $boundaryId
+                  )
+              ' \
+              <<< "${META}" \
+              | head -n 1
+          )"
+
+          if [[ -n "${EXISTING_BOUNDARY}" ]]; then
+            EXISTING_TYPE="$(
+              jq -r \
+                '.type // empty' \
+                <<< "${EXISTING_BOUNDARY}"
+            )"
+
+            EXISTING_PV="$(
+              jq -r \
+                '.profileVersionId // empty' \
+                <<< "${EXISTING_BOUNDARY}"
+            )"
+
+            EFFECTIVE_AT="$(
+              jq -r \
+                '.effectiveAt // empty' \
+                <<< "${EXISTING_BOUNDARY}"
+            )"
+
+            NOTE="$(
+              jq -r \
+                '.note // empty' \
+                <<< "${EXISTING_BOUNDARY}"
+            )"
+
+            if [[ "${EXISTING_TYPE}" != "deploy" ]]; then
+              echo "ERROR: Existing Analytics boundary has the wrong type."
+              exit 1
+            fi
+
+            if [[ "${EXISTING_PV}" != "${PROFILE_VERSION}" ]]; then
+              echo "ERROR: Existing Analytics boundary belongs to a different profile version."
+              exit 1
+            fi
+
+            if ! [[ "${EFFECTIVE_AT}" =~ ^[0-9]+$ ]]; then
+              echo "ERROR: Existing Analytics boundary has an invalid effectiveAt."
+              exit 1
+            fi
+
+            echo "Reusing existing Analytics deploy boundary."
+          else
+            EFFECTIVE_AT="$(
+              date +%s%3N
+            )"
+
+            NOTE="PROD ${RELEASE_MODE} run=${GITHUB_RUN_ID}"
+
+            echo "Creating new Analytics deploy boundary."
+          fi
+
+          PAYLOAD="$(
+            jq -n \
+              --arg boundaryId "${BOUNDARY_ID}" \
+              --argjson effectiveAt "${EFFECTIVE_AT}" \
+              --arg profileVersionId "${PROFILE_VERSION}" \
+              --arg gitSha "${GIT_SHA}" \
+              --arg buildTime "${BUILD_TIME}" \
+              --arg note "${NOTE}" \
+              '{
+                boundaryId:
+                  $boundaryId,
+
+                type:
+                  "deploy",
+
+                effectiveAt:
+                  $effectiveAt,
+
+                profileVersionId:
+                  $profileVersionId,
+
+                gitSha:
+                  $gitSha,
+
+                buildTime:
+                  $buildTime,
+
+                note:
+                  $note
+              }'
+          )"
+
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            -X POST \
+            -H "content-type: application/json" \
+            -H "x-owner-token: ${OWNER_TOKEN}" \
+            --data "${PAYLOAD}" \
+            "${BASE_URL}/analytics/boundaries" \
+            >/tmp/analytics-boundary.json
+
+          VERIFY_META="$(
+            curl \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              -H "x-owner-token: ${OWNER_TOKEN}" \
+              "${BASE_URL}/analytics/meta"
+          )"
+
+          VERIFY_BOUNDARY="$(
+            jq -c \
+              --arg boundaryId "${BOUNDARY_ID}" \
+              '
+                .boundaries[]?
+                | select(
+                    .boundaryId ==
+                    $boundaryId
+                  )
+              ' \
+              <<< "${VERIFY_META}" \
+              | head -n 1
+          )"
+
+          VERIFY_RELEASE="$(
+            jq -c \
+              --arg pv "${PROFILE_VERSION}" \
+              '
+                .releases[]?
+                | select(
+                    .profileVersionId ==
+                    $pv
+                  )
+              ' \
+              <<< "${VERIFY_META}" \
+              | head -n 1
+          )"
+
+          if [[ -z "${VERIFY_BOUNDARY}" ]]; then
+            echo "ERROR: PROD deploy boundary was not found after registration."
+            exit 1
+          fi
+
+          if [[ -z "${VERIFY_RELEASE}" ]]; then
+            echo "ERROR: PROD Analytics release was not found after boundary registration."
+            exit 1
+          fi
+
+          VERIFY_TYPE="$(
+            jq -r \
+              '.type // empty' \
+              <<< "${VERIFY_BOUNDARY}"
+          )"
+
+          VERIFY_PV="$(
+            jq -r \
+              '.profileVersionId // empty' \
+              <<< "${VERIFY_BOUNDARY}"
+          )"
+
+          VERIFY_SHA="$(
+            jq -r \
+              '.gitSha // empty' \
+              <<< "${VERIFY_RELEASE}"
+          )"
+
+          if [[ "${VERIFY_TYPE}" != "deploy" ]]; then
+            echo "ERROR: Registered boundary type is not deploy."
+            exit 1
+          fi
+
+          if [[ "${VERIFY_PV}" != "${PROFILE_VERSION}" ]]; then
+            echo "ERROR: Registered boundary profile version mismatch."
+            exit 1
+          fi
+
+          if [[ "${VERIFY_SHA}" != "${GIT_SHA}" ]]; then
+            echo "ERROR: Analytics release SHA does not match deployed SHA."
+            exit 1
+          fi
+
+          echo ""
+          echo "PROD Analytics release boundary verified."
+          echo "Profile version: ${PROFILE_VERSION}"
+          echo "Git SHA: ${GIT_SHA}"
+
 
       - name: Configure AWS credentials (OIDC) for history write
         uses: aws-actions/configure-aws-credentials@v4
@@ -228,32 +1046,96 @@ jobs:
           role-to-assume: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Ensure jq
+
+      - name: Invalidate PROD asset CDN
         shell: bash
+        env:
+          DISTRIBUTION_ID: ${{ needs.build.outputs.ASSET_DISTRIBUTION_ID }}
         run: |
-          set -e
-          command -v jq >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y jq)
+          set -euo pipefail
+
+          if [[ -z "${DISTRIBUTION_ID}" ]]; then
+            echo "ERROR: PROD asset DistributionId is missing."
+            exit 1
+          fi
+
+          echo "Invalidating PROD asset CDN..."
+          echo ""
+
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths \
+              "/ships/sprites/*" \
+              "/ships/glb/*" \
+              "/geo/*"
+
+          echo ""
+          echo "PROD asset CDN invalidation submitted."
+
 
       - name: Update deploy history (active + previous)
         shell: bash
         run: |
           set -euo pipefail
+
           KEY="deploy/history.json"
+
           TMP_OLD="/tmp/deploy_history_old.json"
           TMP_NEW="/tmp/deploy_history_new.json"
 
+
           GIT_SHA="${{ needs.build.outputs.GIT_SHA }}"
           PROFILE_VERSION="${{ needs.build.outputs.PROFILE_VERSION }}"
-          DEPLOYED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
-          SOURCE="gha"
 
-          aws s3 cp "s3://${SNAPSHOTS_BUCKET}/${KEY}" "${TMP_OLD}" >/dev/null 2>&1 || true
-          if [ ! -s "${TMP_OLD}" ]; then echo '{}' > "${TMP_OLD}"; fi
+          DEPLOYED_AT="$(
+            date -u +%Y-%m-%dT%H:%M:%S.%3NZ
+          )"
 
-          OLD_ACTIVE_SHA="$(jq -r '.active.gitSha // empty' "${TMP_OLD}")"
-          OLD_ACTIVE_PV="$(jq -r '.active.profileVersionId // empty' "${TMP_OLD}")"
-          OLD_ACTIVE_AT="$(jq -r '.active.deployedAt // empty' "${TMP_OLD}")"
-          OLD_ACTIVE_SRC="$(jq -r '.active.source // empty' "${TMP_OLD}")"
+          RELEASE_MODE="${{ needs.build.outputs.RELEASE_MODE }}"
+
+          if [[ "${RELEASE_MODE}" == "redeploy" ]]; then
+            SOURCE="gha_redeploy"
+          else
+            SOURCE="gha_promote"
+          fi
+
+
+          aws s3 cp \
+            "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
+            "${TMP_OLD}" \
+            >/dev/null 2>&1 ||
+            true
+
+
+          if [ ! -s "${TMP_OLD}" ]; then
+            echo '{}' > "${TMP_OLD}"
+          fi
+
+
+          OLD_ACTIVE_SHA="$(
+            jq -r \
+              '.active.gitSha // empty' \
+              "${TMP_OLD}"
+          )"
+
+          OLD_ACTIVE_PV="$(
+            jq -r \
+              '.active.profileVersionId // empty' \
+              "${TMP_OLD}"
+          )"
+
+          OLD_ACTIVE_AT="$(
+            jq -r \
+              '.active.deployedAt // empty' \
+              "${TMP_OLD}"
+          )"
+
+          OLD_ACTIVE_SRC="$(
+            jq -r \
+              '.active.source // empty' \
+              "${TMP_OLD}"
+          )"
+
 
           jq -n \
             --arg gitSha "${GIT_SHA}" \
@@ -267,54 +1149,133 @@ jobs:
             --slurpfile old "${TMP_OLD}" \
             '
             def oldTimeline:
-              (if ($old|length>0 and ($old[0].timeline|type)=="array") then $old[0].timeline else [] end);
+              (
+                if (
+                  $old | length > 0
+                  and
+                  ($old[0].timeline | type) == "array"
+                )
+                then
+                  $old[0].timeline
+                else
+                  []
+                end
+              );
 
             {
-              active: { gitSha: $gitSha, profileVersionId: $pv, deployedAt: $at, source: $src },
-              previous: (if ($prevSha|length)>0 then { gitSha: $prevSha, profileVersionId: $prevPv, deployedAt: $prevAt, source: $prevSrc } else null end),
-              timeline: ( ([{ gitSha: $gitSha, profileVersionId: $pv, deployedAt: $at, source: $src }] + oldTimeline) | unique_by(.gitSha) | .[0:25] )
+              active: {
+                gitSha: $gitSha,
+                profileVersionId: $pv,
+                deployedAt: $at,
+                source: $src
+              },
+
+              previous:
+                (
+                  if ($prevSha | length) > 0
+                  then
+                    {
+                      gitSha: $prevSha,
+                      profileVersionId: $prevPv,
+                      deployedAt: $prevAt,
+                      source: $prevSrc
+                    }
+                  else
+                    null
+                  end
+                ),
+
+              timeline:
+                (
+                  (
+                    [
+                      {
+                        gitSha: $gitSha,
+                        profileVersionId: $pv,
+                        deployedAt: $at,
+                        source: $src
+                      }
+                    ]
+                    +
+                    oldTimeline
+                  )
+                  |
+                  unique_by(.gitSha)
+                  |
+                  .[0:25]
+                )
             }
             ' > "${TMP_NEW}"
 
-          aws s3 cp "${TMP_NEW}" "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
+
+          aws s3 cp \
+            "${TMP_NEW}" \
+            "s3://${SNAPSHOTS_BUCKET}/${KEY}" \
             --content-type "application/json" \
             --cache-control "no-store"
 
+
+  # ============================================================
+  # PROD CI SNAPSHOT
+  # ============================================================
+
   publish_ci_snapshot:
     name: Publish CI Snapshot (prod)
-    needs: [build, deploy]
+
+    needs:
+      - build
+      - deploy
+
     runs-on: ubuntu-latest
-    if: github.ref_name == 'main'
+
+    timeout-minutes: 10
+
 
     steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Checkout promoted source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.build.outputs.GIT_SHA }}
+
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
+
 
       - name: Publish snapshot to Snapshots API
         env:
           STAGE: prod
-          SNAPSHOTS_API: ${{ secrets.TEJAS_PROFILE_SNAPSHOTS_API_PROD }}
-          OWNER_TOKEN: ${{ secrets.TEJAS_PROFILE_OWNER_TOKEN_PROD }}
+
+          SNAPSHOTS_API: ${{ needs.build.outputs.SNAPSHOTS_API_URL }}
+
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
 
           GIT_SHA: ${{ needs.build.outputs.GIT_SHA }}
+
           PROFILE_VERSION: ${{ needs.build.outputs.PROFILE_VERSION }}
-          CHECKPOINT_TAG: gha_${{ github.run_id }}
+
+          CHECKPOINT_TAG: ${{ needs.build.outputs.CHECKPOINT_TAG }}
 
           REPO_ARTIFACT_KEY: ${{ needs.build.outputs.REPO_ARTIFACT_KEY }}
+
           REPO_ARTIFACT_SHA256: ${{ needs.build.outputs.REPO_ARTIFACT_SHA256 }}
 
-          # ✅ add this (fixes buildTime null)
           BUILD_TIME: ${{ needs.build.outputs.BUILD_TIME }}
 
-          # ✅ optional but recommended for full parity with Analytics payload shape
-          GIT_REF: ${{ github.ref }}
-          GH_RUN_ID: ${{ github.run_id }}
-          REPO_URL: ${{ vars.REPO_URL || secrets.REPO_URL }}
-          TIMEZONE: America/Los_Angeles
-          DIFF_FILES_JSON: ${{ needs.build.outputs.DIFF_FILES_JSON }}
-          DIFF_TAG_VALUE: ${{ needs.build.outputs.DIFF_TAG_VALUE }}
-        run: node scripts/publish-ci-snapshot.mjs
+          GIT_REF: refs/heads/main
 
+          GH_RUN_ID: ${{ github.run_id }}
+
+          REPO_URL: ${{ vars.REPO_URL || secrets.REPO_URL }}
+
+          TIMEZONE: America/Los_Angeles
+
+          DIFF_FILES_JSON: ${{ needs.build.outputs.DIFF_FILES_JSON }}
+
+          DIFF_TAG_VALUE: ${{ needs.build.outputs.DIFF_TAG_VALUE }}
+
+        run: node scripts/publish-ci-snapshot.mjs

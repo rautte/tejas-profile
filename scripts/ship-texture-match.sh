@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# src/scripts/ship-texture-match.sh
 # Smart matcher for texture .rar archives -> ship directories
 # Compatible with macOS Bash 3.2 (no associative arrays / mapfile)
 

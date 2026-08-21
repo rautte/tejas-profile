@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# src/scripts/write_build_env.sh
 set -euo pipefail
 
 GIT_SHA="$(git rev-parse HEAD)"

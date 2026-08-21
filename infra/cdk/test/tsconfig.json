@@ -1,0 +1,17 @@
+// // infra/cdk/test/tsconfig.json
+{
+  "extends": "../tsconfig.json",
+
+  "compilerOptions": {
+    "types": [
+      "node",
+      "jest"
+    ],
+
+    "noEmit": true
+  },
+
+  "include": [
+    "./**/*.ts"
+  ]
+}

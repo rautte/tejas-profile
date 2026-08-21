@@ -1,0 +1,163 @@
+name: CI Quality Gate
+
+
+on:
+  push:
+    branches:
+      - "**"
+
+  pull_request:
+
+  workflow_dispatch:
+
+
+permissions:
+  contents: read
+
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+
+  # ============================================================
+  # FRONTEND
+  # ============================================================
+
+  frontend:
+    name: Frontend
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+
+      - name: Run frontend tests
+        env:
+          CI: true
+        run: npm run test:ci
+
+
+      - name: Build frontend
+        env:
+          CI: true
+        run: npm run build
+
+
+
+  # ============================================================
+  # INFRASTRUCTURE + ANALYTICS BACKEND
+  # ============================================================
+
+  infrastructure:
+    name: Infrastructure + Backend
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: infra/cdk
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: infra/cdk/package-lock.json
+
+
+      - name: Install infrastructure dependencies
+        run: npm ci
+
+
+      - name: Verify infrastructure and backend
+        env:
+          CI: true
+        run: npm run verify
+
+
+
+  # ============================================================
+  # SINGLE STABLE QUALITY GATE
+  # ============================================================
+
+  quality-gate:
+    name: Quality Gate
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 5
+
+    if: ${{ always() }}
+
+    needs:
+      - frontend
+      - infrastructure
+
+    steps:
+
+      - name: Verify all CI jobs passed
+        env:
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          INFRA_RESULT: ${{ needs.infrastructure.result }}
+        run: |
+          set -euo pipefail
+
+          echo "CI Quality Gate"
+          echo ""
+          echo "Frontend:       ${FRONTEND_RESULT}"
+          echo "Infrastructure: ${INFRA_RESULT}"
+          echo ""
+
+          if [[ "${FRONTEND_RESULT}" != "success" ]]; then
+            echo "ERROR: Frontend CI did not pass."
+            exit 1
+          fi
+
+          if [[ "${INFRA_RESULT}" != "success" ]]; then
+            echo "ERROR: Infrastructure/backend CI did not pass."
+            exit 1
+          fi
+
+          echo "All CI quality gates passed."
+
+
+      - name: Write CI summary
+        run: |
+          {
+            echo "## CI Quality Gate"
+            echo ""
+            echo "| Gate | Result |"
+            echo "| --- | --- |"
+            echo "| Frontend tests + production build | ✅ Passed |"
+            echo "| Infrastructure build + backend tests + CDK assertions + synth | ✅ Passed |"
+            echo ""
+            echo "**Result: eligible for deployment validation.**"
+          } >> "${GITHUB_STEP_SUMMARY}"

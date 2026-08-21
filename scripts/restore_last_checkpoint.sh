@@ -1,162 +1,388 @@
 #!/usr/bin/env bash
+# scripts/restore_last_checkpoint.sh
+
 set -euo pipefail
 
-# ----------------------------
-# restore_last_checkpoint.sh
-# Purpose:
-#  - Restore working tree to last known good deployed commit
-#  - Prefers moving tag: last-deployed
-#  - Falls back to latest checkpoint-* tag
-#  - Creates a rescue branch before resetting
-# ----------------------------
 
-# ---- Repo root + helpers (define BEFORE first use)
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$REPO_ROOT"
+# ============================================================
+# LOCAL CHECKPOINT RESTORE
+#
+# Restores the local working tree to an immutable checkpoint.
+#
+# This script DOES NOT:
+#
+#   - determine what is currently deployed to PROD
+#   - mutate the last-deployed tag
+#   - push main
+#   - deploy GitHub Pages
+#
+# Production rollback is performed through:
+#
+#   GitHub Actions
+#     -> Redeploy (Owner)
+#     -> exact git SHA
+#     -> REDEPLOY-PROD
+#
+# Optional:
+#
+#   RESTORE_REF=checkpoint-... ./scripts/restore_last_checkpoint.sh
+#
+# Without RESTORE_REF, the newest checkpoint-* tag is selected.
+# ============================================================
 
-say() { printf "%s\n" "$*"; }
-die() { printf "❌ %s\n" "$*" >&2; exit 1; }
 
-# ---- Logging (stdout + stderr)
 SCRIPT_NAME="restore_last_checkpoint"
-LOG_DIR="${REPO_ROOT}/logs/${SCRIPT_NAME}"
-mkdir -p "$LOG_DIR"
 
-# keep last 30 logs (macOS friendly)
-# NOTE: avoid "ls" failing when there are 0 matching files (set -e would exit)
-if compgen -G "${LOG_DIR}/${SCRIPT_NAME}_"*.log > /dev/null; then
-  ls -1t "${LOG_DIR}/${SCRIPT_NAME}_"*.log | tail -n +31 | while read -r f; do
-    rm -f "$f"
-  done
+
+REPO_ROOT="$(
+  cd "$(dirname "${BASH_SOURCE[0]}")/.." &&
+    pwd
+)"
+
+
+cd "${REPO_ROOT}"
+
+
+LOG_DIR="${REPO_ROOT}/logs/${SCRIPT_NAME}"
+
+mkdir -p "${LOG_DIR}"
+
+
+if compgen -G "${LOG_DIR}/${SCRIPT_NAME}_"*.log >/dev/null; then
+  ls -1t "${LOG_DIR}/${SCRIPT_NAME}_"*.log |
+    tail -n +31 |
+    while read -r file; do
+      rm -f "${file}"
+    done
 fi
 
-RUN_TS="$(date +%Y-%m-%d_%H-%M-%S)"
+
+RUN_TS="$(
+  date +%Y-%m-%d_%H-%M-%S
+)"
+
+
 LOG_FILE="${LOG_DIR}/${SCRIPT_NAME}_${RUN_TS}.log"
+
 LATEST_LOG="${LOG_DIR}/${SCRIPT_NAME}_latest.log"
 
-exec > >(tee -a "$LOG_FILE" "$LATEST_LOG") 2>&1
-trap 'rc=$?; if [[ $rc -eq 0 ]]; then echo "✅ RESULT: SUCCESS"; else echo "❌ RESULT: FAILED (exit=$rc)"; fi' EXIT
 
-echo ""
-say "ℹ️  Log file: $LOG_FILE"
-say "ℹ️  Repo: $REPO_ROOT"
-say "ℹ️  Branch: $(git branch --show-current 2>/dev/null || echo unknown)"
-say "ℹ️  HEAD: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-echo ""
+say() {
+  printf "%s\n" "$*"
+}
 
-say "---- Context ----"
-say "user=$(whoami) host=$(hostname)"
-say "pwd=$(pwd)"
-say "git=$(git --version | head -n 1)"
-say "node=$(node -v 2>/dev/null || echo n/a) npm=$(npm -v 2>/dev/null || echo n/a)"
-say "------------------"
-echo ""
 
-require_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"; }
+die() {
+  printf "❌ %s\n" "$*" >&2
+  exit 1
+}
+
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 ||
+    die "Missing required command: $1"
+}
+
+
+exec \
+  > >(tee -a "${LOG_FILE}" "${LATEST_LOG}") \
+  2>&1
+
+
+trap '
+  rc=$?
+
+  if [[ ${rc} -eq 0 ]]; then
+    echo "✅ RESULT: SUCCESS"
+  else
+    echo "❌ RESULT: FAILED (exit=${rc})"
+  fi
+' EXIT
+
+
+# ============================================================
+# PRECONDITIONS
+# ============================================================
 
 require_cmd git
 require_cmd npm
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "Not inside a git repository."
 
-# Ensure remote exists
-git remote get-url origin >/dev/null 2>&1 || die "Remote 'origin' not found."
+git rev-parse \
+  --is-inside-work-tree \
+  >/dev/null 2>&1 ||
+  die "Not inside a Git repository."
 
-# Enforce branch policy (same as checkpoint script)
+
+git remote get-url \
+  origin \
+  >/dev/null 2>&1 ||
+  die "Remote 'origin' not found."
+
+
 TARGET_BRANCH="${TARGET_BRANCH:-main}"
-current_branch="$(git branch --show-current)"
 
-if [[ "$current_branch" != "$TARGET_BRANCH" ]]; then
-  say "⚠️  You are on branch '$current_branch' but restores are intended on '$TARGET_BRANCH'."
-  read -r -p "Switch to '$TARGET_BRANCH' now? (y/N): " ans
-  echo ""
-  if [[ "${ans:-}" == "y" || "${ans:-}" == "Y" ]]; then
-    # refuse to switch if dirty unless user confirms
-    if ! git diff --quiet || ! git diff --cached --quiet; then
-      say "⚠️  You have uncommitted changes; switching branches may fail or carry changes."
-      read -r -p "Proceed with checkout anyway? (y/N): " ans2
-      [[ "${ans2:-}" == "y" || "${ans2:-}" == "Y" ]] || die "Aborted."
-      echo ""
-    fi
-    git checkout "$TARGET_BRANCH"
-    current_branch="$TARGET_BRANCH"
-    say "✅ Switched to '$TARGET_BRANCH'."
-    echo ""
-  else
-    die "Aborted. Please run this from '$TARGET_BRANCH'."
-  fi
+CURRENT_BRANCH="$(
+  git branch --show-current
+)"
+
+
+if [[ "${CURRENT_BRANCH}" != "${TARGET_BRANCH}" ]]; then
+  die "Run this restore from '${TARGET_BRANCH}'. Current branch: '${CURRENT_BRANCH}'."
 fi
 
-say "ℹ️  Fetching latest tags..."
-git fetch --tags --quiet
+
 echo ""
 
-# Prefer last-deployed, fallback to latest checkpoint-*
-restore_ref=""
-if git rev-parse -q --verify "refs/tags/last-deployed" >/dev/null; then
-  restore_ref="last-deployed"
-else
-  latest_checkpoint="$(
-    git tag -l "checkpoint-*" | sort | tail -n 1
+say "ℹ️  Log file: ${LOG_FILE}"
+say "ℹ️  Repo: ${REPO_ROOT}"
+say "ℹ️  Branch: ${CURRENT_BRANCH}"
+say "ℹ️  HEAD: $(git rev-parse --short HEAD)"
+
+echo ""
+
+
+# ============================================================
+# REFRESH REMOTE STATE
+# ============================================================
+
+say "ℹ️  Fetching origin/main and immutable checkpoint tags..."
+
+
+git fetch \
+  origin \
+  main:refs/remotes/origin/main \
+  --tags \
+  --force
+
+
+echo ""
+
+
+# ============================================================
+# SELECT CHECKPOINT
+# ============================================================
+
+RESTORE_REF="${RESTORE_REF:-}"
+
+
+if [[ -z "${RESTORE_REF}" ]]; then
+  RESTORE_REF="$(
+    git for-each-ref \
+      --sort=-creatordate \
+      --format='%(refname:short)' \
+      'refs/tags/checkpoint-*' |
+      head -n 1
   )"
-  [[ -n "${latest_checkpoint:-}" ]] || die "No 'last-deployed' or 'checkpoint-*' tags found."
-  restore_ref="$latest_checkpoint"
 fi
 
-commit_sha="$(git rev-list -n 1 "$restore_ref")"
-[[ -n "${commit_sha:-}" ]] || die "Could not resolve commit for ref: $restore_ref"
 
-say "✅ Restore target: $restore_ref"
-say "   Commit: $commit_sha"
+if [[ -z "${RESTORE_REF}" ]]; then
+  die "No checkpoint-* tags were found."
+fi
+
+
+if ! git rev-parse \
+  --quiet \
+  --verify \
+  "${RESTORE_REF}^{commit}" \
+  >/dev/null; then
+
+  die "Restore ref does not resolve to a commit: ${RESTORE_REF}"
+fi
+
+
+COMMIT_SHA="$(
+  git rev-parse "${RESTORE_REF}^{commit}"
+)"
+
+
+if ! git merge-base \
+  --is-ancestor \
+  "${COMMIT_SHA}" \
+  origin/main; then
+
+  die "Checkpoint ${RESTORE_REF} is not contained in origin/main."
+fi
+
+
+say "✅ Local restore target:"
+say "   Ref:    ${RESTORE_REF}"
+say "   Commit: ${COMMIT_SHA}"
+
 echo ""
 
-# Idempotency: if already at target commit and clean, do nothing.
-head_sha="$(git rev-parse HEAD)"
-if [[ "$head_sha" == "$commit_sha" ]]; then
-  if git diff --quiet && git diff --cached --quiet; then
-    say "✅ Already at $restore_ref and working tree is clean. Nothing to do."
-    echo ""
-    exit 0
+
+# ============================================================
+# IDEMPOTENCY
+# ============================================================
+
+HEAD_SHA="$(
+  git rev-parse HEAD
+)"
+
+
+if [[ "${HEAD_SHA}" == "${COMMIT_SHA}" ]] &&
+   git diff --quiet &&
+   git diff --cached --quiet; then
+
+  say "✅ Already at ${RESTORE_REF}; working tree is clean."
+  exit 0
+fi
+
+
+# ============================================================
+# DIRTY TREE SAFETY
+# ============================================================
+
+if ! git diff --quiet ||
+   ! git diff --cached --quiet ||
+   [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+
+  say "⚠️  The working tree contains uncommitted/untracked changes."
+  say ""
+  say "Restore will remove those changes after creating a rescue branch."
+  say ""
+
+  read -r -p "Continue? Type RESTORE to confirm: " CONFIRMATION
+
+  if [[ "${CONFIRMATION}" != "RESTORE" ]]; then
+    die "Restore cancelled."
   fi
-  say "ℹ️  HEAD already matches $restore_ref, but you have local changes."
-  echo ""
 fi
 
-# Dirty check
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  say "⚠️  You have uncommitted changes."
-  say "    Restore will DISCARD them unless you stash/commit."
-  echo ""
-  read -r -p "Proceed and discard local changes? (y/N): " ans
-  [[ "${ans:-}" == "y" || "${ans:-}" == "Y" ]] || die "Aborted."
-  echo ""
-fi
 
-# Create rescue branch from current HEAD (safe escape hatch)
-rescue_branch="rescue/before-restore-$(date +%Y%m%d-%H%M%S)"
-say "🛟 Creating rescue branch: $rescue_branch"
-git branch "$rescue_branch" >/dev/null 2>&1 || true
+# ============================================================
+# RESCUE BRANCH
+# ============================================================
+
+RESCUE_BRANCH="rescue/before-restore-$(
+  date +%Y%m%d-%H%M%S
+)"
+
+
+say ""
+say "🛟 Creating rescue branch:"
+say "   ${RESCUE_BRANCH}"
+
+
+git branch \
+  "${RESCUE_BRANCH}" \
+  HEAD
+
+
+# ============================================================
+# RESTORE
+# ============================================================
+
+say ""
+say "🔁 Restoring tracked files to:"
+say "   ${RESTORE_REF}"
+
+
+git reset \
+  --hard \
+  "${COMMIT_SHA}"
+
+
+# Remove untracked files/directories only after explicit confirmation
+# above. Ignored files such as local .env files remain intact.
+git clean \
+  -fd
+
+
+say ""
+say "✅ Local checkpoint restored."
+
+
+# ============================================================
+# OPTIONAL VALIDATION
+# ============================================================
+
 echo ""
 
-say "🔁 Resetting working tree to: $restore_ref"
-git reset --hard "$restore_ref" --quiet
-echo ""
+read -r -p "Run the full local quality gate now? (Y/n): " RUN_VERIFY
 
-say "✅ Repo restored to $restore_ref"
 
-read -r -p "Run npm ci + npm run build now? (Y/n): " run_build
-if [[ "${run_build:-Y}" != "n" && "${run_build:-Y}" != "N" ]]; then
-  say "ℹ️  Installing deps (npm ci)..."
+if [[ "${RUN_VERIFY:-Y}" != "n" &&
+      "${RUN_VERIFY:-Y}" != "N" ]]; then
+
+  echo ""
+
+  say "ℹ️  Installing frontend dependencies..."
+
   npm ci
+
+
   echo ""
-  say "ℹ️  Building..."
-  npm run build
+
+  say "ℹ️  Running frontend tests..."
+
+  CI=true npm run test:ci
+
+
   echo ""
-  say "✅ Build OK."
+
+  say "ℹ️  Running production frontend build..."
+
+  CI=true npm run build
+
+
   echo ""
+
+  say "ℹ️  Installing infrastructure dependencies..."
+
+  (
+    cd infra/cdk
+    npm ci
+  )
+
+
+  echo ""
+
+  say "ℹ️  Running infrastructure/backend verification..."
+
+  (
+    cd infra/cdk
+    CI=true npm run verify
+  )
+
+
+  echo ""
+
+  say "✅ Full local quality gate passed."
 fi
 
-say "✅ Done."
-say "   Restored to:  $restore_ref ($commit_sha)"
-say "   Rescue branch: $rescue_branch"
+
+# ============================================================
+# RESULT
+# ============================================================
+
+echo ""
+echo "============================================================"
+echo " LOCAL CHECKPOINT RESTORED"
+echo "============================================================"
+echo ""
+echo " Ref:"
+echo "   ${RESTORE_REF}"
+echo ""
+echo " Commit:"
+echo "   ${COMMIT_SHA}"
+echo ""
+echo " Rescue branch:"
+echo "   ${RESCUE_BRANCH}"
+echo ""
+echo " PROD:"
+echo "   NOT CHANGED"
+echo ""
+echo " To redeploy this commit to PROD:"
+echo ""
+echo "   GitHub Actions"
+echo "     -> Redeploy (Owner)"
+echo "     -> gitSha:"
+echo "        ${COMMIT_SHA}"
+echo "     -> confirm:"
+echo "        REDEPLOY-PROD"
+echo ""
+echo "============================================================"
 echo ""

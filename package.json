@@ -30,14 +30,14 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:ci": "react-scripts test --watchAll=false",
     "eject": "react-scripts eject",
-    "assets:sync": "aws s3 sync src/assets/ships/sprites s3://assetscdnstack-heavyassetsbucket72601c17-nip5jdtseu6y/ships/sprites/ --exclude '*/top/*' --cache-control 'public,max-age=86400' --delete",
-    "assets:publish": "npm run assets:sync && npm run cdn:invalidate",
-    "prepare": "husky install",
+    "assets:sync": "npm run sync:assets",
+    "assets:publish": "npm run sync:assets && npm run cdn:invalidate",
+    "prepare": "husky",
     "sync:assets": "bash scripts/sync-assets.sh",
     "cdn:invalidate": "bash scripts/cdn-invalidate.sh",
-    "assets:push": "npm run sync:assets && npm run cdn:invalidate",
-    "assets:watch": "chokidar 'src/assets/ships/sprites/**/*' -c 'npm run sync:assets' --initial --await-write-finish 1000"
+    "assets:push": "npm run assets:publish"
   },
   "eslintConfig": {
     "extends": [

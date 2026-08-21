@@ -1,14 +1,43 @@
 #!/usr/bin/env bash
+# .husky/pre-push
+
 set -euo pipefail
-[ -f .env.local ] && set -a && . ./.env.local && set +a
 
-echo "[pre-push] syncing heavy assets to S3…"
-if ! npm run -s sync:assets; then
-  echo "[pre-push] WARN: asset sync failed — continuing push (you can run 'npm run assets:push' later)."
-  exit 0
-fi
 
-echo "[pre-push] invalidating CloudFront…"
-npm run -s cdn:invalidate || echo "[pre-push] WARN: CDN invalidation failed — run 'npm run cdn:invalidate' later."
+REPO_ROOT="$(
+  git rev-parse --show-toplevel
+)"
 
-echo "[pre-push] done ✓"
+cd "${REPO_ROOT}"
+
+
+echo ""
+echo "Pre-push validation"
+echo "-------------------"
+echo ""
+
+
+# Local working-tree hygiene only.
+#
+# Deployment eligibility is determined by:
+#
+#   CI Quality Gate
+#
+# after the push.
+#
+# This hook must never:
+#
+#   - authenticate to AWS
+#   - upload assets
+#   - invalidate CloudFront
+#   - deploy infrastructure
+#   - publish snapshots
+
+git diff \
+  --check
+
+
+echo "✅ Local diff validation passed."
+echo ""
+echo "ℹ️  GitHub CI will run the authoritative quality gate."
+echo ""
