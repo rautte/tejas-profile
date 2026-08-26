@@ -44,27 +44,58 @@ new AssetsCdnStack(
   }
 );
 
-const ownerToken = process.env.OWNER_TOKEN;
-const githubDeployerRoleArn = process.env.GITHUB_DEPLOYER_ROLE_ARN || "";
+const githubDeployerRoleArn =
+  process.env.GITHUB_DEPLOYER_ROLE_ARN || "";
 
-if (!ownerToken) {
-  console.warn("OWNER_TOKEN missing -> skipping snapshots stacks");
-} else {
-  // ✅ PROD: allow GitHub Pages + localhost (optional)
-  new SnapshotsStack(app, "TejasProfileSnapshotsStackProd", {
-    env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" },
-    stage: "prod",
-    allowedOrigins: ["https://rautte.github.io", "http://localhost:3000"],
-    ownerToken,
-    githubDeployerRoleArn: githubDeployerRoleArn || undefined,
-  });
+// Runtime credentials are resolved from stage-specific
+// Secrets Manager identities by SnapshotsStack.
+//
+// Infrastructure synthesis must never require or load
+// the owner credential itself.
+new SnapshotsStack(
+  app,
+  "TejasProfileSnapshotsStackProd",
+  {
+    env: {
+      account:
+        process.env.CDK_DEFAULT_ACCOUNT,
 
-  // ✅ DEV: only localhost
-  new SnapshotsStack(app, "TejasProfileSnapshotsStackDev", {
-    env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" },
-    stage: "dev",
-    allowedOrigins: ["http://localhost:3000"],
-    ownerToken,
-    // githubDeployerRoleArn not needed for dev
-  });
-}
+      region:
+        "us-east-1",
+    },
+
+    stage:
+      "prod",
+
+    allowedOrigins: [
+      "https://rautte.github.io",
+    ],
+
+    githubDeployerRoleArn:
+      githubDeployerRoleArn ||
+      undefined,
+  }
+);
+
+
+// DEV remains physically and origin-isolated from PROD.
+new SnapshotsStack(
+  app,
+  "TejasProfileSnapshotsStackDev",
+  {
+    env: {
+      account:
+        process.env.CDK_DEFAULT_ACCOUNT,
+
+      region:
+        "us-east-1",
+    },
+
+    stage:
+      "dev",
+
+    allowedOrigins: [
+      "http://localhost:3000",
+    ],
+  }
+);

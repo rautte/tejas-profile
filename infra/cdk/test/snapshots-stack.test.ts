@@ -26,16 +26,13 @@ function createStack(
         stage,
 
         allowedOrigins:
-            stage === "dev"
-                ? [
-                    "http://localhost:3000",
-                ]
-                : [
-                    "https://rautte.github.io",
-                ],
-
-        ownerToken:
-          "unit-test-owner-token",
+          stage === "dev"
+              ? [
+                  "http://localhost:3000",
+              ]
+              : [
+                  "https://rautte.github.io",
+              ],
       }
     );
 
@@ -45,6 +42,90 @@ function createStack(
       Template.fromStack(
         stack
       ),
+  };
+}
+
+
+function findBucketByName(
+  template: Template,
+  bucketName: string
+) {
+  const buckets =
+    template.findResources(
+      "AWS::S3::Bucket"
+    );
+
+
+  const entry =
+    Object.entries(
+      buckets
+    ).find(
+      ([, resource]: [
+        string,
+        any
+      ]) =>
+        resource
+          ?.Properties
+          ?.BucketName ===
+        bucketName
+    );
+
+
+  if (!entry) {
+    throw new Error(
+      `Bucket "${bucketName}" was not found.`
+    );
+  }
+
+
+  return {
+    logicalId:
+      entry[0],
+
+    resource:
+      entry[1] as any,
+  };
+}
+
+
+function findTableByName(
+  template: Template,
+  tableName: string
+) {
+  const tables =
+    template.findResources(
+      "AWS::DynamoDB::Table"
+    );
+
+
+  const entry =
+    Object.entries(
+      tables
+    ).find(
+      ([, resource]: [
+        string,
+        any
+      ]) =>
+        resource
+          ?.Properties
+          ?.TableName ===
+        tableName
+    );
+
+
+  if (!entry) {
+    throw new Error(
+      `DynamoDB table "${tableName}" was not found.`
+    );
+  }
+
+
+  return {
+    logicalId:
+      entry[0],
+
+    resource:
+      entry[1] as any,
   };
 }
 
@@ -123,6 +204,9 @@ function findAnalyticsTable(
             ?.KeySchema;
 
         return (
+          !resource
+            ?.Properties
+            ?.TableName &&
           Array.isArray(
             keySchema
           ) &&
@@ -163,10 +247,10 @@ function findAnalyticsTable(
 
 
 describe(
-  "SnapshotsStack analytics infrastructure",
+  "SnapshotsStack infrastructure",
   () => {
     test(
-      "DEV and PROD use isolated named snapshot/repo buckets",
+      "DEV and PROD use isolated named snapshot, repo and Profile Variant buckets",
       () => {
         const dev =
           createStack("dev")
@@ -207,6 +291,506 @@ describe(
               "tejas-profile-prod-repo-zips-978416150779",
           }
         );
+
+        dev.hasResourceProperties(
+          "AWS::S3::Bucket",
+          {
+            BucketName:
+              "tejas-profile-dev-profile-variants-978416150779",
+          }
+        );
+
+
+        prod.hasResourceProperties(
+          "AWS::S3::Bucket",
+          {
+            BucketName:
+              "tejas-profile-prod-profile-variants-978416150779",
+          }
+        );
+
+      }
+    );
+
+
+    test(
+      "Profile Variant buckets are private, encrypted, versioned and retained in both stages",
+      () => {
+        for (
+          const stage of [
+            "dev",
+            "prod",
+          ] as const
+        ) {
+          const {
+            template,
+          } =
+            createStack(
+              stage
+            );
+
+
+          const bucketName =
+            `tejas-profile-${stage}-profile-variants-978416150779`;
+
+
+          const {
+            resource,
+          } =
+            findBucketByName(
+              template,
+              bucketName
+            );
+
+
+          expect(
+            resource
+              .Properties
+              .VersioningConfiguration
+          ).toEqual({
+            Status:
+              "Enabled",
+          });
+
+
+          expect(
+            resource
+              .Properties
+              .BucketEncryption
+          ).toEqual(
+            expect.objectContaining({
+              ServerSideEncryptionConfiguration:
+                expect.any(
+                  Array
+                ),
+            })
+          );
+
+
+          expect(
+            resource
+              .Properties
+              .PublicAccessBlockConfiguration
+          ).toEqual({
+            BlockPublicAcls:
+              true,
+
+            BlockPublicPolicy:
+              true,
+
+            IgnorePublicAcls:
+              true,
+
+            RestrictPublicBuckets:
+              true,
+          });
+
+
+          expect(
+            resource
+              .DeletionPolicy
+          ).toBe(
+            "Retain"
+          );
+
+
+          expect(
+            resource
+              .UpdateReplacePolicy
+          ).toBe(
+            "Retain"
+          );
+        }
+      }
+    );
+
+
+    test(
+      "Profile Variant buckets enforce HTTPS",
+      () => {
+        for (
+          const stage of [
+            "dev",
+            "prod",
+          ] as const
+        ) {
+          const {
+            template,
+          } =
+            createStack(
+              stage
+            );
+
+
+          const bucketName =
+            `tejas-profile-${stage}-profile-variants-978416150779`;
+
+
+          const {
+            logicalId,
+          } =
+            findBucketByName(
+              template,
+              bucketName
+            );
+
+
+          template
+            .hasResourceProperties(
+              "AWS::S3::BucketPolicy",
+              Match.objectLike({
+                Bucket: {
+                  Ref:
+                    logicalId,
+                },
+
+                PolicyDocument:
+                  Match.objectLike({
+                    Statement:
+                      Match.arrayWith([
+                        Match.objectLike({
+                          Effect:
+                            "Deny",
+
+                          Condition:
+                            Match.objectLike({
+                              Bool:
+                                Match.objectLike({
+                                  "aws:SecureTransport":
+                                    "false",
+                                }),
+                            }),
+                        }),
+                      ]),
+                  }),
+              })
+            );
+        }
+      }
+    );
+
+
+    test(
+      "Profile Variant buckets expose only owner-workflow browser methods through stage-scoped CORS",
+      () => {
+        const dev =
+          createStack("dev")
+            .template;
+
+        const prod =
+          createStack("prod")
+            .template;
+
+
+        const devBucket =
+          findBucketByName(
+            dev,
+            "tejas-profile-dev-profile-variants-978416150779"
+          )
+            .resource;
+
+
+        const prodBucket =
+          findBucketByName(
+            prod,
+            "tejas-profile-prod-profile-variants-978416150779"
+          )
+            .resource;
+
+
+        const devRule =
+          devBucket
+            .Properties
+            .CorsConfiguration
+            .CorsRules[0];
+
+
+        const prodRule =
+          prodBucket
+            .Properties
+            .CorsConfiguration
+            .CorsRules[0];
+
+
+        expect(
+          devRule
+            .AllowedMethods
+        ).toEqual(
+          expect.arrayContaining([
+            "GET",
+            "HEAD",
+            "PUT",
+          ])
+        );
+
+
+        expect(
+          devRule
+            .AllowedOrigins
+        ).toEqual([
+          "http://localhost:3000",
+        ]);
+
+
+        expect(
+          prodRule
+            .AllowedOrigins
+        ).toEqual([
+          "https://rautte.github.io",
+        ]);
+
+
+        expect(
+          devRule
+            .AllowedMethods
+        ).not.toContain(
+          "DELETE"
+        );
+
+
+        expect(
+          prodRule
+            .AllowedMethods
+        ).not.toContain(
+          "DELETE"
+        );
+      }
+    );
+
+
+    test(
+      "SnapshotsStack exposes the stage-specific Profile Variant bucket for later publisher discovery",
+      () => {
+        for (
+          const stage of [
+            "dev",
+            "prod",
+          ] as const
+        ) {
+          const {
+            template,
+          } =
+            createStack(
+              stage
+            );
+
+
+          template.hasOutput(
+            "ProfileVariantsBucketName",
+            {}
+          );
+        }
+      }
+    );
+
+
+    test(
+      "DEV and PROD use isolated named Profile Activation tables",
+      () => {
+        const dev =
+          createStack(
+            "dev"
+          ).template;
+
+        const prod =
+          createStack(
+            "prod"
+          ).template;
+
+
+        dev.hasResourceProperties(
+          "AWS::DynamoDB::Table",
+          {
+            TableName:
+              "tejas-profile-dev-profile-activations-978416150779",
+
+            BillingMode:
+              "PAY_PER_REQUEST",
+
+            KeySchema: [
+              {
+                AttributeName:
+                  "pk",
+
+                KeyType:
+                  "HASH",
+              },
+
+              {
+                AttributeName:
+                  "sk",
+
+                KeyType:
+                  "RANGE",
+              },
+            ],
+          }
+        );
+
+
+        prod.hasResourceProperties(
+          "AWS::DynamoDB::Table",
+          {
+            TableName:
+              "tejas-profile-prod-profile-activations-978416150779",
+
+            BillingMode:
+              "PAY_PER_REQUEST",
+          }
+        );
+      }
+    );
+
+
+    test(
+      "Profile Activation table indexes activation history by Profile Variant",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        template
+          .hasResourceProperties(
+            "AWS::DynamoDB::Table",
+            Match.objectLike({
+              TableName:
+                "tejas-profile-dev-profile-activations-978416150779",
+
+              GlobalSecondaryIndexes:
+                Match.arrayWith([
+                  Match.objectLike({
+                    IndexName:
+                      "ByProfileVariant",
+
+                    KeySchema: [
+                      {
+                        AttributeName:
+                          "gsi1pk",
+
+                        KeyType:
+                          "HASH",
+                      },
+
+                      {
+                        AttributeName:
+                          "gsi1sk",
+
+                        KeyType:
+                          "RANGE",
+                      },
+                    ],
+
+                    Projection:
+                      Match.objectLike({
+                        ProjectionType:
+                          "ALL",
+                      }),
+                  }),
+                ]),
+            })
+          );
+      }
+    );
+
+
+    test(
+      "Profile Activation history is retained in PROD and disposable in DEV",
+      () => {
+        for (
+          const {
+            stage,
+            expectedDeletionPolicy,
+          } of [
+            {
+              stage:
+                "dev" as const,
+
+              expectedDeletionPolicy:
+                "Delete",
+            },
+
+            {
+              stage:
+                "prod" as const,
+
+              expectedDeletionPolicy:
+                "Retain",
+            },
+          ]
+        ) {
+          const {
+            template,
+          } =
+            createStack(
+              stage
+            );
+
+
+          const resources =
+            template
+              .findResources(
+                "AWS::DynamoDB::Table"
+              );
+
+
+          const table =
+            Object
+              .values(
+                resources
+              )
+              .find(
+                (
+                  resource: any
+                ) =>
+                  resource
+                    ?.Properties
+                    ?.TableName ===
+                  `tejas-profile-${stage}-profile-activations-978416150779`
+              ) as any;
+
+
+          expect(
+            table
+          ).toBeDefined();
+
+
+          expect(
+            table
+              .DeletionPolicy
+          ).toBe(
+            expectedDeletionPolicy
+          );
+        }
+      }
+    );
+
+
+    test(
+      "SnapshotsStack exposes the Profile Activation table name",
+      () => {
+        for (
+          const stage of [
+            "dev",
+            "prod",
+          ] as const
+        ) {
+          const {
+            template,
+          } =
+            createStack(
+              stage
+            );
+
+
+          template.hasOutput(
+            "ProfileActivationTableName",
+            {}
+          );
+        }
       }
     );
 
@@ -476,7 +1060,19 @@ describe(
                       ANALYTICS_TABLE:
                         Match.anyValue(),
 
-                      ANALYTICS_EDGE_TOKEN:
+                      USAGE_EPOCHS_TABLE:
+                        Match.anyValue(),
+
+                      USAGE_EPOCH_ANALYTICS_TABLE:
+                        Match.anyValue(),
+
+                      OWNER_TOKEN_SECRET_ID:
+                        Match.anyValue(),
+
+                      OWNER_SESSION_SIGNING_KEY_SECRET_ID:
+                        Match.anyValue(),
+
+                      ANALYTICS_EDGE_TOKEN_SECRET_ID:
                         Match.anyValue(),
 
                       STAGE:
@@ -493,7 +1089,7 @@ describe(
 
 
     test(
-      "Analytics HTTP API exposes the expected control and query routes",
+      "HTTP API exposes the expected analytics and Profile Variant routes",
       () => {
         const {
           template,
@@ -521,11 +1117,24 @@ describe(
           routeKeys
         ).toEqual(
           expect.arrayContaining([
+            "POST /owner/session",
             "POST /analytics/ingest",
             "GET /analytics/query",
             "GET /analytics/meta",
             "POST /analytics/releases",
             "POST /analytics/boundaries",
+
+            "POST /profile-variants/assets/presign-put",
+            "POST /profile-variants/publish",
+            "GET /profile-variants/get",
+            "GET /profile-variants/list",
+            "GET /platform-releases/list",
+            "GET /profile-activations/list",
+            "GET /platform-deployments/list",
+            "POST /platform-deployments/commit",
+            "POST /profile-variants/activate",
+
+            "GET /profile/active",
           ])
         );
       }
@@ -637,5 +1246,1110 @@ describe(
         ).toBe(true);
       }
     );
+
+    test(
+      "Snapshots Lambda receives the stage-specific Profile Variant bucket reference",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        template
+          .hasResourceProperties(
+            "AWS::Lambda::Function",
+            Match.objectLike({
+              Environment:
+                Match.objectLike({
+                  Variables:
+                    Match.objectLike({
+                      PROFILE_VARIANTS_BUCKET:
+                        Match.anyValue(),
+
+                      STAGE:
+                        "dev",
+                    }),
+                }),
+            })
+          );
+      }
+    );
+
+    test(
+      "Snapshots Lambda receives the stage-specific Profile Activation table reference",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        template.hasResourceProperties(
+          "AWS::Lambda::Function",
+          Match.objectLike({
+            Environment:
+              Match.objectLike({
+                Variables:
+                  Match.objectLike({
+                    PROFILE_ACTIVATION_TABLE:
+                      Match.anyValue(),
+
+                    STAGE:
+                      "dev",
+                  }),
+              }),
+          })
+        );
+      }
+    );
+
+    test(
+      "Snapshots Lambda receives the stage-specific Platform Deployment table reference",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        template.hasResourceProperties(
+          "AWS::Lambda::Function",
+          Match.objectLike({
+            Environment:
+              Match.objectLike({
+                Variables:
+                  Match.objectLike({
+                    PLATFORM_DEPLOYMENT_TABLE:
+                      Match.anyValue(),
+
+                    OWNER_TOKEN_SECRET_ID:
+                      Match.anyValue(),
+
+                    OWNER_SESSION_SIGNING_KEY_SECRET_ID:
+                      Match.anyValue(),
+
+                    STAGE:
+                      "dev",
+                  }),
+              }),
+          })
+        );
+      }
+    );
+
+    test(
+      "Public Active Profile Lambda receives only runtime Profile resource references and no owner secret",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        const lambdas =
+          template.findResources(
+            "AWS::Lambda::Function"
+          );
+
+
+        const entry =
+          Object.entries(
+            lambdas
+          ).find(
+            ([, resource]: [
+              string,
+              any
+            ]) =>
+              resource
+                ?.Properties
+                ?.Environment
+                ?.Variables
+                ?.ACTIVE_PROFILE_ASSET_URL_TTL_SECONDS ===
+              "3600"
+          );
+
+
+        expect(
+          entry
+        ).toBeDefined();
+
+
+        const resource =
+          entry?.[1] as any;
+
+
+        const variables =
+          resource
+            .Properties
+            .Environment
+            .Variables;
+
+
+        expect(
+          variables
+            .PROFILE_ACTIVATION_TABLE
+        ).toBeDefined();
+
+
+        expect(
+          variables
+            .PROFILE_VARIANTS_BUCKET
+        ).toBeDefined();
+
+
+        expect(
+          variables
+            .STAGE
+        ).toBe(
+          "dev"
+        );
+
+
+        expect(
+          variables
+            .OWNER_TOKEN
+        ).toBeUndefined();
+
+
+        expect(
+          variables
+            .OWNER_TOKEN_SECRET_ID
+        ).toBeUndefined();
+
+
+        expect(
+          variables
+            .OWNER_SESSION_SIGNING_KEY_SECRET_ID
+        ).toBeUndefined();
+
+
+        expect(
+          variables
+            .GITHUB_TOKEN_SECRET_ID
+        ).toBeUndefined();
+
+
+        expect(
+          variables
+            .ANALYTICS_EDGE_TOKEN
+        ).toBeUndefined();
+
+
+        expect(
+          variables
+            .ANALYTICS_EDGE_TOKEN_SECRET_ID
+        ).toBeUndefined();
+      }
+    );
+
+    test(
+      "Snapshots runtime has no GitHub credential dependency",
+      () => {
+        for (
+          const stage of [
+            "dev",
+            "prod",
+          ] as const
+        ) {
+          const {
+            template,
+          } =
+            createStack(stage);
+
+
+          const serialized =
+            JSON.stringify(
+              template.toJSON()
+            );
+
+
+          expect(
+            serialized
+          ).not.toContain(
+            "GITHUB_TOKEN_SECRET_ID"
+          );
+
+
+          expect(
+            serialized
+          ).not.toContain(
+            "/deploy/trigger"
+          );
+
+
+          expect(
+            serialized
+          ).not.toContain(
+            `tejas-profile/${stage}/github-token`
+          );
+
+
+          expect(
+            serialized
+          ).not.toContain(
+            "GITHUB_WORKFLOW_FILE"
+          );
+
+
+          expect(
+            serialized
+          ).not.toContain(
+            "GITHUB_REPO"
+          );
+        }
+      }
+    );
+
+    test(
+      "Public Active Profile Lambda has read-only activation and Profile Variant authority",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        const lambdas =
+          template.findResources(
+            "AWS::Lambda::Function"
+          );
+
+
+        const lambdaEntry =
+          Object.entries(
+            lambdas
+          ).find(
+            ([, resource]: [
+              string,
+              any
+            ]) =>
+              resource
+                ?.Properties
+                ?.Environment
+                ?.Variables
+                ?.ACTIVE_PROFILE_ASSET_URL_TTL_SECONDS ===
+              "3600"
+          );
+
+
+        expect(
+          lambdaEntry
+        ).toBeDefined();
+
+
+        const lambdaResource =
+          lambdaEntry?.[1] as any;
+
+
+        const roleGetAtt =
+          lambdaResource
+            ?.Properties
+            ?.Role
+            ?.[
+              "Fn::GetAtt"
+            ];
+
+
+        expect(
+          Array.isArray(
+            roleGetAtt
+          )
+        ).toBe(true);
+
+
+        const roleLogicalId =
+          roleGetAtt[0];
+
+
+        expect(
+          roleLogicalId
+        ).toBeTruthy();
+
+
+        const policies =
+          template.findResources(
+            "AWS::IAM::Policy"
+          );
+
+
+        const rolePolicies =
+          Object.values(
+            policies
+          )
+            .filter(
+              (
+                policy: any
+              ) =>
+                JSON.stringify(
+                  policy
+                    ?.Properties
+                    ?.Roles ||
+                  []
+                ).includes(
+                  roleLogicalId
+                )
+            ) as any[];
+
+
+        expect(
+          rolePolicies.length
+        ).toBeGreaterThan(0);
+
+
+        const statements =
+          rolePolicies
+            .flatMap(
+              (
+                policy: any
+              ) =>
+                policy
+                  ?.Properties
+                  ?.PolicyDocument
+                  ?.Statement ||
+                []
+            );
+
+
+        const actions =
+          statements
+            .flatMap(
+              (
+                statement: any
+              ) =>
+                Array.isArray(
+                  statement.Action
+                )
+                  ? statement.Action
+                  : [
+                      statement.Action,
+                    ]
+            )
+            .filter(Boolean);
+
+
+        expect(
+          actions
+        ).toEqual(
+          expect.arrayContaining([
+            "dynamodb:GetItem",
+            "s3:GetObject",
+          ])
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:TransactWriteItems"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:PutItem"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:UpdateItem"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:DeleteItem"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:Scan"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "s3:PutObject"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "s3:DeleteObject"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "s3:DeleteObjectVersion"
+        );
+      }
+    );
+
+    test(
+      "SnapshotsStack exposes the public Active Profile API URL",
+      () => {
+        for (
+          const stage of [
+            "dev",
+            "prod",
+          ] as const
+        ) {
+          const {
+            template,
+          } =
+            createStack(
+              stage
+            );
+
+
+          template.hasOutput(
+            "ActiveProfileApiUrl",
+            {}
+          );
+        }
+      }
+    );
+
+    test(
+      "Snapshots Lambda can query Profile/Platform history without gaining direct mutation or scan authority",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        const {
+          logicalId:
+            profileTableLogicalId,
+        } =
+          findTableByName(
+            template,
+
+            "tejas-profile-dev-profile-activations-978416150779"
+          );
+
+
+        const {
+          logicalId:
+            platformTableLogicalId,
+        } =
+          findTableByName(
+            template,
+
+            "tejas-profile-dev-platform-deployments-978416150779"
+          );
+
+
+        const policies =
+          template.findResources(
+            "AWS::IAM::Policy"
+          );
+
+
+        const relevantStatements:
+          any[] = [];
+
+
+        for (
+          const policy of
+            Object.values(
+              policies
+            ) as any[]
+        ) {
+          const statements =
+            policy
+              ?.Properties
+              ?.PolicyDocument
+              ?.Statement ||
+            [];
+
+
+          for (
+            const statement of
+              statements
+          ) {
+            const resources =
+              JSON.stringify(
+                statement.Resource
+              );
+
+
+            if (
+              resources.includes(
+                profileTableLogicalId
+              ) ||
+              resources.includes(
+                platformTableLogicalId
+              )
+            ) {
+              relevantStatements.push(
+                statement
+              );
+            }
+          }
+        }
+
+
+        expect(
+          relevantStatements.length
+        ).toBeGreaterThan(
+          0
+        );
+
+
+        const actions =
+          relevantStatements
+            .flatMap(
+              (
+                statement:
+                  any
+              ) =>
+                Array.isArray(
+                  statement.Action
+                )
+                  ? statement.Action
+                  : [
+                      statement.Action,
+                    ]
+            )
+            .filter(
+              Boolean
+            );
+
+
+        expect(
+          actions
+        ).toEqual(
+          expect.arrayContaining([
+            "dynamodb:GetItem",
+
+            "dynamodb:Query",
+
+            "dynamodb:TransactWriteItems",
+          ])
+        );
+
+
+        const serializedResources =
+          JSON.stringify(
+            relevantStatements
+              .map(
+                (
+                  statement:
+                    any
+                ) =>
+                  statement.Resource
+              )
+          );
+
+
+        expect(
+          serializedResources
+        ).toContain(
+          profileTableLogicalId
+        );
+
+
+        expect(
+          serializedResources
+        ).toContain(
+          platformTableLogicalId
+        );
+
+
+        /**
+         * P7B entity-specific history requires the existing GSIs.
+         */
+        expect(
+          serializedResources
+        ).toContain(
+          "index/*"
+        );
+
+
+        /**
+         * History is strictly query-only.
+         *
+         * ACTIVE state still moves exclusively through the existing
+         * transactional control-plane APIs.
+         */
+        for (
+          const forbidden of [
+            "dynamodb:DeleteItem",
+            "dynamodb:PutItem",
+            "dynamodb:UpdateItem",
+            "dynamodb:BatchWriteItem",
+            "dynamodb:Scan",
+          ]
+        ) {
+          expect(
+            actions
+          ).not.toContain(
+            forbidden
+          );
+        }
+      }
+    );
+
+    test(
+      "Usage Epoch lifecycle remains owner-controlled while Analytics receives attribution-only storage references",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        const lambdas =
+          template.findResources(
+            "AWS::Lambda::Function"
+          );
+
+
+        const snapshotsLambda =
+          Object.values(
+            lambdas
+          ).find(
+            (
+              resource:
+                any
+            ) =>
+              resource
+                ?.Properties
+                ?.Environment
+                ?.Variables
+                ?.OWNER_TOKEN_SECRET_ID
+          ) as any;
+
+
+        const analyticsLambda =
+          Object.values(
+            lambdas
+          ).find(
+            (
+              resource:
+                any
+            ) =>
+              resource
+                ?.Properties
+                ?.Environment
+                ?.Variables
+                ?.ANALYTICS_TABLE
+          ) as any;
+
+
+        const activeProfileLambda =
+          Object.values(
+            lambdas
+          ).find(
+            (
+              resource:
+                any
+            ) =>
+              resource
+                ?.Properties
+                ?.Environment
+                ?.Variables
+                ?.ACTIVE_PROFILE_ASSET_URL_TTL_SECONDS
+          ) as any;
+
+
+        expect(
+          snapshotsLambda
+            ?.Properties
+            ?.Environment
+            ?.Variables
+            ?.USAGE_EPOCHS_TABLE
+        ).toBeDefined();
+
+
+        expect(
+          snapshotsLambda
+            ?.Properties
+            ?.Environment
+            ?.Variables
+            ?.USAGE_EPOCH_ANALYTICS_TABLE
+        ).toBeUndefined();
+
+
+        expect(
+          analyticsLambda
+            ?.Properties
+            ?.Environment
+            ?.Variables
+            ?.USAGE_EPOCHS_TABLE
+        ).toBeDefined();
+
+
+        expect(
+          analyticsLambda
+            ?.Properties
+            ?.Environment
+            ?.Variables
+            ?.USAGE_EPOCH_ANALYTICS_TABLE
+        ).toBeDefined();
+
+
+        expect(
+          activeProfileLambda
+            ?.Properties
+            ?.Environment
+            ?.Variables
+            ?.USAGE_EPOCHS_TABLE
+        ).toBeUndefined();
+
+
+        expect(
+          activeProfileLambda
+            ?.Properties
+            ?.Environment
+            ?.Variables
+            ?.USAGE_EPOCH_ANALYTICS_TABLE
+        ).toBeUndefined();
+      }
+    );
+
+    test(
+      "owner control-plane Lambda has atomic Profile, Platform, and Usage Epoch authority without direct mutation APIs",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        const {
+          logicalId:
+            profileTableLogicalId,
+        } =
+          findTableByName(
+            template,
+            "tejas-profile-dev-profile-activations-978416150779"
+          );
+
+
+        const {
+          logicalId:
+            platformTableLogicalId,
+        } =
+          findTableByName(
+            template,
+            "tejas-profile-dev-platform-deployments-978416150779"
+          );
+
+
+        const {
+          logicalId:
+            usageEpochTableLogicalId,
+        } =
+          findTableByName(
+            template,
+            "tejas-profile-dev-usage-epochs-978416150779"
+          );
+
+
+        const policies =
+          template.findResources(
+            "AWS::IAM::Policy"
+          );
+
+
+        const relevantStatements:
+          any[] = [];
+
+
+        for (
+          const policy of
+            Object.values(
+              policies
+            ) as any[]
+        ) {
+          const statements =
+            policy
+              ?.Properties
+              ?.PolicyDocument
+              ?.Statement ||
+            [];
+
+
+          for (
+            const statement of
+              statements
+          ) {
+            const resources =
+              JSON.stringify(
+                statement.Resource
+              );
+
+
+            if (
+              resources.includes(
+                profileTableLogicalId
+              ) &&
+              resources.includes(
+                platformTableLogicalId
+              ) &&
+              resources.includes(
+                usageEpochTableLogicalId
+              )
+            ) {
+              relevantStatements.push(
+                statement
+              );
+            }
+          }
+        }
+
+
+        expect(
+          relevantStatements.length
+        ).toBeGreaterThan(
+          0
+        );
+
+
+        const actions =
+          relevantStatements
+            .flatMap(
+              (
+                statement:
+                  any
+              ) =>
+                Array.isArray(
+                  statement.Action
+                )
+                  ? statement.Action
+                  : [
+                      statement.Action,
+                    ]
+            )
+            .filter(
+              Boolean
+            );
+
+
+        expect(
+          actions
+        ).toEqual(
+          expect.arrayContaining([
+            "dynamodb:GetItem",
+            "dynamodb:TransactWriteItems",
+          ])
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:PutItem"
+        );
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:UpdateItem"
+        );
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:DeleteItem"
+        );
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:BatchWriteItem"
+        );
+
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:Scan"
+        );
+      }
+    );
+
+    test(
+      "Snapshots Lambda can read/write Profile Variant objects and list only the variants catalog prefix without delete authority",
+      () => {
+        const {
+          template,
+        } =
+          createStack(
+            "dev"
+          );
+
+
+        const {
+          logicalId:
+            bucketLogicalId,
+        } =
+          findBucketByName(
+            template,
+            "tejas-profile-dev-profile-variants-978416150779"
+          );
+
+
+        const policies =
+          template.findResources(
+            "AWS::IAM::Policy"
+          );
+
+
+        const relevantStatements:
+          any[] = [];
+
+
+        for (
+          const policy of
+            Object.values(
+              policies
+            ) as any[]
+        ) {
+          const statements =
+            policy
+              ?.Properties
+              ?.PolicyDocument
+              ?.Statement ||
+            [];
+
+
+          for (
+            const statement of
+              statements
+          ) {
+            if (
+              JSON.stringify(
+                statement.Resource
+              ).includes(
+                bucketLogicalId
+              )
+            ) {
+              relevantStatements.push(
+                statement
+              );
+            }
+          }
+        }
+
+
+        expect(
+          relevantStatements.length
+        ).toBeGreaterThan(0);
+
+
+        const actions =
+          relevantStatements
+            .flatMap(
+              (
+                statement: any
+              ) =>
+                Array.isArray(
+                  statement.Action
+                )
+                  ? statement.Action
+                  : [
+                      statement.Action,
+                    ]
+            )
+            .filter(Boolean);
+
+
+        expect(
+          actions
+        ).toEqual(
+          expect.arrayContaining([
+            "s3:GetObject",
+            "s3:PutObject",
+          ])
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "s3:DeleteObject"
+        );
+
+
+        expect(
+          actions
+        ).not.toContain(
+          "s3:DeleteObjectVersion"
+        );
+
+        const listStatements =
+          relevantStatements
+            .filter(
+              (
+                statement:
+                  any
+              ) => {
+                const statementActions =
+                  Array.isArray(
+                    statement.Action
+                  )
+                    ? statement.Action
+                    : [
+                        statement.Action,
+                      ];
+
+
+                return statementActions
+                  .includes(
+                    "s3:ListBucket"
+                  );
+              }
+            );
+
+
+        expect(
+          listStatements
+        ).toHaveLength(
+          1
+        );
+
+
+        expect(
+          listStatements[0]
+            ?.Condition
+        ).toMatchObject({
+          StringEquals: {
+            "s3:prefix":
+              "variants/",
+          },
+        });
+
+      }
+    );
+
   }
 );

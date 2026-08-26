@@ -1,6 +1,8 @@
 // src/utils/snapshots/snapshotsApi.js
 
-import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "../../config/owner";
+import {
+  readOwnerSessionToken,
+} from "../owner/ownerSession";
 
 const API = process.env.REACT_APP_SNAPSHOTS_API || "";
 
@@ -9,28 +11,22 @@ function mustHaveApi() {
   return API.replace(/\/$/, "");
 }
 
-function isOwnerEnabled() {
-  try {
-    return sessionStorage.getItem(OWNER_SESSION_KEY) === "1";
-  } catch {}
-  return false;
-}
-
-function ownerToken() {
-  try {
-    return sessionStorage.getItem(OWNER_TOKEN_KEY) || "";
-  } catch {}
-  return "";
-}
-
 function headers() {
-  const h = { "content-type": "application/json" };
+  const h = {
+    "content-type":
+      "application/json",
+  };
 
-  // only attach token if owner mode enabled
-  if (isOwnerEnabled()) {
-    const t = ownerToken();
-    if (t) h["x-owner-token"] = t;
+
+  const token =
+    readOwnerSessionToken();
+
+
+  if (token) {
+    h["x-owner-token"] =
+      token;
   }
+
 
   return h;
 }
@@ -292,36 +288,399 @@ export async function uploadRepoZipToS3(
 }
 
 // -----------------------------
-// Deploy trigger (owner-only)
+// Profile Variants
 // -----------------------------
-// Lambda route: POST /deploy/trigger
-// body: { gitSha, checkpointTag?, profileVersion?, reason?, sourceSnapshotKey? }
-// returns: { ok, runUrl?, message? }
-export async function triggerDeploy({
-  gitSha,
-  checkpointTag,
-  profileVersion,
-  reason,
-  sourceSnapshotKey,
+
+/**
+ * Requests an immutable, content-addressed S3 upload target.
+ *
+ * The backend computes the actual S3 key from sha256 + contentType.
+ * The browser never chooses an arbitrary object key.
+ */
+export async function presignProfileVariantAssetPut({
+  sha256,
+  contentType,
 }) {
-  const base = mustHaveApi();
+  const base =
+    mustHaveApi();
 
-  const res = await fetch(`${base}/deploy/trigger`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({
-      gitSha,
-      checkpointTag,
-      profileVersion,
-      reason,
-      sourceSnapshotKey,
-    }),
-  });
+  const res =
+    await fetch(
+      `${base}/profile-variants/assets/presign-put`,
+      {
+        method:
+          "POST",
 
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.ok) throw new Error(json.error || "deploy trigger failed");
-  return json; // { ok, message, runUrl? }
+        headers:
+          headers(),
+
+        body:
+          JSON.stringify({
+            sha256,
+            contentType,
+          }),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Profile Variant asset presign failed (${res.status})`
+    );
+  }
+
+  return json;
 }
+
+
+/**
+ * Uploads exact immutable asset bytes to the presigned S3 URL.
+ *
+ * IMPORTANT:
+ * - Do not attach x-owner-token here.
+ * - requiredHeaders came from the backend and are part of the
+ *   presigned S3 request contract.
+ */
+export async function uploadProfileVariantAssetToS3({
+  url,
+  body,
+  requiredHeaders,
+}) {
+  if (!url) {
+    throw new Error(
+      "Profile Variant asset upload URL is required."
+    );
+  }
+
+  if (
+    body === null ||
+    body === undefined
+  ) {
+    throw new Error(
+      "Profile Variant asset upload body is required."
+    );
+  }
+
+  const uploadHeaders = {
+    ...(
+      requiredHeaders &&
+      typeof requiredHeaders ===
+        "object"
+        ? requiredHeaders
+        : {}
+    ),
+  };
+
+  const res =
+    await fetch(
+      url,
+      {
+        method:
+          "PUT",
+
+        headers:
+          uploadHeaders,
+
+        body,
+      }
+    );
+
+  if (!res.ok) {
+    const detail =
+      await res
+        .text()
+        .catch(
+          () => ""
+        );
+
+    throw new Error(
+      (
+        `Profile Variant asset upload failed (${res.status}) ` +
+        detail
+      ).trim()
+    );
+  }
+
+  return true;
+}
+
+
+/**
+ * Commits a fully validated immutable Profile Variant.
+ *
+ * The backend verifies every referenced asset first and writes
+ * manifest.json last.
+ */
+export async function publishProfileVariant(
+  variant
+) {
+  const base =
+    mustHaveApi();
+
+  const res =
+    await fetch(
+      `${base}/profile-variants/publish`,
+      {
+        method:
+          "POST",
+
+        headers:
+          headers(),
+
+        body:
+          JSON.stringify({
+            variant,
+          }),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Profile Variant publication failed (${res.status})`
+    );
+  }
+
+  return json;
+}
+
+
+/**
+ * Reads an immutable Profile Variant back through the owner API.
+ */
+export async function getProfileVariant(
+  profileVariantId
+) {
+  const id =
+    String(
+      profileVariantId ||
+        ""
+    ).trim();
+
+  if (!id) {
+    throw new Error(
+      "profileVariantId is required."
+    );
+  }
+
+  const base =
+    mustHaveApi();
+
+  const qs =
+    new URLSearchParams({
+      profileVariantId:
+        id,
+    });
+
+  const res =
+    await fetch(
+      `${base}/profile-variants/get?${qs.toString()}`,
+      {
+        method:
+          "GET",
+
+        headers:
+          headers(),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Profile Variant read failed (${res.status})`
+    );
+  }
+
+  return json;
+}
+
+/**
+ * Atomically activates an already-published immutable Profile Variant.
+ *
+ * expectedRevision provides optimistic concurrency protection:
+ *
+ * - use 0 when the caller observed no active Profile pointer
+ * - provide the current active-pointer revision otherwise
+ *
+ * Omitting expectedRevision is allowed for callers that intentionally
+ * do not want optimistic concurrency protection.
+ *
+ * A 409 means another owner/device changed the active pointer first.
+ */
+export async function activateProfileVariant({
+  profileVariantId,
+  expectedRevision,
+}) {
+  const id =
+    String(
+      profileVariantId ||
+        ""
+    ).trim();
+
+
+  if (!id) {
+    throw new Error(
+      "profileVariantId is required."
+    );
+  }
+
+
+  let normalizedExpectedRevision =
+    null;
+
+
+  if (
+    expectedRevision !==
+      undefined &&
+    expectedRevision !==
+      null
+  ) {
+    const parsed =
+      Number(
+        expectedRevision
+      );
+
+
+    if (
+      !Number.isInteger(
+        parsed
+      ) ||
+      parsed < 0
+    ) {
+      throw new Error(
+        "expectedRevision must be a non-negative integer when provided."
+      );
+    }
+
+
+    normalizedExpectedRevision =
+      parsed;
+  }
+
+
+  const base =
+    mustHaveApi();
+
+
+  const body = {
+    profileVariantId:
+      id,
+  };
+
+
+  if (
+    normalizedExpectedRevision !==
+      null
+  ) {
+    body.expectedRevision =
+      normalizedExpectedRevision;
+  }
+
+
+  const res =
+    await fetch(
+      `${base}/profile-variants/activate`,
+      {
+        method:
+          "POST",
+
+        headers:
+          headers(),
+
+        body:
+          JSON.stringify(
+            body
+          ),
+
+        cache:
+          "no-store",
+      }
+    );
+
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+
+  if (
+    res.status ===
+      409
+  ) {
+    const error =
+      new Error(
+        json.error ||
+          "Profile activation conflict. Refresh the active profile and try again."
+      );
+
+
+    error.code =
+      "PROFILE_ACTIVATION_CONFLICT";
+
+    error.status =
+      409;
+
+
+    throw error;
+  }
+
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Profile activation failed (${res.status}).`
+    );
+  }
+
+
+  return json;
+}
+
 
 export async function getDeployHistory() {
   const base = mustHaveApi();

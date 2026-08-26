@@ -76,36 +76,3 @@ export const PROJECTS = [
     status: "In-Progress",
   },
 ];
-
-export const PROJECT_FILTER_OPTIONS = {
-  "Tech Stack": [
-    "React",
-    "TailwindCSS",
-    "GitHub Pages",
-    "JavaScript",
-    "Airflow",
-    "AWS",
-    "Azure",
-    "DBT",
-    "FastAPI",
-    "NLTK",
-    "PyTorch",
-    "Python",
-    "Go(Lang)",
-    "MySQL",
-    "PostgreSQL",
-    "MongoDB",
-    "Snowflakes",
-  ],
-  Domain: [
-    "Data Engineering",
-    "Data Analysis",
-    "Financial Analysis",
-    "Backend",
-    "Frontend",
-    "AI/ML",
-  ],
-  Industry: ["Product Retail", "Tech", "Automobile"],
-  "Project Status": ["Deployed", "Completed", "In-Progress"],
-  Links: ["Live Demo", "GitHub"],
-};

@@ -3,6 +3,9 @@
 export const ABOUT_ME = {
   name: "Tejas Raut",
 
+  profilePhotoAssetId:
+    "profile.primary",
+
   mobile: {
     quote:
       "“I like working on systems that make sense when you read them, run them, and debug them at 2 a.m.”",

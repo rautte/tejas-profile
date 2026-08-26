@@ -4,6 +4,17 @@ import {
   unmarshall,
 } from "@aws-sdk/util-dynamodb";
 
+import {
+  computeDeploymentConfigurationId,
+  normalizeAndValidateDeploymentConfigurationDocument,
+} from "../lambda/deployment-configuration-contract";
+
+import {
+  USAGE_EPOCH_TRANSITION_KIND,
+  buildActiveUsageEpochPointer,
+  createOpenUsageEpochDocument,
+} from "../lambda/usage-epoch-contract";
+
 
 const TABLE =
   "analytics-table-test";
@@ -16,6 +27,12 @@ const OWNER_TOKEN =
 
 const EDGE_TOKEN =
   "unit-test-edge-token";
+
+const USAGE_EPOCH_TABLE =
+  "usage-epoch-table-test";
+
+const USAGE_EPOCH_ANALYTICS_TABLE =
+  "usage-epoch-analytics-table-test";
 
 
 function responseBody(
@@ -60,7 +77,16 @@ function event(
     rawPath:
       path,
 
-    headers,
+    headers:
+      path ===
+        "/analytics/ingest"
+        ? {
+            "x-analytics-edge-token":
+              EDGE_TOKEN,
+
+            ...headers,
+          }
+        : headers,
 
     body:
       body === undefined
@@ -77,6 +103,64 @@ function event(
       },
     },
   };
+}
+
+function formalRuntimeConfiguration() {
+  const stage =
+    "dev" as const;
+
+  const platformReleaseId =
+    "plr_analytics_projection";
+
+  const profileVariantId =
+    "prv_analytics_projection";
+
+  const deploymentConfigurationId =
+    computeDeploymentConfigurationId({
+      stage,
+
+      platformReleaseId,
+
+      profileVariantId,
+    });
+
+
+  return normalizeAndValidateDeploymentConfigurationDocument({
+    schema:
+      "tejas-profile.deployment-configuration",
+
+    schemaId:
+      "tejas-profile.deployment-configuration.v1",
+
+    deploymentConfigurationId,
+
+    stage,
+
+    createdAt:
+      "2026-08-24T00:00:00.000Z",
+
+    platformReleaseId,
+
+    profileVariantId,
+
+    profile: {
+      contentSchemaVersion:
+        1,
+
+      contentHash:
+        "a".repeat(
+          64
+        ),
+
+      targeting: {
+        location:
+          "Austin",
+
+        jobRole:
+          "Backend Engineer",
+      },
+    },
+  });
 }
 
 
@@ -283,6 +367,12 @@ describe(
         process.env
           .STAGE =
           "dev";
+
+        delete process.env
+          .USAGE_EPOCHS_TABLE;
+
+        delete process.env
+          .USAGE_EPOCH_ANALYTICS_TABLE;
       }
     );
 
@@ -338,7 +428,129 @@ describe(
 
 
     test(
-      "direct ingest ignores spoofed CloudFront geo and raw storage excludes browser identifiers",
+      "ingest rejects a missing Analytics edge credential and performs zero writes",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  "Mozilla/5.0 UnitTest",
+
+                // Explicitly override the test helper's
+                // trusted-edge default.
+                "x-analytics-edge-token":
+                  "",
+              },
+
+              body: {
+                events: [
+                  analyticsEvent(),
+                ],
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(401);
+
+
+        expect(
+          responseBody(
+            response
+          )
+        ).toEqual({
+          error:
+            "Unauthorized",
+        });
+
+
+        expect(
+          ddbSend
+        ).not
+          .toHaveBeenCalled();
+
+
+        expect(
+          s3Send
+        ).not
+          .toHaveBeenCalled();
+      }
+    );
+
+
+    test(
+      "ingest rejects an invalid Analytics edge credential and performs zero writes",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  "Mozilla/5.0 UnitTest",
+
+                "x-analytics-edge-token":
+                  "invalid-edge-token",
+              },
+
+              body: {
+                events: [
+                  analyticsEvent(),
+                ],
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(401);
+
+
+        expect(
+          responseBody(
+            response
+          )
+        ).toEqual({
+          error:
+            "Unauthorized",
+        });
+
+
+        expect(
+          ddbSend
+        ).not
+          .toHaveBeenCalled();
+
+
+        expect(
+          s3Send
+        ).not
+          .toHaveBeenCalled();
+      }
+    );
+
+
+    test(
+      "trusted edge ingest raw storage excludes browser identifiers",
       async () => {
         const {
           handler,
@@ -367,15 +579,6 @@ describe(
               headers: {
                 "user-agent":
                   "Mozilla/5.0 UnitTest",
-
-                "cloudfront-viewer-country":
-                  "US",
-
-                "cloudfront-viewer-country-region":
-                  "TX",
-
-                "cloudfront-viewer-city":
-                  "Austin",
               },
 
               body: {
@@ -384,6 +587,24 @@ describe(
                     visitorId,
                     sessionId,
                     tabId,
+
+                    profileVariantId:
+                      "prv_raw_test",
+
+                    contentSchemaVersion:
+                      3,
+
+                    profileTargetingLocation:
+                      "Austin, TX",
+
+                    profileTargetingJobRole:
+                      "Backend Software Engineer",
+
+                    platformReleaseId:
+                      "platform_raw_test",
+
+                    deploymentConfigurationId:
+                      "cfg_raw_test",
                   }),
                 ],
               },
@@ -470,6 +691,31 @@ describe(
 
         expect(
           stored
+        ).toMatchObject({
+          profileVersionId:
+            "pv_test",
+
+          profileVariantId:
+            "prv_raw_test",
+
+          contentSchemaVersion:
+            3,
+
+          profileTargetingLocation:
+            "Austin, TX",
+
+          profileTargetingJobRole:
+            "Backend Software Engineer",
+
+          platformReleaseId:
+            "platform_raw_test",
+
+          deploymentConfigurationId:
+            "cfg_raw_test",
+        });
+
+        expect(
+          stored
         ).not
           .toHaveProperty(
             "visitorId"
@@ -535,6 +781,236 @@ describe(
           .toContain(
             "Mozilla/5.0 UnitTest"
           );
+      }
+    );
+
+
+    test(
+      "formal runtime ingest projects one exact event into the active Usage Epoch",
+      async () => {
+        const configuration =
+          formalRuntimeConfiguration();
+
+        const eventTs =
+          Date.now() -
+          10_000;
+
+        const epoch =
+          createOpenUsageEpochDocument({
+            startedAt:
+              new Date(
+                eventTs -
+                60_000
+              ).toISOString(),
+
+            deploymentConfiguration:
+              configuration,
+
+            openedBy: {
+              kind:
+                USAGE_EPOCH_TRANSITION_KIND
+                  .PLATFORM_DEPLOYMENT,
+
+              occurrenceId:
+                "pdep_analytics_projection",
+            },
+          });
+
+        const pointer =
+          buildActiveUsageEpochPointer({
+            epoch,
+          });
+
+
+        process.env
+          .USAGE_EPOCHS_TABLE =
+          USAGE_EPOCH_TABLE;
+
+        process.env
+          .USAGE_EPOCH_ANALYTICS_TABLE =
+          USAGE_EPOCH_ANALYTICS_TABLE;
+
+
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+
+        ddbSend.mockImplementation(
+          async (
+            command:
+              any
+          ) => {
+            const name =
+              commandName(
+                command
+              );
+
+
+            if (
+              name ===
+                "QueryCommand" &&
+              command.input
+                .TableName ===
+                TABLE
+            ) {
+              return {
+                Items:
+                  [],
+              };
+            }
+
+
+            if (
+              name ===
+                "GetItemCommand" &&
+              command.input
+                .TableName ===
+                USAGE_EPOCH_TABLE
+            ) {
+              return {
+                Item:
+                  marshall(
+                    pointer
+                  ),
+              };
+            }
+
+
+            return {};
+          }
+        );
+
+
+        s3Send.mockResolvedValue(
+          {}
+        );
+
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  "Mozilla/5.0 UnitTest",
+              },
+
+              body: {
+                events: [
+                  analyticsEvent({
+                    eventId:
+                      "epoch-projection-event",
+
+                    ts:
+                      eventTs,
+
+                    profileVariantId:
+                      configuration
+                        .profileVariantId,
+
+                    platformReleaseId:
+                      configuration
+                        .platformReleaseId,
+
+                    deploymentConfigurationId:
+                      configuration
+                        .deploymentConfigurationId,
+                  }),
+                ],
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(
+          200
+        );
+
+
+        const projectionWrite =
+          ddbSend.mock.calls
+            .map(
+              (
+                call
+              ) =>
+                call[0]
+            )
+            .find(
+              (
+                command:
+                  any
+              ) =>
+                commandName(
+                  command
+                ) ===
+                  "PutItemCommand" &&
+                command.input
+                  .TableName ===
+                  USAGE_EPOCH_ANALYTICS_TABLE
+            );
+
+
+        expect(
+          projectionWrite
+        ).toBeDefined();
+
+
+        const stored =
+          unmarshall(
+            projectionWrite
+              .input
+              .Item
+          );
+
+
+        expect(
+          stored
+        ).toMatchObject({
+          usageEpochId:
+            epoch.usageEpochId,
+
+          deploymentConfigurationId:
+            configuration
+              .deploymentConfigurationId,
+
+          platformReleaseId:
+            configuration
+              .platformReleaseId,
+
+          profileVariantId:
+            configuration
+              .profileVariantId,
+
+          ts:
+            eventTs,
+
+          section:
+            "About Me",
+        });
+
+
+        expect(
+          stored
+        ).not.toHaveProperty(
+          "visitorId"
+        );
+
+        expect(
+          stored
+        ).not.toHaveProperty(
+          "sessionId"
+        );
+
+        expect(
+          stored
+        ).not.toHaveProperty(
+          "eventId"
+        );
       }
     );
 
@@ -609,6 +1085,1212 @@ describe(
           city:
             "Pune City",
         });
+      }
+    );
+
+
+    test(
+      "accumulates runtime Profile identity as additive session-fragment dimensions",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+
+        installBasicIngestMocks(
+          ddbSend as any,
+          s3Send as any
+        );
+
+
+        const base =
+          Date.now() -
+          20_000;
+
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  "Mozilla/5.0 UnitTest",
+              },
+
+              body: {
+                events: [
+                  analyticsEvent({
+                    eventId:
+                      "profile-event-a",
+
+                    ts:
+                      base,
+
+                    visitorId:
+                      "visitor-profile",
+
+                    sessionId:
+                      "session-profile",
+
+                    profileVariantId:
+                      "prv_A",
+
+                    contentSchemaVersion:
+                      3,
+
+                    profileTargetingLocation:
+                      "Austin, TX",
+
+                    profileTargetingJobRole:
+                      "Backend Software Engineer",
+
+                    platformReleaseId:
+                      "platform_R42",
+
+                    deploymentConfigurationId:
+                      "cfg_A",
+                  }),
+
+                  analyticsEvent({
+                    eventId:
+                      "profile-event-b",
+
+                    ts:
+                      base +
+                      1_000,
+
+                    visitorId:
+                      "visitor-profile",
+
+                    sessionId:
+                      "session-profile",
+
+                    section:
+                      "Experience",
+
+                    profileVariantId:
+                      "prv_B",
+
+                    contentSchemaVersion:
+                      4,
+
+                    profileTargetingLocation:
+                      "Pune, India",
+
+                    profileTargetingJobRole:
+                      "AI Software Engineer",
+
+                    platformReleaseId:
+                      "platform_R42",
+
+                    deploymentConfigurationId:
+                      "cfg_B",
+                  }),
+                ],
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(
+          200
+        );
+
+
+        expect(
+          responseBody(
+            response
+          ).accepted
+        ).toBe(
+          2
+        );
+
+
+        const eventWrites =
+          ddbSend
+            .mock
+            .calls
+            .map(
+              (call) =>
+                call[0]
+            )
+            .filter(
+              (
+                command: any
+              ) =>
+                commandName(
+                  command
+                ) ===
+                  "UpdateItemCommand" &&
+                String(
+                  command
+                    .input
+                    .ConditionExpression ||
+                    ""
+                ).includes(
+                  "processedEventIds"
+                )
+            );
+
+
+        expect(
+          eventWrites
+        ).toHaveLength(
+          2
+        );
+
+
+        /**
+         * Both events belong to the same legacy
+         * profileVersion/session fragment.
+         *
+         * Runtime Profile identity is additive metadata,
+         * not part of the existing storage key.
+         */
+        const sortKeys =
+          eventWrites.map(
+            (
+              command:
+                any
+            ) =>
+              commandKey(
+                command
+              ).sk
+          );
+
+
+        expect(
+          new Set(
+            sortKeys
+          ).size
+        ).toBe(
+          1
+        );
+
+
+        const valuesByEventId =
+          new Map<
+            string,
+            Record<string, any>
+          >(
+            eventWrites.map(
+              (
+                command:
+                  any
+              ): [
+                string,
+                Record<string, any>
+              ] => {
+                const values =
+                  unmarshall(
+                    command
+                      .input
+                      .ExpressionAttributeValues
+                  ) as Record<
+                    string,
+                    any
+                  >;
+
+
+                return [
+                  String(
+                    values[
+                      ":eventId"
+                    ] ||
+                    ""
+                  ),
+
+                  values,
+                ];
+              }
+            )
+          );
+
+
+        const first =
+          valuesByEventId.get(
+            "profile-event-a"
+          );
+
+
+        const second =
+          valuesByEventId.get(
+            "profile-event-b"
+          );
+
+
+        expect(
+          first
+        ).toBeDefined();
+
+        expect(
+          second
+        ).toBeDefined();
+
+
+        if (
+          !first ||
+          !second
+        ) {
+          throw new Error(
+            "Expected Profile identity event writes were not found."
+          );
+        }
+
+
+        expect(
+          first[
+            ":profileVariantIds"
+          ]
+        ).toEqual(
+          new Set([
+            "prv_A",
+          ])
+        );
+
+
+        expect(
+          second[
+            ":profileVariantIds"
+          ]
+        ).toEqual(
+          new Set([
+            "prv_B",
+          ])
+        );
+
+
+        expect(
+          first[
+            ":contentSchemaVersions"
+          ]
+        ).toEqual(
+          new Set([
+            3,
+          ])
+        );
+
+
+        expect(
+          second[
+            ":contentSchemaVersions"
+          ]
+        ).toEqual(
+          new Set([
+            4,
+          ])
+        );
+
+
+        expect(
+          first[
+            ":profileTargetingLocations"
+          ]
+        ).toEqual(
+          new Set([
+            "Austin, TX",
+          ])
+        );
+
+
+        expect(
+          second[
+            ":profileTargetingLocations"
+          ]
+        ).toEqual(
+          new Set([
+            "Pune, India",
+          ])
+        );
+
+
+        expect(
+          first[
+            ":profileTargetingJobRoles"
+          ]
+        ).toEqual(
+          new Set([
+            "Backend Software Engineer",
+          ])
+        );
+
+
+        expect(
+          second[
+            ":profileTargetingJobRoles"
+          ]
+        ).toEqual(
+          new Set([
+            "AI Software Engineer",
+          ])
+        );
+
+
+        expect(
+          first[
+            ":platformReleaseIds"
+          ]
+        ).toEqual(
+          new Set([
+            "platform_R42",
+          ])
+        );
+
+
+        expect(
+          second[
+            ":platformReleaseIds"
+          ]
+        ).toEqual(
+          new Set([
+            "platform_R42",
+          ])
+        );
+
+
+        expect(
+          first[
+            ":deploymentConfigurationIds"
+          ]
+        ).toEqual(
+          new Set([
+            "cfg_A",
+          ])
+        );
+
+
+        expect(
+          second[
+            ":deploymentConfigurationIds"
+          ]
+        ).toEqual(
+          new Set([
+            "cfg_B",
+          ])
+        );
+
+        expect(
+          first[
+            ":profileVariantContexts"
+          ]
+        ).toEqual(
+          new Set([
+            JSON.stringify([
+              "prv_A",
+              3,
+              "Austin, TX",
+              "Backend Software Engineer",
+              "platform_R42",
+              "cfg_A",
+            ]),
+          ])
+        );
+
+
+        expect(
+          second[
+            ":profileVariantContexts"
+          ]
+        ).toEqual(
+          new Set([
+            JSON.stringify([
+              "prv_B",
+              4,
+              "Pune, India",
+              "AI Software Engineer",
+              "platform_R42",
+              "cfg_B",
+            ]),
+          ])
+        );
+
+      }
+    );
+
+
+    test(
+      "attributes exact metrics to Profile Variants in the atomic event update",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+        installBasicIngestMocks(
+          ddbSend as any,
+          s3Send as any
+        );
+
+        const base =
+          Date.now() -
+          20_000;
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  "Mozilla/5.0 UnitTest",
+              },
+
+              body: {
+                events: [
+                  analyticsEvent({
+                    eventId:
+                      "variant-metric-view",
+
+                    ts:
+                      base,
+
+                    visitorId:
+                      "variant-metric-visitor",
+
+                    sessionId:
+                      "variant-metric-session",
+
+                    profileVariantId:
+                      "prv_A",
+
+                    section:
+                      "About Me",
+
+                    type:
+                      "section_view",
+                  }),
+
+                  analyticsEvent({
+                    eventId:
+                      "variant-metric-time",
+
+                    ts:
+                      base + 1_000,
+
+                    visitorId:
+                      "variant-metric-visitor",
+
+                    sessionId:
+                      "variant-metric-session",
+
+                    profileVariantId:
+                      "prv_B",
+
+                    section:
+                      "Experience",
+
+                    type:
+                      "section_time",
+
+                    ms:
+                      2_500,
+                  }),
+
+                  analyticsEvent({
+                    eventId:
+                      "variant-metric-cta",
+
+                    ts:
+                      base + 2_000,
+
+                    visitorId:
+                      "variant-metric-visitor",
+
+                    sessionId:
+                      "variant-metric-session",
+
+                    profileVariantId:
+                      "prv_A",
+
+                    type:
+                      "cta_click",
+
+                    ctaId:
+                      "resume-download",
+                  }),
+                ],
+              },
+            })
+          );
+
+        expect(
+          response.statusCode
+        ).toBe(200);
+
+        expect(
+          responseBody(
+            response
+          ).accepted
+        ).toBe(3);
+
+        const eventWrites =
+          ddbSend
+            .mock
+            .calls
+            .map(
+              (call) =>
+                call[0]
+            )
+            .filter(
+              (
+                command:
+                  any
+              ) =>
+                commandName(
+                  command
+                ) ===
+                  "UpdateItemCommand" &&
+                String(
+                  command
+                    .input
+                    .ConditionExpression ||
+                    ""
+                ).includes(
+                  "processedEventIds"
+                )
+            );
+
+        expect(
+          eventWrites
+        ).toHaveLength(3);
+
+        expect(
+          new Set(
+            eventWrites.map(
+              (
+                command:
+                  any
+              ) =>
+                commandKey(
+                  command
+                ).sk
+            )
+          ).size
+        ).toBe(1);
+
+        const byEventId =
+          new Map<
+            string,
+            any
+          >(
+            eventWrites.map(
+              (
+                command:
+                  any
+              ) => {
+                const values =
+                  commandValues(
+                    command
+                  );
+
+                return [
+                  String(
+                    values[
+                      ":eventId"
+                    ]
+                  ),
+                  command,
+                ];
+              }
+            )
+          );
+
+        const view =
+          byEventId.get(
+            "variant-metric-view"
+          );
+
+        const time =
+          byEventId.get(
+            "variant-metric-time"
+          );
+
+        const cta =
+          byEventId.get(
+            "variant-metric-cta"
+          );
+
+        expect(view).toBeDefined();
+        expect(time).toBeDefined();
+        expect(cta).toBeDefined();
+
+        if (
+          !view ||
+          !time ||
+          !cta
+        ) {
+          throw new Error(
+            "Expected Profile Variant metric event writes were not found."
+          );
+        }
+
+        const viewNames =
+          Object.values(
+            view.input
+              .ExpressionAttributeNames ||
+              {}
+          );
+
+        expect(
+          viewNames
+        ).toEqual(
+          expect.arrayContaining([
+            "profileVariantMetrics",
+            "eventCounts",
+            "sectionVisits",
+            "prv_A",
+
+            JSON.stringify([
+              "prv_A",
+              "About Me",
+            ]),
+          ])
+        );
+
+        const timeNames =
+          Object.values(
+            time.input
+              .ExpressionAttributeNames ||
+              {}
+          );
+
+        expect(
+          timeNames
+        ).toEqual(
+          expect.arrayContaining([
+            "profileVariantMetrics",
+            "eventCounts",
+            "activeMs",
+            "sectionTimeMs",
+            "prv_B",
+
+            JSON.stringify([
+              "prv_B",
+              "Experience",
+            ]),
+          ])
+        );
+
+        const timeValues =
+          commandValues(
+            time
+          );
+
+        expect(
+          Object.values(
+            timeValues
+          )
+        ).toContain(
+          2_500
+        );
+
+        const ctaNames =
+          Object.values(
+            cta.input
+              .ExpressionAttributeNames ||
+              {}
+          );
+
+        expect(
+          ctaNames
+        ).toEqual(
+          expect.arrayContaining([
+            "profileVariantMetrics",
+            "eventCounts",
+            "ctaCounts",
+            "prv_A",
+
+            JSON.stringify([
+              "prv_A",
+              "resume-download",
+            ]),
+          ])
+        );
+
+        for (
+          const command of
+            eventWrites
+        ) {
+          expect(
+            String(
+              command
+                .input
+                .ConditionExpression ||
+                ""
+            )
+          ).toContain(
+            "processedEventIds"
+          );
+        }
+      }
+    );
+
+
+    test(
+      "attributes Profile Variant section reach and depth in the atomic event update",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+        installBasicIngestMocks(
+          ddbSend as any,
+          s3Send as any
+        );
+
+        const base =
+          Date.now() -
+          20_000;
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  "Mozilla/5.0 UnitTest",
+              },
+
+              body: {
+                events: [
+                  analyticsEvent({
+                    eventId:
+                      "variant-section-reach",
+
+                    ts:
+                      base,
+
+                    visitorId:
+                      "variant-reach-visitor",
+
+                    sessionId:
+                      "variant-reach-session",
+
+                    profileVariantId:
+                      "prv_A",
+
+                    type:
+                      "section_view",
+
+                    section:
+                      "Projects",
+                  }),
+
+                  analyticsEvent({
+                    eventId:
+                      "variant-depth",
+
+                    ts:
+                      base +
+                      1_000,
+
+                    visitorId:
+                      "variant-reach-visitor",
+
+                    sessionId:
+                      "variant-reach-session",
+
+                    profileVariantId:
+                      "prv_A",
+
+                    type:
+                      "scroll_depth",
+
+                    section:
+                      "Projects",
+
+                    depthPct:
+                      75,
+                  }),
+                ],
+              },
+            })
+          );
+
+        expect(
+          response.statusCode
+        ).toBe(200);
+
+        expect(
+          responseBody(
+            response
+          ).accepted
+        ).toBe(2);
+
+        const eventWrites =
+          ddbSend
+            .mock
+            .calls
+            .map(
+              (call) =>
+                call[0]
+            )
+            .filter(
+              (
+                command:
+                  any
+              ) =>
+                commandName(
+                  command
+                ) ===
+                  "UpdateItemCommand" &&
+                String(
+                  command
+                    .input
+                    .ConditionExpression ||
+                    ""
+                ).includes(
+                  "processedEventIds"
+                )
+            );
+
+        expect(
+          eventWrites
+        ).toHaveLength(2);
+
+        const byEventId =
+          new Map<
+            string,
+            Record<string, any>
+          >(
+            eventWrites.map(
+              (
+                command:
+                  any
+              ): [
+                string,
+                Record<string, any>
+              ] => {
+                const values =
+                  commandValues(
+                    command
+                  );
+
+                return [
+                  String(
+                    values[
+                      ":eventId"
+                    ]
+                  ),
+
+                  values,
+                ];
+              }
+            )
+          );
+
+        const section =
+          byEventId.get(
+            "variant-section-reach"
+          );
+
+        const depth =
+          byEventId.get(
+            "variant-depth"
+          );
+
+        expect(
+          section
+        ).toBeDefined();
+
+        expect(
+          depth
+        ).toBeDefined();
+
+        if (
+          !section ||
+          !depth
+        ) {
+          throw new Error(
+            "Expected Profile Variant reach/depth writes were not found."
+          );
+        }
+
+        /**
+         * Legacy attribution remains intact.
+         */
+        expect(
+          section[
+            ":sectionsSeen"
+          ]
+        ).toEqual(
+          new Set([
+            "Projects",
+          ])
+        );
+
+        expect(
+          depth[
+            ":depthMilestones"
+          ]
+        ).toEqual(
+          new Set([
+            "Projects|75",
+          ])
+        );
+
+
+        /**
+         * Exact Profile Variant attribution.
+         */
+        expect(
+          section[
+            ":profileVariantSectionsSeen"
+          ]
+        ).toEqual(
+          new Set([
+            JSON.stringify([
+              "prv_A",
+              "Projects",
+            ]),
+          ])
+        );
+
+        expect(
+          depth[
+            ":profileVariantDepthMilestones"
+          ]
+        ).toEqual(
+          new Set([
+            JSON.stringify([
+              "prv_A",
+              "Projects",
+              75,
+            ]),
+          ])
+        );
+      }
+    );
+
+
+    test(
+      "preserves optional Profile Variant identity in journey query output",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+        } =
+          loadHandler();
+
+        const ts =
+          Date.now() -
+          10_000;
+
+        const day =
+          new Date(
+            ts
+          )
+            .toISOString()
+            .slice(
+              0,
+              10
+            );
+
+        const fragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_test#SESSION#journey-profile-session",
+
+          visitorHash:
+            "journey-profile-visitor",
+
+          sessionHash:
+            "journey-profile-session",
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            ts,
+
+          lastEventAt:
+            ts +
+            1_000,
+
+          eventCount:
+            2,
+
+          activeMs:
+            0,
+
+          metrics: {
+            sectionVisits: {},
+            sectionTimeMs: {},
+            ctaCounts: {},
+            projectOpens: {},
+            snippetViews: {},
+            deepLinks: {},
+          },
+
+          journeyEvents:
+            new Set([
+              JSON.stringify({
+                t:
+                  ts,
+
+                i:
+                  "journey-profile-a",
+
+                k:
+                  "section",
+
+                v:
+                  "Projects",
+
+                p:
+                  "prv_A",
+              }),
+
+              /**
+               * Historical journey token with no Profile
+               * Variant identity must remain readable.
+               */
+              JSON.stringify({
+                t:
+                  ts +
+                  1_000,
+
+                i:
+                  "journey-historical",
+
+                k:
+                  "section",
+
+                v:
+                  "Experience",
+              }),
+            ]),
+        };
+
+        ddbSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              const name =
+                commandName(
+                  command
+                );
+
+              if (
+                name ===
+                  "QueryCommand"
+              ) {
+                return {
+                  Items: [
+                    marshall(
+                      fragment
+                    ),
+                  ],
+                };
+              }
+
+              if (
+                name ===
+                  "BatchGetItemCommand"
+              ) {
+                return {
+                  Responses: {
+                    [TABLE]: [
+                      marshall({
+                        visitorHash:
+                          "journey-profile-visitor",
+
+                        firstSeenAt:
+                          ts -
+                          5_000,
+                      }),
+                    ],
+                  },
+
+                  UnprocessedKeys:
+                    {},
+                };
+              }
+
+              return {};
+            }
+          );
+
+        const response =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                profileVersionId:
+                  "pv_test",
+              },
+            })
+          );
+
+        expect(
+          response.statusCode
+        ).toBe(200);
+
+        const body =
+          responseBody(
+            response
+          );
+
+        expect(
+          body
+            .sessionIntelligence
+            .recentSessions[0]
+            .journey
+        ).toEqual([
+          {
+            ts,
+
+            type:
+              "section",
+
+            value:
+              "Projects",
+
+            profileVariantId:
+              "prv_A",
+          },
+
+          {
+            ts:
+              ts +
+              1_000,
+
+            type:
+              "section",
+
+            value:
+              "Experience",
+
+            profileVariantId:
+              null,
+          },
+        ]);
       }
     );
 
@@ -1047,6 +2729,36 @@ describe(
           profileVersionId:
             "pv_test",
 
+          profileVariantIds:
+            new Set([
+              "prv_A",
+            ]),
+
+          contentSchemaVersions:
+            new Set([
+              3,
+            ]),
+
+          profileTargetingLocations:
+            new Set([
+              "Austin, TX",
+            ]),
+
+          profileTargetingJobRoles:
+            new Set([
+              "Backend Software Engineer",
+            ]),
+
+          platformReleaseIds:
+            new Set([
+              "platform_R42",
+            ]),
+
+          deploymentConfigurationIds:
+            new Set([
+              "cfg_A",
+            ]),
+
           boundaryId:
             "deploy-query",
 
@@ -1113,6 +2825,36 @@ describe(
 
           profileVersionId:
             "pv_test",
+
+          profileVariantIds:
+            new Set([
+              "prv_B",
+            ]),
+
+          contentSchemaVersions:
+            new Set([
+              4,
+            ]),
+
+          profileTargetingLocations:
+            new Set([
+              "Pune, India",
+            ]),
+
+          profileTargetingJobRoles:
+            new Set([
+              "AI Software Engineer",
+            ]),
+
+          platformReleaseIds:
+            new Set([
+              "platform_R42",
+            ]),
+
+          deploymentConfigurationIds:
+            new Set([
+              "cfg_B",
+            ]),
 
           boundaryId:
             "reset-query",
@@ -1298,6 +3040,234 @@ describe(
             .fragmentCount
         ).toBe(2);
 
+        expect(
+          allBody
+            .sessionIntelligence
+            .recentSessions[0]
+        ).toMatchObject({
+          profileVersionIds: [
+            "pv_test",
+          ],
+
+          profileVariantIds: [
+            "prv_A",
+            "prv_B",
+          ],
+
+          contentSchemaVersions: [
+            3,
+            4,
+          ],
+
+          profileTargetingLocations: [
+            "Austin, TX",
+            "Pune, India",
+          ],
+
+          profileTargetingJobRoles: [
+            "AI Software Engineer",
+            "Backend Software Engineer",
+          ],
+
+          platformReleaseIds: [
+            "platform_R42",
+          ],
+
+          deploymentConfigurationIds: [
+            "cfg_A",
+            "cfg_B",
+          ],
+        });
+
+        expect(
+          allBody
+            .profileVariants
+        ).toEqual([
+          {
+            profileVariantId:
+              "prv_A",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+
+          {
+            profileVariantId:
+              "prv_B",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
+
+        expect(
+          allBody
+            .contentSchemaVersions
+        ).toEqual([
+          {
+            contentSchemaVersion:
+              3,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+
+          {
+            contentSchemaVersion:
+              4,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
+
+        expect(
+          allBody
+            .profileTargetingLocations
+        ).toEqual([
+          {
+            profileTargetingLocation:
+              "Austin, TX",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+
+          {
+            profileTargetingLocation:
+              "Pune, India",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
+
+        expect(
+          allBody
+            .profileTargetingJobRoles
+        ).toEqual([
+          {
+            profileTargetingJobRole:
+              "AI Software Engineer",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+
+          {
+            profileTargetingJobRole:
+              "Backend Software Engineer",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
+
+        expect(
+          allBody
+            .platformReleases
+        ).toEqual([
+          {
+            platformReleaseId:
+              "platform_R42",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              2,
+          },
+        ]);
+
+
+        expect(
+          allBody
+            .deploymentConfigurations
+        ).toEqual([
+          {
+            deploymentConfigurationId:
+              "cfg_A",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+
+          {
+            deploymentConfigurationId:
+              "cfg_B",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
         const fromReset =
           await handler(
             event({
@@ -1417,6 +3387,982 @@ describe(
           activeMs:
             0,
         });
+      }
+    );
+
+
+    test(
+      "query applies exact Profile Variant and targeting filters without cross-attributing mixed-fragment metrics",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+        } =
+          loadHandler();
+
+        const ts =
+          Date.now() -
+          20_000;
+
+        const day =
+          new Date(
+            ts
+          )
+            .toISOString()
+            .slice(
+              0,
+              10
+            );
+
+        const fragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_test#SESSION#mixed-profile-session",
+
+          visitorHash:
+            "mixed-profile-visitor",
+
+          sessionHash:
+            "mixed-profile-session",
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            ts,
+
+          lastEventAt:
+            ts +
+            5_000,
+
+          eventCount:
+            6,
+
+          activeMs:
+            9_000,
+
+
+          profileVariantIds:
+            new Set([
+              "prv_A",
+              "prv_B",
+            ]),
+
+          contentSchemaVersions:
+            new Set([
+              3,
+              4,
+            ]),
+
+          profileTargetingLocations:
+            new Set([
+              "Austin, TX",
+              "Pune, India",
+            ]),
+
+          profileTargetingJobRoles:
+            new Set([
+              "Backend Software Engineer",
+              "AI Software Engineer",
+            ]),
+
+          platformReleaseIds:
+            new Set([
+              "platform_R42",
+            ]),
+
+          deploymentConfigurationIds:
+            new Set([
+              "cfg_A",
+              "cfg_B",
+            ]),
+
+
+          profileVariantContexts:
+            new Set([
+              JSON.stringify([
+                "prv_A",
+                3,
+                "Austin, TX",
+                "Backend Software Engineer",
+                "platform_R42",
+                "cfg_A",
+              ]),
+
+              JSON.stringify([
+                "prv_B",
+                4,
+                "Pune, India",
+                "AI Software Engineer",
+                "platform_R42",
+                "cfg_B",
+              ]),
+            ]),
+
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+              "Projects",
+              "Experience",
+            ]),
+
+          profileVariantSectionsSeen:
+            new Set([
+              JSON.stringify([
+                "prv_A",
+                "About Me",
+              ]),
+
+              JSON.stringify([
+                "prv_A",
+                "Projects",
+              ]),
+
+              JSON.stringify([
+                "prv_B",
+                "Experience",
+              ]),
+            ]),
+
+
+          depthMilestones:
+            new Set([
+              "Projects|75",
+              "Experience|50",
+            ]),
+
+          profileVariantDepthMilestones:
+            new Set([
+              JSON.stringify([
+                "prv_A",
+                "Projects",
+                75,
+              ]),
+
+              JSON.stringify([
+                "prv_B",
+                "Experience",
+                50,
+              ]),
+            ]),
+
+
+          metrics: {
+            sectionVisits: {
+              "About Me":
+                1,
+
+              Projects:
+                1,
+
+              Experience:
+                1,
+            },
+
+            sectionTimeMs: {
+              "About Me":
+                5_000,
+
+              Projects:
+                2_000,
+
+              Experience:
+                2_000,
+            },
+
+            ctaCounts: {
+              "resume-download":
+                1,
+
+              "contact-me":
+                1,
+            },
+
+            projectOpens: {
+              "project-a":
+                1,
+
+              "project-b":
+                1,
+            },
+
+            snippetViews: {
+              "snippet-a":
+                1,
+
+              "snippet-b":
+                1,
+            },
+
+            deepLinks: {
+              "#/projects":
+                1,
+
+              "#/experience":
+                1,
+            },
+          },
+
+
+          profileVariantMetrics: {
+            eventCounts: {
+              prv_A:
+                4,
+
+              prv_B:
+                2,
+            },
+
+            activeMs: {
+              prv_A:
+                7_000,
+
+              prv_B:
+                2_000,
+            },
+
+            sectionVisits: {
+              [JSON.stringify([
+                "prv_A",
+                "About Me",
+              ])]:
+                1,
+
+              [JSON.stringify([
+                "prv_A",
+                "Projects",
+              ])]:
+                1,
+
+              [JSON.stringify([
+                "prv_B",
+                "Experience",
+              ])]:
+                1,
+            },
+
+            sectionTimeMs: {
+              [JSON.stringify([
+                "prv_A",
+                "About Me",
+              ])]:
+                5_000,
+
+              [JSON.stringify([
+                "prv_A",
+                "Projects",
+              ])]:
+                2_000,
+
+              [JSON.stringify([
+                "prv_B",
+                "Experience",
+              ])]:
+                2_000,
+            },
+
+            ctaCounts: {
+              [JSON.stringify([
+                "prv_A",
+                "resume-download",
+              ])]:
+                1,
+
+              [JSON.stringify([
+                "prv_B",
+                "contact-me",
+              ])]:
+                1,
+            },
+
+            projectOpens: {
+              [JSON.stringify([
+                "prv_A",
+                "project-a",
+              ])]:
+                1,
+
+              [JSON.stringify([
+                "prv_B",
+                "project-b",
+              ])]:
+                1,
+            },
+
+            snippetViews: {
+              [JSON.stringify([
+                "prv_A",
+                "snippet-a",
+              ])]:
+                1,
+
+              [JSON.stringify([
+                "prv_B",
+                "snippet-b",
+              ])]:
+                1,
+            },
+
+            deepLinks: {
+              [JSON.stringify([
+                "prv_A",
+                "#/projects",
+              ])]:
+                1,
+
+              [JSON.stringify([
+                "prv_B",
+                "#/experience",
+              ])]:
+                1,
+            },
+          },
+
+
+          journeyEvents:
+            new Set([
+              JSON.stringify({
+                t:
+                  ts,
+
+                i:
+                  "mixed-a-about",
+
+                k:
+                  "section",
+
+                v:
+                  "About Me",
+
+                p:
+                  "prv_A",
+              }),
+
+              JSON.stringify({
+                t:
+                  ts +
+                  1_000,
+
+                i:
+                  "mixed-a-projects",
+
+                k:
+                  "section",
+
+                v:
+                  "Projects",
+
+                p:
+                  "prv_A",
+              }),
+
+              JSON.stringify({
+                t:
+                  ts +
+                  2_000,
+
+                i:
+                  "mixed-b-experience",
+
+                k:
+                  "section",
+
+                v:
+                  "Experience",
+
+                p:
+                  "prv_B",
+              }),
+
+              JSON.stringify({
+                t:
+                  ts +
+                  3_000,
+
+                i:
+                  "mixed-b-contact",
+
+                k:
+                  "cta",
+
+                v:
+                  "contact-me",
+
+                p:
+                  "prv_B",
+              }),
+            ]),
+
+
+          countryCode:
+            "US",
+
+          regionCode:
+            "TX",
+
+          city:
+            "Austin",
+        };
+
+
+        ddbSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              const name =
+                commandName(
+                  command
+                );
+
+              if (
+                name ===
+                "QueryCommand"
+              ) {
+                return {
+                  Items: [
+                    marshall(
+                      fragment
+                    ),
+                  ],
+                };
+              }
+
+              if (
+                name ===
+                "BatchGetItemCommand"
+              ) {
+                return {
+                  Responses: {
+                    [TABLE]: [
+                      marshall({
+                        visitorHash:
+                          "mixed-profile-visitor",
+
+                        firstSeenAt:
+                          ts -
+                          5_000,
+                      }),
+                    ],
+                  },
+
+                  UnprocessedKeys:
+                    {},
+                };
+              }
+
+              return {};
+            }
+          );
+
+
+        const profileAResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                profileVersionId:
+                  "pv_test",
+
+                profileVariantId:
+                  "prv_A",
+              },
+            })
+          );
+
+
+        expect(
+          profileAResponse
+            .statusCode
+        ).toBe(200);
+
+        const profileABody =
+          responseBody(
+            profileAResponse
+          );
+
+
+        expect(
+          profileABody.filter
+        ).toMatchObject({
+          profileVersionId:
+            "pv_test",
+
+          profileVariantId:
+            "prv_A",
+
+          profileTargetingLocation:
+            "all",
+
+          profileTargetingJobRole:
+            "all",
+        });
+
+
+        expect(
+          profileABody.overview
+        ).toMatchObject({
+          uniqueVisitors:
+            1,
+
+          sessions:
+            1,
+
+          eventCount:
+            4,
+
+          activeMs:
+            7_000,
+
+          fragments:
+            1,
+        });
+
+
+        const about =
+          profileABody
+            .sections
+            .find(
+              (
+                row:
+                  any
+              ) =>
+                row.section ===
+                  "About Me"
+            );
+
+        const projects =
+          profileABody
+            .sections
+            .find(
+              (
+                row:
+                  any
+              ) =>
+                row.section ===
+                  "Projects"
+            );
+
+        const experience =
+          profileABody
+            .sections
+            .find(
+              (
+                row:
+                  any
+              ) =>
+                row.section ===
+                  "Experience"
+            );
+
+
+        expect(
+          about
+        ).toMatchObject({
+          visits:
+            1,
+
+          activeMs:
+            5_000,
+
+          visitors:
+            1,
+
+          sessions:
+            1,
+        });
+
+
+        expect(
+          projects
+        ).toMatchObject({
+          visits:
+            1,
+
+          activeMs:
+            2_000,
+
+          visitors:
+            1,
+
+          sessions:
+            1,
+        });
+
+
+        expect(
+          experience
+        ).toMatchObject({
+          visits:
+            0,
+
+          activeMs:
+            0,
+
+          visitors:
+            0,
+
+          sessions:
+            0,
+        });
+
+
+        expect(
+          profileABody.ctas
+        ).toEqual([
+          {
+            ctaId:
+              "resume-download",
+
+            count:
+              1,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+          },
+        ]);
+
+
+        expect(
+          profileABody.projects
+        ).toEqual([
+          {
+            projectId:
+              "project-a",
+
+            count:
+              1,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+          },
+        ]);
+
+
+        expect(
+          profileABody.snippets
+        ).toEqual([
+          {
+            snippetId:
+              "snippet-a",
+
+            count:
+              1,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+          },
+        ]);
+
+
+        expect(
+          profileABody.deepLinks
+        ).toEqual([
+          {
+            path:
+              "#/projects",
+
+            count:
+              1,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+          },
+        ]);
+
+
+        expect(
+          profileABody
+            .depthMilestones
+        ).toEqual([
+          {
+            section:
+              "Projects",
+
+            depthPct:
+              75,
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+          },
+        ]);
+
+
+        expect(
+          profileABody
+            .profileVariants
+        ).toEqual([
+          {
+            profileVariantId:
+              "prv_A",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
+
+        expect(
+          profileABody
+            .sessionIntelligence
+            .recentSessions[0]
+        ).toMatchObject({
+          activeMs:
+            7_000,
+
+          eventCount:
+            4,
+
+          fragmentCount:
+            1,
+
+          sections: [
+            "About Me",
+            "Projects",
+          ],
+
+          profileVariantIds: [
+            "prv_A",
+          ],
+
+          contentSchemaVersions: [
+            3,
+          ],
+
+          profileTargetingLocations: [
+            "Austin, TX",
+          ],
+
+          profileTargetingJobRoles: [
+            "Backend Software Engineer",
+          ],
+
+          platformReleaseIds: [
+            "platform_R42",
+          ],
+
+          deploymentConfigurationIds: [
+            "cfg_A",
+          ],
+        });
+
+
+        expect(
+          profileABody
+            .sessionIntelligence
+            .recentSessions[0]
+            .journey
+            .map(
+              (
+                row:
+                  any
+              ) =>
+                row
+                  .profileVariantId
+            )
+        ).toEqual([
+          "prv_A",
+          "prv_A",
+        ]);
+
+
+        const targetingResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                profileVersionId:
+                  "pv_test",
+
+                profileTargetingJobRole:
+                  "AI Software Engineer",
+              },
+            })
+          );
+
+
+        expect(
+          targetingResponse
+            .statusCode
+        ).toBe(200);
+
+        const targetingBody =
+          responseBody(
+            targetingResponse
+          );
+
+
+        expect(
+          targetingBody.filter
+        ).toMatchObject({
+          profileVariantId:
+            "all",
+
+          profileTargetingLocation:
+            "all",
+
+          profileTargetingJobRole:
+            "AI Software Engineer",
+        });
+
+
+        expect(
+          targetingBody.overview
+        ).toMatchObject({
+          uniqueVisitors:
+            1,
+
+          sessions:
+            1,
+
+          eventCount:
+            2,
+
+          activeMs:
+            2_000,
+
+          fragments:
+            1,
+        });
+
+
+        expect(
+          targetingBody
+            .profileVariants
+        ).toEqual([
+          {
+            profileVariantId:
+              "prv_B",
+
+            visitors:
+              1,
+
+            sessions:
+              1,
+
+            fragments:
+              1,
+          },
+        ]);
+
+
+        const targetingExperience =
+          targetingBody
+            .sections
+            .find(
+              (
+                row:
+                  any
+              ) =>
+                row.section ===
+                  "Experience"
+            );
+
+        expect(
+          targetingExperience
+        ).toMatchObject({
+          visits:
+            1,
+
+          activeMs:
+            2_000,
+
+          visitors:
+            1,
+
+          sessions:
+            1,
+        });
+
+
+        const invalidResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                profileVariantId:
+                  "invalid variant id",
+              },
+            })
+          );
+
+        expect(
+          invalidResponse
+            .statusCode
+        ).toBe(400);
       }
     );
 
@@ -1809,5 +4755,347 @@ describe(
         );
       }
     );
+
+    test(
+    "Battleship room deep links are canonicalized before aggregation and raw storage",
+    async () => {
+      const {
+        handler,
+        ddbSend,
+        s3Send,
+      } =
+        loadHandler();
+
+      installBasicIngestMocks(
+        ddbSend as any,
+        s3Send as any
+      );
+
+      const response =
+        await handler(
+          event({
+            headers: {
+              "user-agent":
+                "Mozilla/5.0 UnitTest",
+            },
+
+            body: {
+              events: [
+                analyticsEvent({
+                  eventId:
+                    "battleship-room-link",
+
+                  type:
+                    "deep_link",
+
+                  section:
+                    undefined,
+
+                  path:
+                    "/tejas-profile/",
+
+                  hash:
+                    "#/fun-zone/battleship-AX9G",
+                }),
+              ],
+            },
+          })
+        );
+
+      expect(
+        response.statusCode
+      ).toBe(200);
+
+      expect(
+        responseBody(
+          response
+        ).accepted
+      ).toBe(1);
+
+      const eventWrite =
+        ddbSend
+          .mock
+          .calls
+          .map(
+            (call) =>
+              call[0]
+          )
+          .find(
+            (
+              command:
+                any
+            ) =>
+              commandName(
+                command
+              ) ===
+                "UpdateItemCommand" &&
+              String(
+                command
+                  .input
+                  .ConditionExpression ||
+                  ""
+              ).includes(
+                "processedEventIds"
+              )
+          );
+
+      const metricNames =
+        Object.values(
+          eventWrite
+            .input
+            .ExpressionAttributeNames ||
+            {}
+        );
+
+      expect(
+        metricNames
+      ).toContain(
+        "#/fun-zone/battleship"
+      );
+
+      expect(
+        metricNames
+      ).not.toContain(
+        "#/fun-zone/battleship-AX9G"
+      );
+
+      const raw =
+        JSON.parse(
+          String(
+            s3Send
+              .mock
+              .calls[0][0]
+              .input
+              .Body
+          )
+        );
+
+      expect(
+        raw.events[0].hash
+      ).toBe(
+        "#/fun-zone/battleship"
+      );
+    }
+  );
+
+  test(
+    "query merges historical Battleship room deep links into the canonical route",
+    async () => {
+      const {
+        handler,
+        ddbSend,
+      } =
+        loadHandler();
+
+      const ts =
+        Date.now() -
+        10_000;
+
+      const day =
+        new Date(ts)
+          .toISOString()
+          .slice(
+            0,
+            10
+          );
+
+      const fragment = {
+        pk:
+          `DAY#${day}`,
+
+        sk:
+          "PV#pv_test#SESSION#session-hash",
+
+        visitorHash:
+          "visitor-hash",
+
+        sessionHash:
+          "session-hash",
+
+        profileVersionId:
+          "pv_test",
+
+        firstEventAt:
+          ts,
+
+        lastEventAt:
+          ts + 1_000,
+
+        eventCount:
+          3,
+
+        activeMs:
+          0,
+
+        metrics: {
+          sectionVisits: {},
+          sectionTimeMs: {},
+          ctaCounts: {},
+          projectOpens: {},
+          snippetViews: {},
+
+          deepLinks: {
+            "#/fun-zone/battleship-AX9G":
+              1,
+
+            "#/fun-zone/battleship-Q71B":
+              2,
+          },
+        },
+
+        journeyEvents:
+          new Set([
+            JSON.stringify({
+              t: ts,
+              i: "journey-one",
+              k: "deep_link",
+              v:
+                "#/fun-zone/battleship-AX9G",
+            }),
+
+            JSON.stringify({
+              t:
+                ts + 1_000,
+
+              i:
+                "journey-two",
+
+              k:
+                "deep_link",
+
+              v:
+                "#/fun-zone/battleship-Q71B",
+            }),
+          ]),
+      };
+
+      ddbSend
+        .mockImplementation(
+          async (
+            command:
+              any
+          ) => {
+            const name =
+              commandName(
+                command
+              );
+
+            if (
+              name ===
+                "QueryCommand"
+            ) {
+              return {
+                Items: [
+                  marshall(
+                    fragment
+                  ),
+                ],
+              };
+            }
+
+            if (
+              name ===
+                "BatchGetItemCommand"
+            ) {
+              return {
+                Responses: {
+                  [TABLE]: [
+                    marshall({
+                      visitorHash:
+                        "visitor-hash",
+
+                      firstSeenAt:
+                        ts -
+                        5_000,
+                    }),
+                  ],
+                },
+
+                UnprocessedKeys:
+                  {},
+              };
+            }
+
+            return {};
+          }
+        );
+
+      const response =
+        await handler(
+          event({
+            path:
+              "/analytics/query",
+
+            method:
+              "GET",
+
+            headers: {
+              "x-owner-token":
+                OWNER_TOKEN,
+            },
+
+            queryStringParameters: {
+              from: day,
+              to: day,
+
+              profileVersionId:
+                "pv_test",
+            },
+          })
+        );
+
+      expect(
+        response.statusCode
+      ).toBe(200);
+
+      const body =
+        responseBody(
+          response
+        );
+
+      expect(
+        body.deepLinks
+      ).toEqual([
+        {
+          path:
+            "#/fun-zone/battleship",
+
+          count: 3,
+          visitors: 1,
+          sessions: 1,
+        },
+      ]);
+
+      const deepLinkJourney =
+        body
+          .sessionIntelligence
+          .recentSessions[0]
+          .journey
+          .filter(
+            (
+              row:
+                any
+            ) =>
+              row.type ===
+              "deep_link"
+          );
+
+      expect(
+        deepLinkJourney
+      ).toHaveLength(2);
+
+      expect(
+        deepLinkJourney.every(
+          (
+            row:
+              any
+          ) =>
+            row.value ===
+            "#/fun-zone/battleship"
+        )
+      ).toBe(true);
+    }
+  );
+
   }
 );

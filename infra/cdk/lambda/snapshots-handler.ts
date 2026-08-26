@@ -5,17 +5,119 @@ import {
   ListObjectsV2Command,
   PutObjectCommand,
   GetObjectCommand,
-  HeadObjectCommand, 
+  HeadObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
   ListObjectVersionsCommand,
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
+
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+import {
+  buildLegacySnapshotHistoricalTruth,
+  enrichLegacyDeployHistory,
+} from "./legacy-history-read-model";
+
+import {
+  DynamoDBClient,
+  PutItemCommand,
+  QueryCommand,
+} from "@aws-sdk/client-dynamodb";
+
+import {
+  unmarshall,
+} from "@aws-sdk/util-dynamodb";
+
+import {
+  createHash,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+
+import {
+  createOwnerSessionToken,
+  verifyOwnerSessionToken,
+} from "./owner-session-auth";
+
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+
+import {
+  base64Sha256ToHex,
+  canonicalJsonStringify,
+  createProfileVariantAssetObjectKey,
+  createProfileVariantManifestKey,
+  hexSha256ToBase64,
+  normalizeAndValidateProfileVariantDocument,
+  sha256Hex,
+} from "./profile-variants-contract";
+
+import {
+  createPlatformReleaseObjectKey,
+  normalizeAndValidatePlatformReleaseDocument,
+} from "./platform-release-contract";
+
+import {
+  computeDeploymentConfigurationId,
+  createDeploymentConfigurationDocument,
+  createDeploymentConfigurationObjectKey,
+  normalizeAndValidateDeploymentConfigurationDocument,
+} from "./deployment-configuration-contract";
+
+import {
+  assertDeclaredProfilePlatformCompatible,
+  isProfilePlatformCompatibilityGateError,
+  requireDeclaredProfilePlatformSpecification,
+} from "./profile-platform-specification";
+
+import {
+  PROFILE_ACTIVATION_LEDGER_PK,
+  PROFILE_ACTIVATION_VARIANT_INDEX_NAME,
+  buildProfileActivationTransition,
+  createActivationVariantIndexPk,
+  validateProfileActivationRecord,
+} from "./profile-activation-contract";
+
+import {
+  commitProfileActivationTransition,
+  isProfileActivationConflict,
+  readActiveProfilePointer,
+} from "./profile-activation-store";
+
+import {
+  PLATFORM_DEPLOYMENT_LEDGER_PK,
+  PLATFORM_DEPLOYMENT_RELEASE_INDEX_NAME,
+  buildPlatformDeploymentTransition,
+  createPlatformDeploymentReleaseIndexPk,
+  validatePlatformDeploymentRecord,
+} from "./platform-deployment-contract";
+
+import {
+  commitPlatformDeploymentTransition,
+  isPlatformDeploymentConflict,
+  readActivePlatformReleasePointer,
+} from "./platform-deployment-store";
+
+import {
+  USAGE_EPOCH_STATE,
+  USAGE_EPOCH_TRANSITION_KIND,
+  normalizeAndValidateUsageEpochDocument,
+} from "./usage-epoch-contract";
+
+import {
+  createUsageEpochConfigurationIndexPk,
+  createUsageEpochStateIndexPk,
+  prepareUsageEpochLifecycle,
+  readUsageEpochRecord,
+  validateUsageEpochStorageRecord,
+} from "./usage-epoch-store";
+
+import {
+  readConfigurationAnalyticsReport,
+} from "./configuration-analytics-report-store";
 
 type Event = {
   requestContext?: { http?: { method?: string; path?: string } };
@@ -26,25 +128,116 @@ type Event = {
   body?: string | null;
 };
 
-const s3 = new S3Client({});
-const secretsManager = new SecretsManagerClient({});
+const s3 =
+  new S3Client({});
 
-const SNAPSHOTS_BUCKET = process.env.SNAPSHOTS_BUCKET!;
-const REPO_BUCKET = process.env.REPO_BUCKET || SNAPSHOTS_BUCKET; // Option 2 sets this to a different bucket
-const SNAP_PREFIX = process.env.SNAPSHOTS_PREFIX || "snapshots/";
-const TRASH_PREFIX = process.env.TRASH_PREFIX || "trash/";
-const OWNER_TOKEN = process.env.OWNER_TOKEN || "";
-const PROFILES_PREFIX = process.env.PROFILES_PREFIX || "profiles/";
+const dynamodb =
+  new DynamoDBClient({});
 
-const GITHUB_REPO = process.env.GITHUB_REPO || "";
-const GITHUB_WORKFLOW_FILE =
-  process.env.GITHUB_WORKFLOW_FILE || "redeploy.yml";
-const GITHUB_REF = process.env.GITHUB_REF || "main";
+const secretsManager =
+  new SecretsManagerClient({});
 
-const GITHUB_TOKEN_SECRET_ID =
-  process.env.GITHUB_TOKEN_SECRET_ID || "";
+const SNAPSHOTS_BUCKET =
+  process.env.SNAPSHOTS_BUCKET!;
 
-let cachedGithubToken: string | null = null;
+const REPO_BUCKET =
+  process.env.REPO_BUCKET ||
+  SNAPSHOTS_BUCKET;
+
+const PROFILE_VARIANTS_BUCKET =
+  process.env.PROFILE_VARIANTS_BUCKET ||
+  "";
+
+const PLATFORM_RELEASES_BUCKET =
+  process.env.PLATFORM_RELEASES_BUCKET ||
+  "";
+
+const DEPLOYMENT_CONFIGURATIONS_BUCKET =
+  process.env.DEPLOYMENT_CONFIGURATIONS_BUCKET ||
+  "";
+
+const DEPLOYMENT_CONFIGURATIONS_TABLE =
+  process.env.DEPLOYMENT_CONFIGURATIONS_TABLE ||
+  "";
+
+const PROFILE_ACTIVATION_TABLE =
+  process.env.PROFILE_ACTIVATION_TABLE ||
+  "";
+
+const PLATFORM_DEPLOYMENT_TABLE =
+  process.env.PLATFORM_DEPLOYMENT_TABLE ||
+  "";
+
+const USAGE_EPOCHS_TABLE =
+  process.env.USAGE_EPOCHS_TABLE ||
+  "";
+
+const CONFIGURATION_ANALYTICS_REPORTS_BUCKET =
+  process.env.CONFIGURATION_ANALYTICS_REPORTS_BUCKET ||
+  "";
+
+const STAGE =
+  String(
+    process.env.STAGE ||
+      ""
+  ).trim();
+
+const SNAP_PREFIX =
+  process.env.SNAPSHOTS_PREFIX ||
+  "snapshots/";
+
+const TRASH_PREFIX =
+  process.env.TRASH_PREFIX ||
+  "trash/";
+
+
+const OWNER_TOKEN_SECRET_ID =
+  process.env.OWNER_TOKEN_SECRET_ID ||
+  "";
+
+const OWNER_SESSION_SIGNING_KEY_SECRET_ID =
+  process.env
+    .OWNER_SESSION_SIGNING_KEY_SECRET_ID ||
+  "";
+
+
+const TEST_OWNER_SESSION_SIGNING_KEY =
+  process.env.NODE_ENV ===
+    "test"
+    ? String(
+        process.env
+          .OWNER_SESSION_SIGNING_KEY ||
+        ""
+      ).trim()
+    : "";
+
+
+// Existing handler unit tests intentionally use an
+// in-process credential. Production Lambda deployments
+// never receive OWNER_TOKEN after P10D2.
+const TEST_OWNER_TOKEN =
+  process.env.NODE_ENV === "test"
+    ? String(
+        process.env.OWNER_TOKEN ||
+        ""
+      ).trim()
+    : "";
+
+
+const PROFILES_PREFIX =
+  process.env.PROFILES_PREFIX ||
+  "profiles/";
+
+
+let cachedOwnerToken:
+  string |
+  null =
+  null;
+
+let cachedOwnerSessionSigningKey:
+  string |
+  null =
+  null;
 
 const DEPLOY_HISTORY_KEY = process.env.DEPLOY_HISTORY_KEY || "deploy/history.json";
 
@@ -63,7 +256,113 @@ function requireNonEmpty(value: any, field: string) {
 }
 
 function isLikelyGitSha(s: string) {
-  return /^[a-f0-9]{7,40}$/i.test(s || "");
+  return /^[a-f0-9]{7,40}$/i.test(
+    s || ""
+  );
+}
+
+function requireControlPlaneId(
+  value:
+    unknown,
+
+  field:
+    string
+) {
+  const normalized =
+    String(
+      value ??
+      ""
+    ).trim();
+
+
+  if (
+    !normalized ||
+    normalized.length >
+      160 ||
+    !/^[A-Za-z0-9._:-]+$/.test(
+      normalized
+    )
+  ) {
+    throw new Error(
+      `${field} is invalid.`
+    );
+  }
+
+
+  return normalized;
+}
+
+function profilePlatformGateFailureBody({
+  error,
+
+  platformReleaseId,
+
+  profileVariantId =
+    null,
+
+  deploymentConfigurationId =
+    null,
+}: {
+  error:
+    any;
+
+  platformReleaseId:
+    string;
+
+  profileVariantId?:
+    string |
+    null;
+
+  deploymentConfigurationId?:
+    string |
+    null;
+}) {
+  const body:
+    any = {
+      ok:
+        false,
+
+      error:
+        String(
+          error?.message ||
+          error
+        ),
+
+      code:
+        String(
+          error?.code ||
+          "PPS_COMPATIBILITY_REJECTED"
+        ),
+
+      platformReleaseId,
+    };
+
+
+  if (
+    profileVariantId
+  ) {
+    body.profileVariantId =
+      profileVariantId;
+  }
+
+
+  if (
+    deploymentConfigurationId
+  ) {
+    body.deploymentConfigurationId =
+      deploymentConfigurationId;
+  }
+
+
+  if (
+    error?.compatibility
+  ) {
+    body.compatibility =
+      error.compatibility;
+  }
+
+
+  return body;
 }
 
 // -----------------------------
@@ -106,164 +405,339 @@ function json(statusCode: number, body: unknown, corsOrigin: string) {
   };
 }
 
-function requireOwner(headers: Record<string, string> | undefined) {
-  if (!OWNER_TOKEN) return { ok: false, status: 500, msg: "OWNER_TOKEN not configured" };
-  const token = getHeader(headers, "x-owner-token");
-  if (!token || token.trim() !== OWNER_TOKEN) {
-    return { ok: false, status: 401, msg: "Unauthorized" };
+function secretsMatch(
+  candidate:
+    string,
+
+  expected:
+    string
+) {
+  const left =
+    String(
+      candidate ||
+      ""
+    ).trim();
+
+  const right =
+    String(
+      expected ||
+      ""
+    ).trim();
+
+
+  if (
+    !left ||
+    !right
+  ) {
+    return false;
   }
-  return { ok: true as const };
+
+
+  // Hash first so timingSafeEqual always compares
+  // fixed-length buffers.
+  const leftDigest =
+    createHash(
+      "sha256"
+    )
+      .update(
+        left,
+        "utf8"
+      )
+      .digest();
+
+
+  const rightDigest =
+    createHash(
+      "sha256"
+    )
+      .update(
+        right,
+        "utf8"
+      )
+      .digest();
+
+
+  return timingSafeEqual(
+    leftDigest,
+    rightDigest
+  );
 }
 
-async function getGithubToken() {
-  if (cachedGithubToken) {
-    return cachedGithubToken;
+
+async function getOwnerToken() {
+  if (
+    TEST_OWNER_TOKEN
+  ) {
+    return TEST_OWNER_TOKEN;
   }
 
-  if (!GITHUB_TOKEN_SECRET_ID) {
+
+  if (
+    cachedOwnerToken
+  ) {
+    return cachedOwnerToken;
+  }
+
+
+  if (
+    !OWNER_TOKEN_SECRET_ID
+  ) {
     throw new Error(
-      "GITHUB_TOKEN_SECRET_ID not configured"
+      "OWNER_TOKEN_SECRET_ID not configured"
     );
   }
 
-  const out = await secretsManager.send(
-    new GetSecretValueCommand({
-      SecretId: GITHUB_TOKEN_SECRET_ID,
-    })
-  );
+
+  const out =
+    await secretsManager.send(
+      new GetSecretValueCommand({
+        SecretId:
+          OWNER_TOKEN_SECRET_ID,
+      })
+    );
+
 
   const token =
-    String(out.SecretString || "").trim();
+    String(
+      out.SecretString ||
+      ""
+    ).trim();
 
-  if (!token) {
+
+  if (
+    !token
+  ) {
     throw new Error(
-      "GitHub token secret is empty"
+      "Owner token secret is empty"
     );
   }
 
-  cachedGithubToken = token;
+
+  cachedOwnerToken =
+    token;
+
 
   return token;
 }
 
-function requireGithubConfig() {
-  if (!GITHUB_REPO) {
-    return {
-      ok: false,
-      status: 500,
-      msg: "GITHUB_REPO not configured",
-    };
+
+async function getOwnerSessionSigningKey() {
+  if (
+    TEST_OWNER_SESSION_SIGNING_KEY
+  ) {
+    return TEST_OWNER_SESSION_SIGNING_KEY;
   }
 
-  if (!GITHUB_WORKFLOW_FILE) {
-    return {
-      ok: false,
-      status: 500,
-      msg: "GITHUB_WORKFLOW_FILE not configured",
-    };
+
+  if (
+    cachedOwnerSessionSigningKey
+  ) {
+    return cachedOwnerSessionSigningKey;
   }
 
-  if (!GITHUB_TOKEN_SECRET_ID) {
-    return {
-      ok: false,
-      status: 500,
-      msg: "GITHUB_TOKEN_SECRET_ID not configured",
-    };
+
+  if (
+    !OWNER_SESSION_SIGNING_KEY_SECRET_ID
+  ) {
+    throw new Error(
+      "OWNER_SESSION_SIGNING_KEY_SECRET_ID not configured"
+    );
   }
 
-  return { ok: true as const };
+
+  const out =
+    await secretsManager.send(
+      new GetSecretValueCommand({
+        SecretId:
+          OWNER_SESSION_SIGNING_KEY_SECRET_ID,
+      })
+    );
+
+
+  const key =
+    String(
+      out.SecretString ||
+      ""
+    ).trim();
+
+
+  if (!key) {
+    throw new Error(
+      "Owner session signing key secret is empty"
+    );
+  }
+
+
+  cachedOwnerSessionSigningKey =
+    key;
+
+
+  return key;
 }
 
-async function dispatchGithubWorkflow(
-  inputs: Record<string, string>
+
+async function requireOwner(
+  headers:
+    Record<string, string> |
+    undefined
 ) {
-  let githubToken: string;
+  const candidate =
+    getHeader(
+      headers,
+      "x-owner-token"
+    );
+
+
+  if (!candidate) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        401,
+
+      msg:
+        "Unauthorized",
+    };
+  }
+
+
+  let expectedMaster:
+    string;
+
 
   try {
-    githubToken =
-      await getGithubToken();
+    expectedMaster =
+      await getOwnerToken();
   } catch (e: any) {
     console.error(
-      "GitHub credential load failed",
+      "Owner credential load failed",
       {
         secretConfigured:
-          Boolean(GITHUB_TOKEN_SECRET_ID),
-        error: String(
-          e?.message || e
-        ),
+          Boolean(
+            OWNER_TOKEN_SECRET_ID
+          ),
+
+        error:
+          String(
+            e?.message ||
+            e
+          ),
       }
     );
 
+
     return {
-      ok: false as const,
-      status: 500,
-      error:
-        "GitHub credential unavailable",
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "Owner credential unavailable",
     };
   }
 
-  const url =
-    `https://api.github.com/repos/` +
-    `${GITHUB_REPO}/actions/workflows/` +
-    `${GITHUB_WORKFLOW_FILE}/dispatches`;
 
-  let res: any;
+  // Machine-to-machine compatibility.
+  //
+  // CI and deployment workflows may continue using the
+  // stage-specific master credential.
+  if (
+    secretsMatch(
+      candidate,
+      expectedMaster
+    )
+  ) {
+    return {
+      ok:
+        true as const,
+
+      credentialKind:
+        "master" as const,
+    };
+  }
+
+
+  let signingKey:
+    string;
+
 
   try {
-    res = await fetch(url, {
-      method: "POST",
+    signingKey =
+      await getOwnerSessionSigningKey();
+  } catch (e: any) {
+    console.error(
+      "Owner session signing credential load failed",
+      {
+        secretConfigured:
+          Boolean(
+            OWNER_SESSION_SIGNING_KEY_SECRET_ID
+          ),
 
-      headers: {
-        "content-type":
-          "application/json",
+        error:
+          String(
+            e?.message ||
+            e
+          ),
+      }
+    );
 
-        authorization:
-          `Bearer ${githubToken}`,
 
-        "user-agent":
-          "tejas-profile-snapshots-handler",
+    return {
+      ok:
+        false as const,
 
-        accept:
-          "application/vnd.github+json",
+      status:
+        500,
 
-        "x-github-api-version":
-          "2022-11-28",
-      },
+      msg:
+        "Owner session authentication unavailable",
+    };
+  }
 
-      body: JSON.stringify({
-        ref: GITHUB_REF,
-        inputs,
-      }),
+
+  const session =
+    verifyOwnerSessionToken({
+      token:
+        candidate,
+
+      stage:
+        STAGE as
+          "dev" |
+          "prod",
+
+      signingKey,
     });
-  } catch {
+
+
+  if (!session.ok) {
     return {
-      ok: false as const,
-      status: 502,
-      error:
-        "GitHub request failed",
+      ok:
+        false as const,
+
+      status:
+        401,
+
+      msg:
+        "Unauthorized",
     };
   }
 
-  // GitHub returns 204 No Content on success.
-  if (res.status === 204) {
-    return {
-      ok: true as const,
-    };
-  }
-
-  const txt =
-    await res
-      .text()
-      .catch(() => "");
 
   return {
-    ok: false as const,
-    status: res.status,
-    error:
-      txt ||
-      "GitHub workflow dispatch failed",
+    ok:
+      true as const,
+
+    credentialKind:
+      "session" as const,
+
+    session:
+      session.payload,
   };
 }
+
 
 // -----------------------------
 // helpers: key safety + moves
@@ -522,6 +996,29 @@ function extractMetaFromSnapshotJson(doc: any) {
     String(repo?.artifact?.sha256 || "").trim() ||
     String(doc?.repoArtifactSha256 || "").trim();
 
+  const formalLinks =
+    doc?.formalLinks &&
+    typeof doc.formalLinks ===
+      "object"
+      ? doc.formalLinks
+      : {};
+
+
+  const platformReleaseId =
+    String(
+      formalLinks
+        ?.platformReleaseId ||
+      ""
+    ).trim();
+
+
+  const platformDeploymentId =
+    String(
+      formalLinks
+        ?.platformDeploymentId ||
+      ""
+    ).trim();
+
   const geoHint =
     String(doc?.geo?.hint || "").trim() ||
     String(doc?.geoHint || "").trim();
@@ -535,7 +1032,1835 @@ function extractMetaFromSnapshotJson(doc: any) {
     checkpointTag,
     repoArtifactKey,
     repoArtifactSha256,
+
+    platformReleaseId,
+    platformDeploymentId,
+
     geoHint,
+  };
+}
+
+
+function isS3NotFound(
+  error: any
+) {
+  const name =
+    String(
+      error?.name || ""
+    );
+
+  const status =
+    Number(
+      error
+        ?.$metadata
+        ?.httpStatusCode ||
+      0
+    );
+
+
+  return (
+    name ===
+      "NotFound" ||
+    name ===
+      "NoSuchKey" ||
+    status ===
+      404
+  );
+}
+
+
+function isS3PreconditionFailed(
+  error: any
+) {
+  const name =
+    String(
+      error?.name || ""
+    );
+
+  const status =
+    Number(
+      error
+        ?.$metadata
+        ?.httpStatusCode ||
+      0
+    );
+
+
+  return (
+    name ===
+      "PreconditionFailed" ||
+    status ===
+      412
+  );
+}
+
+
+function requireProfileVariantStorage() {
+  if (
+    !PROFILE_VARIANTS_BUCKET
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "PROFILE_VARIANTS_BUCKET not configured",
+    };
+  }
+
+
+  return {
+    ok:
+      true as const,
+  };
+}
+
+
+function requirePlatformReleaseStorage() {
+  if (
+    !PLATFORM_RELEASES_BUCKET
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "PLATFORM_RELEASES_BUCKET not configured",
+    };
+  }
+
+
+  if (
+    STAGE !==
+      "dev" &&
+    STAGE !==
+      "prod"
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "STAGE not configured for Platform Release storage",
+    };
+  }
+
+
+  return {
+    ok:
+      true as const,
+  };
+}
+
+
+function requireDeploymentConfigurationStorage() {
+  if (
+    !DEPLOYMENT_CONFIGURATIONS_BUCKET
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "DEPLOYMENT_CONFIGURATIONS_BUCKET not configured",
+    };
+  }
+
+
+  if (
+    !DEPLOYMENT_CONFIGURATIONS_TABLE
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "DEPLOYMENT_CONFIGURATIONS_TABLE not configured",
+    };
+  }
+
+
+  if (
+    STAGE !==
+      "dev" &&
+    STAGE !==
+      "prod"
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "STAGE not configured for Deployment Configuration storage",
+    };
+  }
+
+
+  return {
+    ok:
+      true as const,
+  };
+}
+
+
+function requireProfileActivationStorage() {
+  if (
+    !PROFILE_ACTIVATION_TABLE
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "PROFILE_ACTIVATION_TABLE not configured",
+    };
+  }
+
+
+  return {
+    ok:
+      true as const,
+  };
+}
+
+function requirePlatformDeploymentStorage() {
+  if (
+    !PLATFORM_DEPLOYMENT_TABLE
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "PLATFORM_DEPLOYMENT_TABLE not configured",
+    };
+  }
+
+
+  return {
+    ok:
+      true as const,
+  };
+}
+
+function requireUsageEpochStorage() {
+  if (
+    !USAGE_EPOCHS_TABLE
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "USAGE_EPOCHS_TABLE not configured",
+    };
+  }
+
+
+  if (
+    STAGE !==
+      "dev" &&
+    STAGE !==
+      "prod"
+  ) {
+    return {
+      ok:
+        false as const,
+
+      status:
+        500,
+
+      msg:
+        "STAGE not configured for Usage Epoch storage",
+    };
+  }
+
+
+  return {
+    ok:
+      true as const,
+  };
+}
+
+
+async function readPublishedProfileVariant(
+  key: string
+) {
+  const out =
+    await s3.send(
+      new GetObjectCommand({
+        Bucket:
+          PROFILE_VARIANTS_BUCKET,
+
+        Key:
+          key,
+
+        ChecksumMode:
+          "ENABLED",
+      })
+    );
+
+
+  const body =
+    await streamToString(
+      out.Body
+    );
+
+
+  return {
+    body,
+
+    checksumSha256:
+      String(
+        out.ChecksumSHA256 ||
+        ""
+      ),
+
+    contentType:
+      String(
+        out.ContentType ||
+        ""
+      ),
+  };
+}
+
+async function readStoredPlatformRelease(
+  key: string
+) {
+  const out =
+    await s3.send(
+      new GetObjectCommand({
+        Bucket:
+          PLATFORM_RELEASES_BUCKET,
+
+        Key:
+          key,
+
+        ChecksumMode:
+          "ENABLED",
+      })
+    );
+
+
+  const body =
+    await streamToString(
+      out.Body
+    );
+
+
+  return {
+    body,
+
+    checksumSha256:
+      String(
+        out.ChecksumSHA256 ||
+        ""
+      ),
+
+    contentType:
+      String(
+        out.ContentType ||
+        ""
+      ),
+  };
+}
+
+
+async function readStoredDeploymentConfiguration(
+  key: string
+) {
+  const out =
+    await s3.send(
+      new GetObjectCommand({
+        Bucket:
+          DEPLOYMENT_CONFIGURATIONS_BUCKET,
+
+        Key:
+          key,
+
+        ChecksumMode:
+          "ENABLED",
+      })
+    );
+
+
+  const body =
+    await streamToString(
+      out.Body
+    );
+
+
+  return {
+    body,
+
+    checksumSha256:
+      String(
+        out.ChecksumSHA256 ||
+        ""
+      ),
+
+    contentType:
+      String(
+        out.ContentType ||
+        ""
+      ),
+  };
+}
+
+
+function validateStoredBodyChecksum({
+  body,
+  checksumSha256,
+  label,
+}: {
+  body:
+    string;
+
+  checksumSha256:
+    string;
+
+  label:
+    string;
+}) {
+  const bodySha256 =
+    sha256Hex(
+      body
+    );
+
+
+  const storedChecksum =
+    base64Sha256ToHex(
+      checksumSha256
+    );
+
+
+  if (
+    storedChecksum &&
+    storedChecksum !==
+      bodySha256
+  ) {
+    throw new Error(
+      `${label} checksum verification failed.`
+    );
+  }
+
+
+  return bodySha256;
+}
+
+
+async function loadAuthoritativePlatformReleaseRecord(
+  platformReleaseId:
+    string
+) {
+  const key =
+    createPlatformReleaseObjectKey(
+      platformReleaseId
+    );
+
+
+  const stored =
+    await readStoredPlatformRelease(
+      key
+    );
+
+
+  let parsed:
+    any;
+
+
+  try {
+    parsed =
+      JSON.parse(
+        stored.body
+      );
+  } catch {
+    throw new Error(
+      "Stored Platform Release is corrupt."
+    );
+  }
+
+
+  const release =
+    normalizeAndValidatePlatformReleaseDocument(
+      parsed
+    );
+
+  if (
+    release
+      .platformReleaseId !==
+    platformReleaseId
+  ) {
+    throw new Error(
+      "Stored Platform Release identity does not match object key."
+    );
+  }
+
+
+  if (
+    release.stage !==
+      STAGE
+  ) {
+    throw new Error(
+      "Stored Platform Release belongs to a different stage."
+    );
+  }
+
+
+  const releaseSha256 =
+    validateStoredBodyChecksum({
+      body:
+        stored.body,
+
+      checksumSha256:
+        stored.checksumSha256,
+
+      label:
+        "Stored Platform Release",
+    });
+
+
+  return {
+    release,
+
+    key,
+
+    releaseSha256,
+  };
+}
+
+
+async function loadAuthoritativePlatformRelease(
+  platformReleaseId:
+    string
+) {
+  const stored =
+    await loadAuthoritativePlatformReleaseRecord(
+      platformReleaseId
+    );
+
+
+  return stored.release;
+}
+
+
+async function loadAuthoritativeProfileVariantRecord(
+  profileVariantId:
+    string
+) {
+  const key =
+    createProfileVariantManifestKey(
+      profileVariantId
+    );
+
+
+  const stored =
+    await readPublishedProfileVariant(
+      key
+    );
+
+
+  let parsed:
+    any;
+
+
+  try {
+    parsed =
+      JSON.parse(
+        stored.body
+      );
+  } catch {
+    throw new Error(
+      "Stored Profile Variant manifest is corrupt."
+    );
+  }
+
+
+  const variant =
+    normalizeAndValidateProfileVariantDocument(
+      parsed
+    );
+
+
+  if (
+    variant
+      .profileVariantId !==
+    profileVariantId
+  ) {
+    throw new Error(
+      "Stored Profile Variant identity does not match manifest key."
+    );
+  }
+
+
+  const manifestSha256 =
+    validateStoredBodyChecksum({
+      body:
+        stored.body,
+
+      checksumSha256:
+        stored.checksumSha256,
+
+      label:
+        "Stored Profile Variant",
+    });
+
+
+  return {
+    variant,
+
+    key,
+
+    manifestSha256,
+  };
+}
+
+
+async function loadAuthoritativeProfileVariant(
+  profileVariantId:
+    string
+) {
+  const stored =
+    await loadAuthoritativeProfileVariantRecord(
+      profileVariantId
+    );
+
+
+  return stored.variant;
+}
+
+
+async function loadStoredDeploymentConfiguration(
+  deploymentConfigurationId:
+    string
+) {
+  const key =
+    createDeploymentConfigurationObjectKey(
+      deploymentConfigurationId
+    );
+
+
+  const stored =
+    await readStoredDeploymentConfiguration(
+      key
+    );
+
+
+  let parsed:
+    any;
+
+
+  try {
+    parsed =
+      JSON.parse(
+        stored.body
+      );
+  } catch {
+    throw new Error(
+      "Stored Deployment Configuration is corrupt."
+    );
+  }
+
+
+  const configuration =
+    normalizeAndValidateDeploymentConfigurationDocument(
+      parsed
+    );
+
+
+  if (
+    configuration.stage !==
+      STAGE
+  ) {
+    throw new Error(
+      "Stored Deployment Configuration belongs to a different stage."
+    );
+  }
+
+
+  const configurationSha256 =
+    validateStoredBodyChecksum({
+      body:
+        stored.body,
+
+      checksumSha256:
+        stored.checksumSha256,
+
+      label:
+        "Stored Deployment Configuration",
+    });
+
+
+  return {
+    configuration,
+
+    key,
+
+    configurationSha256,
+  };
+}
+
+async function loadDeploymentConfigurationForComposition({
+  platformReleaseId,
+  profileVariantId,
+  contentSchemaVersion,
+  contentHash,
+}: {
+  platformReleaseId:
+    string;
+
+  profileVariantId:
+    string;
+
+  contentSchemaVersion:
+    number;
+
+  contentHash:
+    string;
+}) {
+  const deploymentConfigurationId =
+    computeDeploymentConfigurationId({
+      stage:
+        STAGE as
+          | "dev"
+          | "prod",
+
+      platformReleaseId,
+
+      profileVariantId,
+    });
+
+
+  const stored =
+    await loadStoredDeploymentConfiguration(
+      deploymentConfigurationId
+    );
+
+
+  const configuration =
+    stored.configuration;
+
+
+  if (
+    configuration
+      .deploymentConfigurationId !==
+      deploymentConfigurationId ||
+    configuration
+      .platformReleaseId !==
+      platformReleaseId ||
+    configuration
+      .profileVariantId !==
+      profileVariantId
+  ) {
+    throw new Error(
+      "Stored Deployment Configuration composition identity mismatch."
+    );
+  }
+
+
+  if (
+    configuration
+      .profile
+      .contentSchemaVersion !==
+      contentSchemaVersion ||
+    configuration
+      .profile
+      .contentHash !==
+      contentHash
+  ) {
+    throw new Error(
+      "Stored Deployment Configuration Profile evidence mismatch."
+    );
+  }
+
+
+  return stored;
+}
+
+
+function deploymentConfigurationCatalogItem({
+  configuration,
+  key,
+  configurationSha256,
+}: {
+  configuration:
+    any;
+
+  key:
+    string;
+
+  configurationSha256:
+    string;
+}) {
+  const id =
+    configuration
+      .deploymentConfigurationId;
+
+  const createdAt =
+    configuration
+      .createdAt;
+
+
+  return {
+    pk: {
+      S:
+        `CONFIG#${id}`,
+    },
+
+    sk: {
+      S:
+        "CONFIG",
+    },
+
+    deploymentConfigurationId: {
+      S:
+        id,
+    },
+
+    stage: {
+      S:
+        configuration
+          .stage,
+    },
+
+    createdAt: {
+      S:
+        createdAt,
+    },
+
+    platformReleaseId: {
+      S:
+        configuration
+          .platformReleaseId,
+    },
+
+    profileVariantId: {
+      S:
+        configuration
+          .profileVariantId,
+    },
+
+    contentSchemaVersion: {
+      N:
+        String(
+          configuration
+            .profile
+            .contentSchemaVersion
+        ),
+    },
+
+    contentHash: {
+      S:
+        configuration
+          .profile
+          .contentHash,
+    },
+
+    profileTargetingLocation: {
+      S:
+        configuration
+          .profile
+          .targeting
+          .location,
+    },
+
+    profileTargetingJobRole: {
+      S:
+        configuration
+          .profile
+          .targeting
+          .jobRole,
+    },
+
+    objectKey: {
+      S:
+        key,
+    },
+
+    configurationSha256: {
+      S:
+        configurationSha256,
+    },
+
+    gsi1pk: {
+      S:
+        `PROFILE#${configuration.profileVariantId}`,
+    },
+
+    gsi1sk: {
+      S:
+        `CREATED#${createdAt}#CONFIG#${id}`,
+    },
+
+    gsi2pk: {
+      S:
+        `PLATFORM#${configuration.platformReleaseId}`,
+    },
+
+    gsi2sk: {
+      S:
+        `CREATED#${createdAt}#CONFIG#${id}`,
+    },
+  };
+}
+
+
+async function ensureDeploymentConfigurationCatalogEntry({
+  configuration,
+  key,
+  configurationSha256,
+}: {
+  configuration:
+    any;
+
+  key:
+    string;
+
+  configurationSha256:
+    string;
+}) {
+  /**
+   * DynamoDB is a derived searchable catalog.
+   *
+   * S3 remains authoritative.
+   *
+   * Rewriting this exact projection is intentionally allowed so
+   * retries can repair a missing/stale catalog entry without ever
+   * mutating the immutable S3 document.
+   */
+  await dynamodb.send(
+    new PutItemCommand({
+      TableName:
+        DEPLOYMENT_CONFIGURATIONS_TABLE,
+
+      Item:
+        deploymentConfigurationCatalogItem({
+          configuration,
+
+          key,
+
+          configurationSha256,
+        }),
+    })
+  );
+}
+
+
+function deploymentConfigurationCatalogSummary(
+  item: any
+) {
+  return {
+    deploymentConfigurationId:
+      String(
+        item
+          ?.deploymentConfigurationId
+          ?.S ||
+        ""
+      ),
+
+    stage:
+      String(
+        item
+          ?.stage
+          ?.S ||
+        ""
+      ),
+
+    createdAt:
+      String(
+        item
+          ?.createdAt
+          ?.S ||
+        ""
+      ),
+
+    platformReleaseId:
+      String(
+        item
+          ?.platformReleaseId
+          ?.S ||
+        ""
+      ),
+
+    profileVariantId:
+      String(
+        item
+          ?.profileVariantId
+          ?.S ||
+        ""
+      ),
+
+    contentSchemaVersion:
+      Number(
+        item
+          ?.contentSchemaVersion
+          ?.N ||
+        0
+      ),
+
+    contentHash:
+      String(
+        item
+          ?.contentHash
+          ?.S ||
+        ""
+      ),
+
+    targeting: {
+      location:
+        String(
+          item
+            ?.profileTargetingLocation
+            ?.S ||
+          ""
+        ),
+
+      jobRole:
+        String(
+          item
+            ?.profileTargetingJobRole
+            ?.S ||
+          ""
+        ),
+    },
+
+    objectKey:
+      String(
+        item
+          ?.objectKey
+          ?.S ||
+        ""
+      ),
+
+    configurationSha256:
+      String(
+        item
+          ?.configurationSha256
+          ?.S ||
+        ""
+      ),
+  };
+}
+
+
+function encodeDeploymentConfigurationNextToken(
+  key: any
+) {
+  if (!key) {
+    return null;
+  }
+
+
+  return Buffer
+    .from(
+      JSON.stringify(
+        key
+      ),
+      "utf8"
+    )
+    .toString(
+      "base64url"
+    );
+}
+
+
+function decodeDeploymentConfigurationNextToken(
+  value: unknown
+) {
+  const token =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (!token) {
+    return undefined;
+  }
+
+
+  if (
+    token.length >
+      4096
+  ) {
+    throw new Error(
+      "Invalid Deployment Configuration nextToken."
+    );
+  }
+
+
+  try {
+    const parsed =
+      JSON.parse(
+        Buffer
+          .from(
+            token,
+            "base64url"
+          )
+          .toString(
+            "utf8"
+          )
+      );
+
+
+    if (
+      !parsed ||
+      typeof parsed !==
+        "object" ||
+      Array.isArray(
+        parsed
+      )
+    ) {
+      throw new Error(
+        "invalid"
+      );
+    }
+
+
+    return parsed;
+  } catch {
+    throw new Error(
+      "Invalid Deployment Configuration nextToken."
+    );
+  }
+}
+
+function encodeControlPlaneHistoryNextToken(
+  scope:
+    string,
+
+  key:
+    any
+) {
+  if (
+    !key
+  ) {
+    return null;
+  }
+
+
+  return Buffer
+    .from(
+      JSON.stringify({
+        scope,
+
+        key,
+      }),
+      "utf8"
+    )
+    .toString(
+      "base64url"
+    );
+}
+
+
+function decodeControlPlaneHistoryNextToken(
+  value:
+    unknown,
+
+  scope:
+    string,
+
+  label:
+    string
+) {
+  const token =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (
+    !token
+  ) {
+    return undefined;
+  }
+
+
+  if (
+    token.length >
+      4096
+  ) {
+    throw new Error(
+      `Invalid ${label} nextToken.`
+    );
+  }
+
+
+  try {
+    const parsed =
+      JSON.parse(
+        Buffer
+          .from(
+            token,
+            "base64url"
+          )
+          .toString(
+            "utf8"
+          )
+      );
+
+
+    if (
+      !parsed ||
+      typeof parsed !==
+        "object" ||
+      Array.isArray(
+        parsed
+      ) ||
+      parsed.scope !==
+        scope ||
+      !parsed.key ||
+      typeof parsed.key !==
+        "object" ||
+      Array.isArray(
+        parsed.key
+      )
+    ) {
+      throw new Error(
+        "invalid"
+      );
+    }
+
+
+    return parsed.key;
+  } catch {
+    throw new Error(
+      `Invalid ${label} nextToken.`
+    );
+  }
+}
+
+
+function parseControlPlaneHistoryLimit(
+  value:
+    unknown
+) {
+  const raw =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (
+    !raw
+  ) {
+    return 50;
+  }
+
+
+  const limit =
+    Number(
+      raw
+    );
+
+
+  if (
+    !Number.isInteger(
+      limit
+    ) ||
+    limit <
+      1 ||
+    limit >
+      100
+  ) {
+    throw new Error(
+      "limit must be an integer between 1 and 100."
+    );
+  }
+
+
+  return limit;
+}
+
+
+function profileActivationHistorySummary(
+  item:
+    any
+) {
+  const record =
+    unmarshall(
+      item
+    );
+
+
+  validateProfileActivationRecord(
+    record
+  );
+
+
+  return {
+    activationId:
+      record.activationId,
+
+    profileVariantId:
+      record.profileVariantId,
+
+    activatedAt:
+      record.activatedAt,
+
+    revision:
+      record.revision,
+
+    previousActivationId:
+      record.previousActivationId,
+
+    previousProfileVariantId:
+      record.previousProfileVariantId,
+
+    contentSchemaVersion:
+      record.contentSchemaVersion,
+
+    contentHash:
+      record.contentHash,
+  };
+}
+
+
+function platformDeploymentHistorySummary(
+  item:
+    any
+) {
+  const record =
+    unmarshall(
+      item
+    );
+
+
+  validatePlatformDeploymentRecord(
+    record
+  );
+
+
+  return {
+    deploymentId:
+      record.deploymentId,
+
+    platformReleaseId:
+      record.platformReleaseId,
+
+    deployedAt:
+      record.deployedAt,
+
+    revision:
+      record.revision,
+
+    platformReleaseSha256:
+      record.platformReleaseSha256,
+
+    previousDeploymentId:
+      record.previousDeploymentId,
+
+    previousPlatformReleaseId:
+      record.previousPlatformReleaseId,
+  };
+}
+
+function usageEpochDocumentSummary(
+  input:
+    unknown
+) {
+  const epoch =
+    normalizeAndValidateUsageEpochDocument(
+      input
+    );
+
+
+  if (
+    epoch.stage !==
+      STAGE
+  ) {
+    throw new Error(
+      "Stored Usage Epoch belongs to a different stage."
+    );
+  }
+
+
+  return {
+    usageEpochId:
+      epoch.usageEpochId,
+
+    stage:
+      epoch.stage,
+
+    deploymentConfigurationId:
+      epoch
+        .deploymentConfigurationId,
+
+    platformReleaseId:
+      epoch.platformReleaseId,
+
+    profileVariantId:
+      epoch.profileVariantId,
+
+    state:
+      epoch.state,
+
+    startedAt:
+      epoch.startedAt,
+
+    endedAt:
+      epoch.endedAt ??
+      null,
+
+    openedBy:
+      epoch.openedBy,
+
+    closedBy:
+      epoch.closedBy ??
+      null,
+
+    report:
+      epoch.report ??
+      null,
+  };
+}
+
+
+function usageEpochHistorySummary(
+  item:
+    any
+) {
+  const storageRecord =
+    unmarshall(
+      item
+    );
+
+
+  validateUsageEpochStorageRecord(
+    storageRecord
+  );
+
+
+  /**
+   * DynamoDB index attributes are persistence mechanics.
+   * They are deliberately not part of the owner API contract.
+   */
+  const document:
+    any = {
+      ...storageRecord,
+    };
+
+
+  delete document.pk;
+  delete document.sk;
+  delete document.gsi1pk;
+  delete document.gsi1sk;
+  delete document.gsi2pk;
+  delete document.gsi2sk;
+
+
+  return usageEpochDocumentSummary(
+    document
+  );
+}
+
+
+function isUsageEpochRecordMissing(
+  error:
+    any
+) {
+  return String(
+    error?.message ||
+    error ||
+    ""
+  ).includes(
+    "Usage Epoch record does not exist."
+  );
+}
+
+
+function assertReportMatchesUsageEpoch({
+  epoch:
+    inputEpoch,
+
+  stored,
+}: {
+  epoch:
+    unknown;
+
+  stored:
+    any;
+}) {
+  const epoch =
+    normalizeAndValidateUsageEpochDocument(
+      inputEpoch
+    );
+
+
+  if (
+    epoch.state !==
+      USAGE_EPOCH_STATE.CLOSED ||
+    !epoch.report
+  ) {
+    throw new Error(
+      "Usage Epoch does not contain finalized report evidence."
+    );
+  }
+
+
+  const report =
+    stored?.report;
+
+
+  const matches =
+    Boolean(
+      report &&
+      stored.reportSha256 ===
+        epoch.report
+          .reportSha256 &&
+      report.reportId ===
+        epoch.report
+          .reportId &&
+      report.usageEpochId ===
+        epoch.usageEpochId &&
+      report.stage ===
+        epoch.stage &&
+      report.deploymentConfigurationId ===
+        epoch.deploymentConfigurationId &&
+      report.platformReleaseId ===
+        epoch.platformReleaseId &&
+      report.profileVariantId ===
+        epoch.profileVariantId &&
+      report.interval
+        ?.startedAt ===
+        epoch.startedAt &&
+      report.interval
+        ?.endedAt ===
+        epoch.endedAt &&
+      canonicalJsonStringify(
+        report.openedBy
+      ) ===
+        canonicalJsonStringify(
+          epoch.openedBy
+        ) &&
+      canonicalJsonStringify(
+        report.closedBy
+      ) ===
+        canonicalJsonStringify(
+          epoch.closedBy
+        )
+    );
+
+
+  if (
+    !matches
+  ) {
+    throw new Error(
+      "Stored Configuration Analytics Report does not match finalized Usage Epoch evidence."
+    );
+  }
+}
+
+
+function encodeImmutableCatalogNextToken(
+  scope:
+    string,
+
+  continuationToken:
+    unknown
+) {
+  const token =
+    String(
+      continuationToken ||
+      ""
+    ).trim();
+
+
+  if (
+    !token
+  ) {
+    return null;
+  }
+
+
+  return Buffer
+    .from(
+      JSON.stringify({
+        scope,
+
+        continuationToken:
+          token,
+      }),
+      "utf8"
+    )
+    .toString(
+      "base64url"
+    );
+}
+
+
+function decodeImmutableCatalogNextToken(
+  value:
+    unknown,
+
+  scope:
+    string,
+
+  label:
+    string
+) {
+  const token =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (
+    !token
+  ) {
+    return undefined;
+  }
+
+
+  if (
+    token.length >
+      4096
+  ) {
+    throw new Error(
+      `Invalid ${label} nextToken.`
+    );
+  }
+
+
+  try {
+    const parsed =
+      JSON.parse(
+        Buffer
+          .from(
+            token,
+            "base64url"
+          )
+          .toString(
+            "utf8"
+          )
+      );
+
+
+    if (
+      !parsed ||
+      typeof parsed !==
+        "object" ||
+      Array.isArray(
+        parsed
+      ) ||
+      parsed.scope !==
+        scope ||
+      typeof parsed
+        .continuationToken !==
+        "string" ||
+      !parsed
+        .continuationToken
+        .trim()
+    ) {
+      throw new Error(
+        "invalid"
+      );
+    }
+
+
+    return parsed
+      .continuationToken
+      .trim();
+  } catch {
+    throw new Error(
+      `Invalid ${label} nextToken.`
+    );
+  }
+}
+
+
+function parseImmutableCatalogLimit(
+  value:
+    unknown
+) {
+  const raw =
+    String(
+      value ||
+      ""
+    ).trim();
+
+
+  if (
+    !raw
+  ) {
+    return 25;
+  }
+
+
+  const limit =
+    Number(
+      raw
+    );
+
+
+  if (
+    !Number.isInteger(
+      limit
+    ) ||
+    limit <
+      1 ||
+    limit >
+      50
+  ) {
+    throw new Error(
+      "limit must be an integer between 1 and 50."
+    );
+  }
+
+
+  return limit;
+}
+
+
+function profileVariantCatalogSummary({
+  variant,
+  key,
+  manifestSha256,
+}: {
+  variant:
+    any;
+
+  key:
+    string;
+
+  manifestSha256:
+    string;
+}) {
+  return {
+    profileVariantId:
+      variant
+        .profileVariantId,
+
+    schemaId:
+      variant
+        .schemaId,
+
+    createdAt:
+      variant
+        .createdAt,
+
+    contentSchemaVersion:
+      variant
+        .contentSchemaVersion,
+
+    contentHash:
+      variant
+        .contentHash,
+
+    targeting:
+      variant
+        .targeting,
+
+    key,
+
+    manifestSha256,
+  };
+}
+
+
+function platformReleaseCatalogSummary({
+  release,
+  key,
+  releaseSha256,
+}: {
+  release:
+    any;
+
+  key:
+    string;
+
+  releaseSha256:
+    string;
+}) {
+  return {
+    platformReleaseId:
+      release
+        .platformReleaseId,
+
+    schemaId:
+      release
+        .schemaId,
+
+    stage:
+      release
+        .stage,
+
+    createdAt:
+      release
+        .createdAt,
+
+    ppsVersion:
+      release
+        .profileRuntime
+        ?.ppsVersion ??
+      null,
+
+    source: {
+      repository:
+        release
+          .source
+          .repository,
+
+      gitSha:
+        release
+          .source
+          .gitSha,
+
+      gitRef:
+        release
+          .source
+          .gitRef,
+
+      checkpointTag:
+        release
+          .source
+          .checkpointTag,
+    },
+
+    buildTime:
+      release
+        .build
+        .buildTime,
+
+    frontendArtifactSha256:
+      release
+        .build
+        .frontendArtifactSha256,
+
+    key,
+
+    releaseSha256,
   };
 }
 
@@ -562,8 +2887,7101 @@ export async function handler(event: Event) {
     return json(403, { ok: false, error: "CORS origin not allowed", origin }, "");
   }
 
-  const auth = requireOwner(event.headers);
-  if (!auth.ok) return json(auth.status, { ok: false, error: auth.msg }, corsOrigin);
+  // -----------------------------
+  // POST /owner/session
+  //
+  // Browser-only authentication exchange.
+  //
+  // The master passcode is verified once and is never
+  // returned to or persisted by the server.
+  //
+  // Normal owner API calls use the returned short-lived,
+  // stage-bound HMAC session credential.
+  //
+  // Existing CI/machine callers may continue using the
+  // master credential directly.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/owner/session"
+    )
+  ) {
+    let payload:
+      any = {};
+
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const passcode =
+      String(
+        payload.passcode ||
+        ""
+      ).trim();
+
+
+    if (!passcode) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Passcode required",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let expectedMaster:
+      string;
+
+
+    try {
+      expectedMaster =
+        await getOwnerToken();
+    } catch (e: any) {
+      console.error(
+        "Owner session master credential load failed",
+        {
+          secretConfigured:
+            Boolean(
+              OWNER_TOKEN_SECRET_ID
+            ),
+
+          error:
+            String(
+              e?.message ||
+              e
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Owner authentication unavailable",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      !secretsMatch(
+        passcode,
+        expectedMaster
+      )
+    ) {
+      return json(
+        401,
+        {
+          ok:
+            false,
+
+          error:
+            "Unauthorized",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let signingKey:
+      string;
+
+
+    try {
+      signingKey =
+        await getOwnerSessionSigningKey();
+    } catch (e: any) {
+      console.error(
+        "Owner session signing credential load failed",
+        {
+          secretConfigured:
+            Boolean(
+              OWNER_SESSION_SIGNING_KEY_SECRET_ID
+            ),
+
+          error:
+            String(
+              e?.message ||
+              e
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Owner session unavailable",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let created;
+
+
+    try {
+      created =
+        createOwnerSessionToken({
+          stage:
+            STAGE as
+              "dev" |
+              "prod",
+
+          signingKey,
+        });
+    } catch (e: any) {
+      console.error(
+        "Owner session issuance failed",
+        {
+          stage:
+            STAGE,
+
+          error:
+            String(
+              e?.message ||
+              e
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Owner session unavailable",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      200,
+      {
+        ok:
+          true,
+
+        sessionToken:
+          created.token,
+
+        expiresAt:
+          created.expiresAt,
+
+        expiresInSeconds:
+          created.expiresInSeconds,
+      },
+      corsOrigin
+    );
+  }
+
+  const auth =
+    await requireOwner(
+      event.headers
+    );
+
+
+  if (
+    !auth.ok
+  ) {
+    return json(
+      auth.status,
+      {
+        ok:
+          false,
+
+        error:
+          auth.msg,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // POST /profile-variants/assets/presign-put
+  //
+  // body:
+  // {
+  //   sha256,
+  //   contentType
+  // }
+  //
+  // Asset object keys are computed server-side from immutable
+  // bytes identity. The client cannot choose arbitrary S3 keys.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/profile-variants/assets/presign-put"
+    )
+  ) {
+    const storage =
+      requireProfileVariantStorage();
+
+    if (!storage.ok) {
+      return json(
+        storage.status,
+        {
+          ok: false,
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload: any = {};
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const sha256 =
+      String(
+        payload.sha256 ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+
+    const contentType =
+      String(
+        payload.contentType ||
+        ""
+      ).trim();
+
+
+    let key: string;
+
+    let checksumBase64:
+      string;
+
+
+    try {
+      key =
+        createProfileVariantAssetObjectKey({
+          sha256,
+          contentType,
+        });
+
+      checksumBase64 =
+        hexSha256ToBase64(
+          sha256
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Content-addressed object already present:
+     * skip upload only if S3 confirms exact bytes + type.
+     */
+    try {
+      const existing =
+        await s3.send(
+          new HeadObjectCommand({
+            Bucket:
+              PROFILE_VARIANTS_BUCKET,
+
+            Key:
+              key,
+
+            ChecksumMode:
+              "ENABLED",
+          })
+        );
+
+
+      const existingHash =
+        base64Sha256ToHex(
+          String(
+            existing.ChecksumSHA256 ||
+            ""
+          )
+        );
+
+
+      if (
+        existingHash !==
+          sha256 ||
+        String(
+          existing.ContentType ||
+          ""
+        ) !==
+          contentType
+      ) {
+        return json(
+          409,
+          {
+            ok: false,
+            error:
+              "Content-addressed asset key already exists with incompatible metadata.",
+            key,
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          key,
+
+          alreadyExists:
+            true,
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        !isS3NotFound(
+          error
+        )
+      ) {
+        console.error(
+          "Profile asset HEAD failed",
+          {
+            key,
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok: false,
+            error:
+              "Failed to inspect Profile Variant asset.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    const cmd =
+      new PutObjectCommand({
+        Bucket:
+          PROFILE_VARIANTS_BUCKET,
+
+        Key:
+          key,
+
+        ContentType:
+          contentType,
+
+        ChecksumSHA256:
+          checksumBase64,
+
+        IfNoneMatch:
+          "*",
+      });
+
+
+    const url =
+      await getSignedUrl(
+        s3,
+        cmd,
+        {
+          expiresIn:
+            600,
+        }
+      );
+
+
+    return json(
+      200,
+      {
+        ok:
+          true,
+
+        key,
+
+        alreadyExists:
+          false,
+
+        url,
+
+        requiredHeaders: {
+          "content-type":
+            contentType,
+
+          "x-amz-checksum-sha256":
+            checksumBase64,
+
+          "if-none-match":
+            "*",
+        },
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // POST /profile-variants/publish
+  //
+  // body:
+  // {
+  //   variant: <ProfileVariant>
+  // }
+  //
+  // COMMIT RULE:
+  // manifest.json is written only after every immutable asset
+  // exists in S3 and its checksum/content-type are verified.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/profile-variants/publish"
+    )
+  ) {
+    const storage =
+      requireProfileVariantStorage();
+
+    if (!storage.ok) {
+      return json(
+        storage.status,
+        {
+          ok: false,
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload: any = {};
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let variant: any;
+
+    try {
+      variant =
+        normalizeAndValidateProfileVariantDocument(
+          payload.variant
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Verify every referenced immutable asset.
+     *
+     * Nothing is trusted merely because the client says it was
+     * uploaded successfully.
+     */
+    for (
+      const asset of
+        variant.assets
+    ) {
+      let head: any;
+
+      try {
+        head =
+          await s3.send(
+            new HeadObjectCommand({
+              Bucket:
+                PROFILE_VARIANTS_BUCKET,
+
+              Key:
+                asset.objectKey,
+
+              ChecksumMode:
+                "ENABLED",
+            })
+          );
+      } catch (
+        error: any
+      ) {
+        if (
+          isS3NotFound(
+            error
+          )
+        ) {
+          return json(
+            409,
+            {
+              ok: false,
+              error:
+                `Profile Variant asset "${asset.id}" has not been uploaded.`,
+              assetId:
+                asset.id,
+              key:
+                asset.objectKey,
+            },
+            corsOrigin
+          );
+        }
+
+
+        console.error(
+          "Profile asset verification failed",
+          {
+            assetId:
+              asset.id,
+
+            key:
+              asset.objectKey,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok: false,
+            error:
+              "Failed to verify Profile Variant assets.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      const actualSha256 =
+        base64Sha256ToHex(
+          String(
+            head.ChecksumSHA256 ||
+            ""
+          )
+        );
+
+
+      if (
+        actualSha256 !==
+          asset.sha256
+      ) {
+        return json(
+          409,
+          {
+            ok: false,
+            error:
+              `Checksum mismatch for Profile Variant asset "${asset.id}".`,
+          },
+          corsOrigin
+        );
+      }
+
+
+      if (
+        String(
+          head.ContentType ||
+          ""
+        ) !==
+          asset.contentType
+      ) {
+        return json(
+          409,
+          {
+            ok: false,
+            error:
+              `Content-Type mismatch for Profile Variant asset "${asset.id}".`,
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let manifestKey:
+      string;
+
+
+    try {
+      manifestKey =
+        createProfileVariantManifestKey(
+          variant.profileVariantId
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const manifestBody =
+      canonicalJsonStringify(
+        variant
+      );
+
+
+    const manifestSha256 =
+      sha256Hex(
+        manifestBody
+      );
+
+
+    const manifestChecksumBase64 =
+      hexSha256ToBase64(
+        manifestSha256
+      );
+
+
+    /**
+     * Idempotency:
+     *
+     * If this exact Profile Variant was already published,
+     * return success.
+     *
+     * If the ID already points at different immutable bytes,
+     * reject permanently.
+     */
+    try {
+      const existing =
+        await readPublishedProfileVariant(
+          manifestKey
+        );
+
+
+      if (
+        existing.body ===
+          manifestBody
+      ) {
+        return json(
+          200,
+          {
+            ok:
+              true,
+
+            alreadyPublished:
+              true,
+
+            profileVariantId:
+              variant
+                .profileVariantId,
+
+            contentHash:
+              variant
+                .contentHash,
+
+            key:
+              manifestKey,
+
+            manifestSha256,
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        409,
+        {
+          ok: false,
+          error:
+            "profileVariantId already exists with different immutable content.",
+          profileVariantId:
+            variant
+              .profileVariantId,
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        !isS3NotFound(
+          error
+        )
+      ) {
+        console.error(
+          "Profile Variant manifest read failed",
+          {
+            manifestKey,
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok: false,
+            error:
+              "Failed to inspect existing Profile Variant.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket:
+            PROFILE_VARIANTS_BUCKET,
+
+          Key:
+            manifestKey,
+
+          Body:
+            manifestBody,
+
+          ContentType:
+            "application/json",
+
+          ChecksumSHA256:
+            manifestChecksumBase64,
+
+          IfNoneMatch:
+            "*",
+        })
+      );
+    } catch (
+      error: any
+    ) {
+      /**
+       * Another publish may have won the race after our GET.
+       */
+      if (
+        isS3PreconditionFailed(
+          error
+        )
+      ) {
+        try {
+          const existing =
+            await readPublishedProfileVariant(
+              manifestKey
+            );
+
+
+          if (
+            existing.body ===
+              manifestBody
+          ) {
+            return json(
+              200,
+              {
+                ok:
+                  true,
+
+                alreadyPublished:
+                  true,
+
+                profileVariantId:
+                  variant
+                    .profileVariantId,
+
+                contentHash:
+                  variant
+                    .contentHash,
+
+                key:
+                  manifestKey,
+
+                manifestSha256,
+              },
+              corsOrigin
+            );
+          }
+        } catch {
+          // fall through to conflict
+        }
+
+
+        return json(
+          409,
+          {
+            ok: false,
+            error:
+              "Profile Variant publication conflict.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Profile Variant manifest commit failed",
+        {
+          manifestKey,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok: false,
+          error:
+            "Failed to publish Profile Variant.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      201,
+      {
+        ok:
+          true,
+
+        alreadyPublished:
+          false,
+
+        profileVariantId:
+          variant
+            .profileVariantId,
+
+        contentHash:
+          variant
+            .contentHash,
+
+        key:
+          manifestKey,
+
+        manifestSha256,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // GET /profile-variants/get?profileVariantId=...
+  //
+  // Owner-only retrieval of immutable published manifest.
+  // Public active-profile delivery belongs to P3, not here.
+  // -----------------------------
+  if (
+    method === "GET" &&
+    path.endsWith(
+      "/profile-variants/get"
+    )
+  ) {
+    const storage =
+      requireProfileVariantStorage();
+
+    if (!storage.ok) {
+      return json(
+        storage.status,
+        {
+          ok: false,
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const profileVariantId =
+      String(
+        event
+          .queryStringParameters
+          ?.profileVariantId ||
+        ""
+      ).trim();
+
+
+    let key:
+      string;
+
+
+    try {
+      key =
+        createProfileVariantManifestKey(
+          profileVariantId
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      const stored =
+        await readPublishedProfileVariant(
+          key
+        );
+
+
+      let parsed: any;
+
+      try {
+        parsed =
+          JSON.parse(
+            stored.body
+          );
+      } catch {
+        return json(
+          500,
+          {
+            ok: false,
+            error:
+              "Stored Profile Variant manifest is corrupt.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      let variant: any;
+
+      try {
+        variant =
+          normalizeAndValidateProfileVariantDocument(
+            parsed
+          );
+      } catch (
+        error: any
+      ) {
+        console.error(
+          "Stored Profile Variant validation failed",
+          {
+            key,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok: false,
+            error:
+              "Stored Profile Variant failed validation.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      const manifestSha256 =
+        sha256Hex(
+          stored.body
+        );
+
+
+      const storedChecksum =
+        base64Sha256ToHex(
+          stored
+            .checksumSha256
+        );
+
+
+      if (
+        storedChecksum &&
+        storedChecksum !==
+          manifestSha256
+      ) {
+        return json(
+          500,
+          {
+            ok: false,
+            error:
+              "Stored Profile Variant checksum verification failed.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          key,
+
+          manifestSha256,
+
+          variant,
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok: false,
+            error:
+              "Profile Variant not found.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Profile Variant read failed",
+        {
+          key,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok: false,
+          error:
+            "Failed to read Profile Variant.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // GET /profile-variants/list
+  //
+  // Owner-only enumeration of authoritative immutable Profile
+  // Variant manifests.
+  //
+  // Optional:
+  //   limit=1..50
+  //   nextToken=...
+  //
+  // S3 key order is the stable pagination order.
+  // createdAt is evidence, not the pagination cursor.
+  //
+  // assets/sha256/* is never enumerated.
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/profile-variants/list"
+    )
+  ) {
+    const storage =
+      requireProfileVariantStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let limit:
+      number;
+
+    let continuationToken:
+      string |
+      undefined;
+
+
+    try {
+      limit =
+        parseImmutableCatalogLimit(
+          event
+            .queryStringParameters
+            ?.limit
+        );
+
+      continuationToken =
+        decodeImmutableCatalogNextToken(
+          event
+            .queryStringParameters
+            ?.nextToken,
+
+          "profile-variants",
+
+          "Profile Variant catalog"
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      const out =
+        await s3.send(
+          new ListObjectsV2Command({
+            Bucket:
+              PROFILE_VARIANTS_BUCKET,
+
+            Prefix:
+              "variants/",
+
+            Delimiter:
+              "/",
+
+            MaxKeys:
+              limit,
+
+            ContinuationToken:
+              continuationToken,
+          })
+        );
+
+
+      /**
+       * There should be no direct immutable objects under variants/.
+       *
+       * Canonical layout:
+       *
+       *   variants/<profileVariantId>/manifest.json
+       *
+       * A console-style variants/ directory marker is harmless.
+       */
+      const unexpectedRootObjects =
+        (
+          out.Contents ||
+          []
+        )
+          .map(
+            (item) =>
+              String(
+                item.Key ||
+                ""
+              )
+          )
+          .filter(
+            (key) =>
+              key &&
+              key !==
+                "variants/"
+          );
+
+
+      if (
+        unexpectedRootObjects.length
+      ) {
+        throw new Error(
+          "Profile Variant catalog contains a non-canonical root object."
+        );
+      }
+
+
+      const variants =
+        await Promise.all(
+          (
+            out.CommonPrefixes ||
+            []
+          ).map(
+            async (
+              entry
+            ) => {
+              const prefix =
+                String(
+                  entry.Prefix ||
+                  ""
+                );
+
+
+              const match =
+                /^variants\/([^/]+)\/$/
+                  .exec(
+                    prefix
+                  );
+
+
+              if (
+                !match
+              ) {
+                throw new Error(
+                  "Profile Variant catalog contains an invalid prefix."
+                );
+              }
+
+
+              const profileVariantId =
+                match[1];
+
+
+              const expectedKey =
+                createProfileVariantManifestKey(
+                  profileVariantId
+                );
+
+
+              if (
+                expectedKey !==
+                  `${prefix}manifest.json`
+              ) {
+                throw new Error(
+                  "Profile Variant catalog prefix is not canonical."
+                );
+              }
+
+
+              const stored =
+                await loadAuthoritativeProfileVariantRecord(
+                  profileVariantId
+                );
+
+
+              return profileVariantCatalogSummary({
+                variant:
+                  stored.variant,
+
+                key:
+                  stored.key,
+
+                manifestSha256:
+                  stored
+                    .manifestSha256,
+              });
+            }
+          )
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          order:
+            "objectKeyAscending",
+
+          variants,
+
+          nextToken:
+            encodeImmutableCatalogNextToken(
+              "profile-variants",
+
+              out
+                .NextContinuationToken
+            ),
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Profile Variant catalog enumeration failed",
+        {
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to enumerate Profile Variant catalog.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // POST /platform-releases/register
+  //
+  // Owner-only registration of one immutable application/software
+  // release.
+  //
+  // body:
+  // {
+  //   release: <PlatformRelease>
+  // }
+  //
+  // Registration != deployment.
+  // Registration != Profile activation.
+  //
+  // The same ID + identical canonical document is idempotent.
+  // The same ID + different immutable content is a conflict.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/platform-releases/register"
+    )
+  ) {
+    const storage =
+      requirePlatformReleaseStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload: any =
+      {};
+
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let release:
+      any;
+
+
+    try {
+      release =
+        normalizeAndValidatePlatformReleaseDocument(
+          payload.release
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      release.stage !==
+        STAGE
+    ) {
+      return json(
+        409,
+        {
+          ok:
+            false,
+
+          error:
+            `Platform Release stage "${release.stage}" does not match API stage "${STAGE}".`,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let key:
+      string;
+
+
+    try {
+      key =
+        createPlatformReleaseObjectKey(
+          release
+            .platformReleaseId
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const releaseBody =
+      canonicalJsonStringify(
+        release
+      );
+
+
+    const releaseSha256 =
+      sha256Hex(
+        releaseBody
+      );
+
+
+    const checksumBase64 =
+      hexSha256ToBase64(
+        releaseSha256
+      );
+
+
+    /**
+     * Fast idempotency/conflict path.
+     */
+    try {
+      const existing =
+        await readStoredPlatformRelease(
+          key
+        );
+
+
+      if (
+        existing.body ===
+          releaseBody
+      ) {
+        return json(
+          200,
+          {
+            ok:
+              true,
+
+            alreadyRegistered:
+              true,
+
+            platformReleaseId:
+              release
+                .platformReleaseId,
+
+            key,
+
+            releaseSha256,
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        409,
+        {
+          ok:
+            false,
+
+          error:
+            "platformReleaseId already exists with different immutable content.",
+
+          platformReleaseId:
+            release
+              .platformReleaseId,
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        !isS3NotFound(
+          error
+        )
+      ) {
+        console.error(
+          "Platform Release inspection failed",
+          {
+            key,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to inspect existing Platform Release.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket:
+            PLATFORM_RELEASES_BUCKET,
+
+          Key:
+            key,
+
+          Body:
+            releaseBody,
+
+          ContentType:
+            "application/json",
+
+          ChecksumSHA256:
+            checksumBase64,
+
+          IfNoneMatch:
+            "*",
+        })
+      );
+    } catch (
+      error: any
+    ) {
+      /**
+       * Another writer may have registered the same release
+       * after our initial GET.
+       */
+      if (
+        isS3PreconditionFailed(
+          error
+        )
+      ) {
+        try {
+          const existing =
+            await readStoredPlatformRelease(
+              key
+            );
+
+
+          if (
+            existing.body ===
+              releaseBody
+          ) {
+            return json(
+              200,
+              {
+                ok:
+                  true,
+
+                alreadyRegistered:
+                  true,
+
+                platformReleaseId:
+                  release
+                    .platformReleaseId,
+
+                key,
+
+                releaseSha256,
+              },
+              corsOrigin
+            );
+          }
+        } catch {
+          // Fall through to immutable-content conflict.
+        }
+
+
+        return json(
+          409,
+          {
+            ok:
+              false,
+
+            error:
+              "Platform Release registration conflict.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Platform Release registration failed",
+        {
+          key,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to register Platform Release.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      201,
+      {
+        ok:
+          true,
+
+        alreadyRegistered:
+          false,
+
+        platformReleaseId:
+          release
+            .platformReleaseId,
+
+        key,
+
+        releaseSha256,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // GET /platform-releases/get?platformReleaseId=...
+  //
+  // Owner-only retrieval of one immutable software release.
+  // -----------------------------
+  if (
+    method === "GET" &&
+    path.endsWith(
+      "/platform-releases/get"
+    )
+  ) {
+    const storage =
+      requirePlatformReleaseStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const platformReleaseId =
+      String(
+        event
+          .queryStringParameters
+          ?.platformReleaseId ||
+        ""
+      ).trim();
+
+
+    let key:
+      string;
+
+
+    try {
+      key =
+        createPlatformReleaseObjectKey(
+          platformReleaseId
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      const stored =
+        await readStoredPlatformRelease(
+          key
+        );
+
+
+      let parsed:
+        any;
+
+
+      try {
+        parsed =
+          JSON.parse(
+            stored.body
+          );
+      } catch {
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Stored Platform Release is corrupt.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      let release:
+        any;
+
+
+      try {
+        release =
+          normalizeAndValidatePlatformReleaseDocument(
+            parsed
+          );
+      } catch (
+        error: any
+      ) {
+        console.error(
+          "Stored Platform Release validation failed",
+          {
+            key,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Stored Platform Release failed validation.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      if (
+        release.stage !==
+          STAGE
+      ) {
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Stored Platform Release belongs to a different stage.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      const releaseSha256 =
+        sha256Hex(
+          stored.body
+        );
+
+
+      const storedChecksum =
+        base64Sha256ToHex(
+          stored
+            .checksumSha256
+        );
+
+
+      if (
+        storedChecksum &&
+        storedChecksum !==
+          releaseSha256
+      ) {
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Stored Platform Release checksum verification failed.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          platformReleaseId:
+            release
+              .platformReleaseId,
+
+          key,
+
+          releaseSha256,
+
+          release,
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Platform Release not found.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Platform Release read failed",
+        {
+          key,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read Platform Release.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+  // -----------------------------
+  // GET /platform-releases/list
+  //
+  // Owner-only enumeration of authoritative immutable Platform
+  // Releases.
+  //
+  // Optional:
+  //   limit=1..50
+  //   nextToken=...
+  //
+  // Both historical v1 and PPS-qualified v2 releases are readable.
+  // v1 is returned truthfully with ppsVersion: null.
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/platform-releases/list"
+    )
+  ) {
+    const storage =
+      requirePlatformReleaseStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let limit:
+      number;
+
+    let continuationToken:
+      string |
+      undefined;
+
+
+    try {
+      limit =
+        parseImmutableCatalogLimit(
+          event
+            .queryStringParameters
+            ?.limit
+        );
+
+      continuationToken =
+        decodeImmutableCatalogNextToken(
+          event
+            .queryStringParameters
+            ?.nextToken,
+
+          "platform-releases",
+
+          "Platform Release catalog"
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      const out =
+        await s3.send(
+          new ListObjectsV2Command({
+            Bucket:
+              PLATFORM_RELEASES_BUCKET,
+
+            Prefix:
+              "releases/",
+
+            MaxKeys:
+              limit,
+
+            ContinuationToken:
+              continuationToken,
+          })
+        );
+
+
+      const releaseKeys:
+        string[] = [];
+
+
+      for (
+        const entry of
+          out.Contents ||
+          []
+      ) {
+        const key =
+          String(
+            entry.Key ||
+            ""
+          );
+
+
+        if (
+          !key
+        ) {
+          throw new Error(
+            "Platform Release catalog contains an object without a key."
+          );
+        }
+
+
+        /**
+         * Harmless console-style directory marker.
+         */
+        if (
+          key ===
+            "releases/"
+        ) {
+          continue;
+        }
+
+
+        const match =
+          /^releases\/([^/]+)\.json$/
+            .exec(
+              key
+            );
+
+
+        if (
+          !match
+        ) {
+          throw new Error(
+            "Platform Release catalog contains a non-canonical object key."
+          );
+        }
+
+
+        const platformReleaseId =
+          match[1];
+
+
+        const expectedKey =
+          createPlatformReleaseObjectKey(
+            platformReleaseId
+          );
+
+
+        if (
+          expectedKey !==
+            key
+        ) {
+          throw new Error(
+            "Platform Release catalog object key is not canonical."
+          );
+        }
+
+
+        releaseKeys.push(
+          key
+        );
+      }
+
+
+      const releases =
+        await Promise.all(
+          releaseKeys.map(
+            async (
+              key
+            ) => {
+              const platformReleaseId =
+                key
+                  .slice(
+                    "releases/".length,
+                    -".json".length
+                  );
+
+
+              const stored =
+                await loadAuthoritativePlatformReleaseRecord(
+                  platformReleaseId
+                );
+
+
+              return platformReleaseCatalogSummary({
+                release:
+                  stored.release,
+
+                key:
+                  stored.key,
+
+                releaseSha256:
+                  stored
+                    .releaseSha256,
+              });
+            }
+          )
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          order:
+            "objectKeyAscending",
+
+          releases,
+
+          nextToken:
+            encodeImmutableCatalogNextToken(
+              "platform-releases",
+
+              out
+                .NextContinuationToken
+            ),
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Platform Release catalog enumeration failed",
+        {
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to enumerate Platform Release catalog.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // POST /deployment-configurations/create
+  //
+  // body:
+  // {
+  //   platformReleaseId,
+  //   profileVariantId
+  // }
+  //
+  // IMPORTANT:
+  // Client supplies identities only.
+  //
+  // Profile schema/hash/targeting are derived from the authoritative
+  // immutable Profile Variant.
+  //
+  // createdAt is assigned only on first creation.
+  //
+  // Re-selecting the same composition returns the already-existing
+  // immutable Deployment Configuration.
+  //
+  // PPS compatibility is enforced before a configuration may be
+  // created, reused or returned from concurrent-create recovery.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/deployment-configurations/create"
+    )
+  ) {
+    const storage =
+      requireDeploymentConfigurationStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload:
+      any = {};
+
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      !payload ||
+      typeof payload !==
+        "object" ||
+      Array.isArray(
+        payload
+      )
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Deployment Configuration create body must be an object.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const allowedKeys =
+      new Set([
+        "platformReleaseId",
+        "profileVariantId",
+      ]);
+
+
+    for (
+      const key of
+        Object.keys(
+          payload
+        )
+    ) {
+      if (
+        !allowedKeys.has(
+          key
+        )
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              `Deployment Configuration create body.${key} is not supported.`,
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    const platformReleaseId =
+      String(
+        payload
+          .platformReleaseId ||
+        ""
+      ).trim();
+
+    const profileVariantId =
+      String(
+        payload
+          .profileVariantId ||
+        ""
+      ).trim();
+
+
+    try {
+      createPlatformReleaseObjectKey(
+        platformReleaseId
+      );
+
+      createProfileVariantManifestKey(
+        profileVariantId
+      );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    let deploymentConfigurationId:
+      string;
+
+
+    try {
+      deploymentConfigurationId =
+        computeDeploymentConfigurationId({
+          stage:
+            STAGE as
+              | "dev"
+              | "prod",
+
+          platformReleaseId,
+
+          profileVariantId,
+        });
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const configurationKey =
+      createDeploymentConfigurationObjectKey(
+        deploymentConfigurationId
+      );
+
+
+    /**
+     * First inspect the authoritative immutable object.
+     *
+     * Do NOT return it yet.
+     *
+     * Existing immutable composition does not imply current
+     * operational eligibility. P6 PPS policy must still validate the
+     * authoritative Platform Release before this configuration can be
+     * reused.
+     */
+    let existingConfiguration:
+      Awaited<
+        ReturnType<
+          typeof loadStoredDeploymentConfiguration
+        >
+      > |
+      null =
+        null;
+
+
+    try {
+      existingConfiguration =
+        await loadStoredDeploymentConfiguration(
+          deploymentConfigurationId
+        );
+    } catch (
+      error: any
+    ) {
+      if (
+        !isS3NotFound(
+          error
+        )
+      ) {
+        console.error(
+          "Existing Deployment Configuration inspection failed",
+          {
+            deploymentConfigurationId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to inspect existing Deployment Configuration.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let platformRelease:
+      any;
+
+
+    try {
+      platformRelease =
+        await loadAuthoritativePlatformRelease(
+          platformReleaseId
+        );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Platform Release not found.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Deployment Configuration Platform Release load failed",
+        {
+          platformReleaseId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to load authoritative Platform Release.",
+        },
+        corsOrigin
+      );
+    }
+
+    /**
+     * Existing immutable configurations must pass current operational
+     * PPS policy before they can be reused.
+     *
+     * This prevents historical Platform Release v1 configurations
+     * from bypassing the P6 gate merely because the immutable
+     * configuration already exists.
+     */
+    if (
+      existingConfiguration
+    ) {
+      try {
+        assertDeclaredProfilePlatformCompatible({
+          platformRelease,
+
+          deploymentConfiguration:
+            existingConfiguration
+              .configuration,
+        });
+      } catch (
+        error: any
+      ) {
+        if (
+          isProfilePlatformCompatibilityGateError(
+            error
+          )
+        ) {
+          return json(
+            409,
+            profilePlatformGateFailureBody({
+              error,
+
+              platformReleaseId,
+
+              profileVariantId,
+
+              deploymentConfigurationId,
+            }),
+            corsOrigin
+          );
+        }
+
+
+        console.error(
+          "Existing Deployment Configuration PPS verification failed",
+          {
+            deploymentConfigurationId,
+
+            platformReleaseId,
+
+            profileVariantId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to verify existing Deployment Configuration compatibility.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      try {
+        await ensureDeploymentConfigurationCatalogEntry({
+          configuration:
+            existingConfiguration
+              .configuration,
+
+          key:
+            existingConfiguration
+              .key,
+
+          configurationSha256:
+            existingConfiguration
+              .configurationSha256,
+        });
+      } catch (
+        error: any
+      ) {
+        console.error(
+          "Existing Deployment Configuration catalog repair failed",
+          {
+            deploymentConfigurationId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to repair existing Deployment Configuration catalog.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          alreadyCreated:
+            true,
+
+          deploymentConfigurationId,
+
+          key:
+            existingConfiguration
+              .key,
+
+          configurationSha256:
+            existingConfiguration
+              .configurationSha256,
+
+          configuration:
+            existingConfiguration
+              .configuration,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let profileVariant:
+      any;
+
+
+    try {
+      profileVariant =
+        await loadAuthoritativeProfileVariant(
+          profileVariantId
+        );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Profile Variant not found.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Deployment Configuration Profile Variant load failed",
+        {
+          profileVariantId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to load authoritative Profile Variant.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let configuration:
+      any;
+
+
+    try {
+      configuration =
+        createDeploymentConfigurationDocument({
+          stage:
+            STAGE as
+              | "dev"
+              | "prod",
+
+          createdAt:
+            new Date()
+              .toISOString(),
+
+          platformRelease,
+
+          profileVariant,
+        });
+    } catch (
+      error: any
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      configuration
+        .deploymentConfigurationId !==
+      deploymentConfigurationId
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Deployment Configuration identity mismatch.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Compatibility is operational policy, not immutable
+     * Deployment Configuration content.
+     *
+     * Evaluate before writing. The configuration document itself
+     * remains compatibility-neutral.
+     */
+    try {
+      assertDeclaredProfilePlatformCompatible({
+        platformRelease,
+
+        deploymentConfiguration:
+          configuration,
+      });
+    } catch (
+      error: any
+    ) {
+      if (
+        isProfilePlatformCompatibilityGateError(
+          error
+        )
+      ) {
+        return json(
+          409,
+          profilePlatformGateFailureBody({
+            error,
+
+            platformReleaseId,
+
+            profileVariantId,
+
+            deploymentConfigurationId,
+          }),
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Deployment Configuration PPS verification failed",
+        {
+          deploymentConfigurationId,
+
+          platformReleaseId,
+
+          profileVariantId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to verify Deployment Configuration compatibility.",
+        },
+        corsOrigin
+      );
+    }
+
+    const configurationBody =
+      canonicalJsonStringify(
+        configuration
+      );
+
+    const configurationSha256 =
+      sha256Hex(
+        configurationBody
+      );
+
+    const checksumBase64 =
+      hexSha256ToBase64(
+        configurationSha256
+      );
+
+
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket:
+            DEPLOYMENT_CONFIGURATIONS_BUCKET,
+
+          Key:
+            configurationKey,
+
+          Body:
+            configurationBody,
+
+          ContentType:
+            "application/json",
+
+          ChecksumSHA256:
+            checksumBase64,
+
+          IfNoneMatch:
+            "*",
+        })
+      );
+    } catch (
+      error: any
+    ) {
+      /**
+       * Concurrent creator won the same deterministic identity.
+       *
+       * Do not compare createdAt/body. The authoritative winner is
+       * the immutable configuration for this composition.
+       */
+      if (
+        isS3PreconditionFailed(
+          error
+        )
+      ) {
+        try {
+          const winner =
+            await loadStoredDeploymentConfiguration(
+              deploymentConfigurationId
+            );
+
+          assertDeclaredProfilePlatformCompatible({
+            platformRelease,
+
+            deploymentConfiguration:
+              winner.configuration,
+          });
+
+
+          await ensureDeploymentConfigurationCatalogEntry({
+            configuration:
+              winner.configuration,
+
+            key:
+              winner.key,
+
+            configurationSha256:
+              winner
+                .configurationSha256,
+          });
+
+
+          return json(
+            200,
+            {
+              ok:
+                true,
+
+              alreadyCreated:
+                true,
+
+              deploymentConfigurationId,
+
+              key:
+                winner.key,
+
+              configurationSha256:
+                winner
+                  .configurationSha256,
+
+              configuration:
+                winner
+                  .configuration,
+            },
+            corsOrigin
+          );
+        } catch (
+          winnerError: any
+        ) {
+          if (
+            isProfilePlatformCompatibilityGateError(
+              winnerError
+            )
+          ) {
+            return json(
+              409,
+              profilePlatformGateFailureBody({
+                error:
+                  winnerError,
+
+                platformReleaseId,
+
+                profileVariantId,
+
+                deploymentConfigurationId,
+              }),
+              corsOrigin
+            );
+          }
+
+          console.error(
+            "Deployment Configuration race recovery failed",
+            {
+              deploymentConfigurationId,
+
+              error:
+                String(
+                  winnerError
+                    ?.message ||
+                  winnerError
+                ),
+            }
+          );
+
+
+          return json(
+            500,
+            {
+              ok:
+                false,
+
+              error:
+                "Failed to resolve concurrent Deployment Configuration creation.",
+            },
+            corsOrigin
+          );
+        }
+      }
+
+
+      console.error(
+        "Deployment Configuration immutable write failed",
+        {
+          deploymentConfigurationId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to create Deployment Configuration.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      await ensureDeploymentConfigurationCatalogEntry({
+        configuration,
+
+        key:
+          configurationKey,
+
+        configurationSha256,
+      });
+    } catch (
+      error: any
+    ) {
+      /**
+       * S3 is already committed and remains authoritative.
+       *
+       * Return failure so a retry can repair the derived catalog.
+       */
+      console.error(
+        "Deployment Configuration catalog write failed",
+        {
+          deploymentConfigurationId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Deployment Configuration was created but catalog indexing failed. Retry the same request to repair the catalog.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      201,
+      {
+        ok:
+          true,
+
+        alreadyCreated:
+          false,
+
+        deploymentConfigurationId,
+
+        key:
+          configurationKey,
+
+        configurationSha256,
+
+        configuration,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // GET /deployment-configurations/get
+  //     ?deploymentConfigurationId=...
+  // -----------------------------
+  if (
+    method === "GET" &&
+    path.endsWith(
+      "/deployment-configurations/get"
+    )
+  ) {
+    const storage =
+      requireDeploymentConfigurationStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const deploymentConfigurationId =
+      String(
+        event
+          .queryStringParameters
+          ?.deploymentConfigurationId ||
+        ""
+      ).trim();
+
+
+    try {
+      createDeploymentConfigurationObjectKey(
+        deploymentConfigurationId
+      );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      const stored =
+        await loadStoredDeploymentConfiguration(
+          deploymentConfigurationId
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          deploymentConfigurationId,
+
+          key:
+            stored.key,
+
+          configurationSha256:
+            stored
+              .configurationSha256,
+
+          configuration:
+            stored
+              .configuration,
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Deployment Configuration not found.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Deployment Configuration read failed",
+        {
+          deploymentConfigurationId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read Deployment Configuration.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // GET /deployment-configurations/list
+  //
+  // Exactly one reverse-lookup selector is required:
+  //
+  //   ?profileVariantId=...
+  //
+  // OR
+  //
+  //   ?platformReleaseId=...
+  //
+  // Optional:
+  //   limit=1..100
+  //   nextToken=...
+  // -----------------------------
+  if (
+    method === "GET" &&
+    path.endsWith(
+      "/deployment-configurations/list"
+    )
+  ) {
+    const storage =
+      requireDeploymentConfigurationStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const profileVariantId =
+      String(
+        event
+          .queryStringParameters
+          ?.profileVariantId ||
+        ""
+      ).trim();
+
+    const platformReleaseId =
+      String(
+        event
+          .queryStringParameters
+          ?.platformReleaseId ||
+        ""
+      ).trim();
+
+
+    if (
+      Boolean(
+        profileVariantId
+      ) ===
+      Boolean(
+        platformReleaseId
+      )
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Exactly one of profileVariantId or platformReleaseId is required.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      if (
+        profileVariantId
+      ) {
+        createProfileVariantManifestKey(
+          profileVariantId
+        );
+      } else {
+        createPlatformReleaseObjectKey(
+          platformReleaseId
+        );
+      }
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const rawLimit =
+      String(
+        event
+          .queryStringParameters
+          ?.limit ||
+        ""
+      ).trim();
+
+
+    let limit =
+      50;
+
+
+    if (
+      rawLimit
+    ) {
+      const parsedLimit =
+        Number(
+          rawLimit
+        );
+
+
+      if (
+        !Number.isInteger(
+          parsedLimit
+        ) ||
+        parsedLimit <
+          1 ||
+        parsedLimit >
+          100
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              "limit must be an integer between 1 and 100.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      limit =
+        parsedLimit;
+    }
+
+
+    let exclusiveStartKey:
+      any;
+
+
+    try {
+      exclusiveStartKey =
+        decodeDeploymentConfigurationNextToken(
+          event
+            .queryStringParameters
+            ?.nextToken
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const byProfile =
+      Boolean(
+        profileVariantId
+      );
+
+    const indexName =
+      byProfile
+        ? "ByProfileVariant"
+        : "ByPlatformRelease";
+
+    const indexPartitionKey =
+      byProfile
+        ? "gsi1pk"
+        : "gsi2pk";
+
+    const indexPartitionValue =
+      byProfile
+        ? `PROFILE#${profileVariantId}`
+        : `PLATFORM#${platformReleaseId}`;
+
+
+    try {
+      const out =
+        await dynamodb.send(
+          new QueryCommand({
+            TableName:
+              DEPLOYMENT_CONFIGURATIONS_TABLE,
+
+            IndexName:
+              indexName,
+
+            KeyConditionExpression:
+              "#indexPk = :indexPk",
+
+            ExpressionAttributeNames: {
+              "#indexPk":
+                indexPartitionKey,
+            },
+
+            ExpressionAttributeValues: {
+              ":indexPk": {
+                S:
+                  indexPartitionValue,
+              },
+            },
+
+            Limit:
+              limit,
+
+            ExclusiveStartKey:
+              exclusiveStartKey,
+
+            ScanIndexForward:
+              false,
+          })
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          filter:
+            byProfile
+              ? {
+                  profileVariantId,
+                  platformReleaseId:
+                    null,
+                }
+              : {
+                  profileVariantId:
+                    null,
+                  platformReleaseId,
+                },
+
+          configurations:
+            (
+              out.Items ||
+              []
+            ).map(
+              deploymentConfigurationCatalogSummary
+            ),
+
+          nextToken:
+            encodeDeploymentConfigurationNextToken(
+              out
+                .LastEvaluatedKey
+            ),
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Deployment Configuration catalog query failed",
+        {
+          indexName,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to query Deployment Configuration catalog.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+  // -----------------------------
+  // GET /profile-activations/list
+  //
+  // Owner-only append-only activation history.
+  //
+  // Optional:
+  //   profileVariantId=...
+  //   limit=1..100
+  //   nextToken=...
+  //
+  // Without profileVariantId the ACTIVATION ledger partition is read.
+  // With profileVariantId the existing ByProfileVariant GSI is used.
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/profile-activations/list"
+    )
+  ) {
+    const storage =
+      requireProfileActivationStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const profileVariantId =
+      String(
+        event
+          .queryStringParameters
+          ?.profileVariantId ||
+        ""
+      ).trim();
+
+
+    let variantIndexPk =
+      "";
+
+
+    if (
+      profileVariantId
+    ) {
+      try {
+        variantIndexPk =
+          createActivationVariantIndexPk(
+            profileVariantId
+          );
+      } catch (
+        error: any
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let limit:
+      number;
+
+
+    try {
+      limit =
+        parseControlPlaneHistoryLimit(
+          event
+            .queryStringParameters
+            ?.limit
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+                error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const scope =
+      profileVariantId
+        ? `profile-activations:${profileVariantId}`
+        : "profile-activations:all";
+
+
+    let exclusiveStartKey:
+      any;
+
+
+    try {
+      exclusiveStartKey =
+        decodeControlPlaneHistoryNextToken(
+          event
+            .queryStringParameters
+            ?.nextToken,
+
+          scope,
+
+          "Profile Activation"
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+                error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const byProfile =
+      Boolean(
+        profileVariantId
+      );
+
+
+    try {
+      const out =
+        await dynamodb.send(
+          new QueryCommand({
+            TableName:
+              PROFILE_ACTIVATION_TABLE,
+
+            ...(
+              byProfile
+                ? {
+                    IndexName:
+                      PROFILE_ACTIVATION_VARIANT_INDEX_NAME,
+
+                    KeyConditionExpression:
+                      "#indexPk = :indexPk",
+
+                    ExpressionAttributeNames: {
+                      "#indexPk":
+                        "gsi1pk",
+                    },
+
+                    ExpressionAttributeValues: {
+                      ":indexPk": {
+                        S:
+                          variantIndexPk,
+                      },
+                    },
+                  }
+                : {
+                    KeyConditionExpression:
+                      "#pk = :pk",
+
+                    ExpressionAttributeNames: {
+                      "#pk":
+                        "pk",
+                    },
+
+                    ExpressionAttributeValues: {
+                      ":pk": {
+                        S:
+                          PROFILE_ACTIVATION_LEDGER_PK,
+                      },
+                    },
+                  }
+            ),
+
+            Limit:
+              limit,
+
+            ExclusiveStartKey:
+              exclusiveStartKey,
+
+            ScanIndexForward:
+              false,
+          })
+        );
+
+
+      const activations =
+        (
+          out.Items ||
+          []
+        ).map(
+          profileActivationHistorySummary
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          filter: {
+            profileVariantId:
+              profileVariantId ||
+              null,
+          },
+
+          activations,
+
+          nextToken:
+            encodeControlPlaneHistoryNextToken(
+              scope,
+
+              out
+                .LastEvaluatedKey
+            ),
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Profile Activation history query failed",
+        {
+          profileVariantId:
+            profileVariantId ||
+            null,
+
+          error:
+            String(
+              error?.message ||
+                error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to query Profile Activation history.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+  // -----------------------------
+  // GET /platform-deployments/list
+  //
+  // Owner-only append-only Platform deployment history.
+  //
+  // Optional:
+  //   platformReleaseId=...
+  //   limit=1..100
+  //   nextToken=...
+  //
+  // Without platformReleaseId the DEPLOYMENT ledger partition is read.
+  // With platformReleaseId the existing ByPlatformRelease GSI is used.
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/platform-deployments/list"
+    )
+  ) {
+    const storage =
+      requirePlatformDeploymentStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const platformReleaseId =
+      String(
+        event
+          .queryStringParameters
+          ?.platformReleaseId ||
+        ""
+      ).trim();
+
+
+    let releaseIndexPk =
+      "";
+
+
+    if (
+      platformReleaseId
+    ) {
+      try {
+        releaseIndexPk =
+          createPlatformDeploymentReleaseIndexPk(
+            platformReleaseId
+          );
+      } catch (
+        error: any
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              String(
+                error?.message ||
+                  error
+              ),
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let limit:
+      number;
+
+
+    try {
+      limit =
+        parseControlPlaneHistoryLimit(
+          event
+            .queryStringParameters
+            ?.limit
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+                error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const scope =
+      platformReleaseId
+        ? `platform-deployments:${platformReleaseId}`
+        : "platform-deployments:all";
+
+
+    let exclusiveStartKey:
+      any;
+
+
+    try {
+      exclusiveStartKey =
+        decodeControlPlaneHistoryNextToken(
+          event
+            .queryStringParameters
+            ?.nextToken,
+
+          scope,
+
+          "Platform Deployment"
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+                error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const byRelease =
+      Boolean(
+        platformReleaseId
+      );
+
+
+    try {
+      const out =
+        await dynamodb.send(
+          new QueryCommand({
+            TableName:
+              PLATFORM_DEPLOYMENT_TABLE,
+
+            ...(
+              byRelease
+                ? {
+                    IndexName:
+                      PLATFORM_DEPLOYMENT_RELEASE_INDEX_NAME,
+
+                    KeyConditionExpression:
+                      "#indexPk = :indexPk",
+
+                    ExpressionAttributeNames: {
+                      "#indexPk":
+                        "gsi1pk",
+                    },
+
+                    ExpressionAttributeValues: {
+                      ":indexPk": {
+                        S:
+                          releaseIndexPk,
+                      },
+                    },
+                  }
+                : {
+                    KeyConditionExpression:
+                      "#pk = :pk",
+
+                    ExpressionAttributeNames: {
+                      "#pk":
+                        "pk",
+                    },
+
+                    ExpressionAttributeValues: {
+                      ":pk": {
+                        S:
+                          PLATFORM_DEPLOYMENT_LEDGER_PK,
+                      },
+                    },
+                  }
+            ),
+
+            Limit:
+              limit,
+
+            ExclusiveStartKey:
+              exclusiveStartKey,
+
+            ScanIndexForward:
+              false,
+          })
+        );
+
+
+      const deployments =
+        (
+          out.Items ||
+          []
+        ).map(
+          platformDeploymentHistorySummary
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          filter: {
+            platformReleaseId:
+              platformReleaseId ||
+              null,
+          },
+
+          deployments,
+
+          nextToken:
+            encodeControlPlaneHistoryNextToken(
+              scope,
+
+              out
+                .LastEvaluatedKey
+            ),
+        },
+        corsOrigin
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Platform Deployment history query failed",
+        {
+          platformReleaseId:
+            platformReleaseId ||
+            null,
+
+          error:
+            String(
+              error?.message ||
+                error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to query Platform Deployment history.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+  // -----------------------------
+  // GET /usage-epochs/list
+  //
+  // Owner-only Usage Epoch history.
+  //
+  // Efficient selectors only:
+  //
+  //   ?deploymentConfigurationId=...
+  //
+  // OR
+  //
+  //   ?state=OPEN|CLOSING|CLOSED
+  //
+  // When neither selector is supplied, CLOSED is the default.
+  //
+  // deploymentConfigurationId + state together is intentionally
+  // rejected rather than introducing FilterExpression pagination
+  // semantics or a table Scan.
+  //
+  // Optional:
+  //   limit=1..100
+  //   nextToken=...
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/usage-epochs/list"
+    )
+  ) {
+    const storage =
+      requireUsageEpochStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let deploymentConfigurationId =
+      String(
+        event
+          .queryStringParameters
+          ?.deploymentConfigurationId ||
+        ""
+      ).trim();
+
+    const requestedState =
+      String(
+        event
+          .queryStringParameters
+          ?.state ||
+        ""
+      )
+        .trim()
+        .toUpperCase();
+
+
+    if (
+      deploymentConfigurationId &&
+      requestedState
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "deploymentConfigurationId and state cannot be combined.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      deploymentConfigurationId
+    ) {
+      try {
+        deploymentConfigurationId =
+          requireControlPlaneId(
+            deploymentConfigurationId,
+            "deploymentConfigurationId"
+          );
+      } catch (
+        error:
+          any
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let state:
+      string |
+      null =
+        null;
+
+
+    if (
+      !deploymentConfigurationId
+    ) {
+      state =
+        requestedState ||
+        USAGE_EPOCH_STATE
+          .CLOSED;
+
+
+      if (
+        state !==
+          USAGE_EPOCH_STATE.OPEN &&
+        state !==
+          USAGE_EPOCH_STATE.CLOSING &&
+        state !==
+          USAGE_EPOCH_STATE.CLOSED
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              "state must be OPEN, CLOSING, or CLOSED.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let limit:
+      number;
+
+
+    try {
+      limit =
+        parseControlPlaneHistoryLimit(
+          event
+            .queryStringParameters
+            ?.limit
+        );
+    } catch (
+      error:
+        any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const byConfiguration =
+      Boolean(
+        deploymentConfigurationId
+      );
+
+
+    const scope =
+      byConfiguration
+        ? `usage-epochs:configuration:${deploymentConfigurationId}`
+        : `usage-epochs:state:${state}`;
+
+
+    let exclusiveStartKey:
+      any;
+
+
+    try {
+      exclusiveStartKey =
+        decodeControlPlaneHistoryNextToken(
+          event
+            .queryStringParameters
+            ?.nextToken,
+
+          scope,
+
+          "Usage Epoch"
+        );
+    } catch (
+      error:
+        any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const indexName =
+      byConfiguration
+        ? "ByDeploymentConfiguration"
+        : "ByState";
+
+    const indexPartitionKey =
+      byConfiguration
+        ? "gsi1pk"
+        : "gsi2pk";
+
+    const indexPartitionValue =
+      byConfiguration
+        ? createUsageEpochConfigurationIndexPk(
+            deploymentConfigurationId
+          )
+        : createUsageEpochStateIndexPk(
+            state!
+          );
+
+
+    try {
+      const out =
+        await dynamodb.send(
+          new QueryCommand({
+            TableName:
+              USAGE_EPOCHS_TABLE,
+
+            IndexName:
+              indexName,
+
+            KeyConditionExpression:
+              "#indexPk = :indexPk",
+
+            ExpressionAttributeNames: {
+              "#indexPk":
+                indexPartitionKey,
+            },
+
+            ExpressionAttributeValues: {
+              ":indexPk": {
+                S:
+                  indexPartitionValue,
+              },
+            },
+
+            Limit:
+              limit,
+
+            ExclusiveStartKey:
+              exclusiveStartKey,
+
+            ScanIndexForward:
+              false,
+          })
+        );
+
+
+      const epochs =
+        (
+          out.Items ||
+          []
+        ).map(
+          usageEpochHistorySummary
+        );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          filter: {
+            deploymentConfigurationId:
+              deploymentConfigurationId ||
+              null,
+
+            state:
+              state ||
+              null,
+          },
+
+          order:
+            byConfiguration
+              ? "startedAtDescending"
+              : "stateTimestampDescending",
+
+          epochs,
+
+          nextToken:
+            encodeControlPlaneHistoryNextToken(
+              scope,
+
+              out
+                .LastEvaluatedKey
+            ),
+        },
+        corsOrigin
+      );
+    } catch (
+      error:
+        any
+    ) {
+      console.error(
+        "Usage Epoch history query failed",
+        {
+          deploymentConfigurationId:
+            deploymentConfigurationId ||
+            null,
+
+          state,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to query Usage Epoch history.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // GET /configuration-analytics-reports/get
+  //     ?usageEpochId=...
+  //
+  // Owner-only immutable historical Analytics report retrieval.
+  //
+  // Usage Epoch is authoritative:
+  //
+  //   usageEpochId
+  //      -> strong Usage Epoch read
+  //      -> verify CLOSED report evidence
+  //      -> immutable S3 read
+  //      -> verify exact identity/hash/interval binding
+  //
+  // S3 is never enumerated as a catalog.
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/configuration-analytics-reports/get"
+    )
+  ) {
+    const storage =
+      requireUsageEpochStorage();
+
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      !CONFIGURATION_ANALYTICS_REPORTS_BUCKET
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Configuration Analytics Report storage is not configured.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let usageEpochId:
+      string;
+
+
+    try {
+      usageEpochId =
+        requireControlPlaneId(
+          event
+            .queryStringParameters
+            ?.usageEpochId,
+          "usageEpochId"
+        );
+    } catch (
+      error:
+        any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    let epoch:
+      any;
+
+
+    try {
+      epoch =
+        await readUsageEpochRecord({
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_EPOCHS_TABLE,
+
+          usageEpochId,
+        });
+    } catch (
+      error:
+        any
+    ) {
+      if (
+        isUsageEpochRecordMissing(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Usage Epoch not found.",
+
+            usageEpochId,
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Configuration Analytics Report Usage Epoch read failed",
+        {
+          usageEpochId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read Usage Epoch.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      epoch.stage !==
+        STAGE
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Stored Usage Epoch belongs to a different stage.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      epoch.state !==
+        USAGE_EPOCH_STATE
+          .CLOSED ||
+      !epoch.report
+    ) {
+      return json(
+        409,
+        {
+          ok:
+            false,
+
+          error:
+            "Usage Epoch Analytics report is not finalized.",
+
+          usageEpochId,
+
+          state:
+            epoch.state,
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      const stored =
+        await readConfigurationAnalyticsReport({
+          client:
+            s3,
+
+          bucketName:
+            CONFIGURATION_ANALYTICS_REPORTS_BUCKET,
+
+          reportId:
+            epoch.report
+              .reportId,
+        });
+
+
+      /**
+       * CLOSED Usage Epoch metadata is a durable pointer to a report.
+       * A missing object is therefore an integrity failure, not a
+       * normal user-facing 404.
+       */
+      if (
+        !stored
+      ) {
+        throw new Error(
+          "Finalized Configuration Analytics Report object does not exist."
+        );
+      }
+
+
+      assertReportMatchesUsageEpoch({
+        epoch,
+
+        stored,
+      });
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          usageEpoch:
+            usageEpochDocumentSummary(
+              epoch
+            ),
+
+          key:
+            stored.key,
+
+          reportSha256:
+            stored
+              .reportSha256,
+
+          report:
+            stored.report,
+        },
+        corsOrigin
+      );
+    } catch (
+      error:
+        any
+    ) {
+      console.error(
+        "Configuration Analytics Report read failed",
+        {
+          usageEpochId,
+
+          reportId:
+            epoch.report
+              ?.reportId ||
+            null,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read finalized Configuration Analytics Report.",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // POST /platform-deployments/commit
+  //
+  // Owner-only.
+  //
+  // body:
+  // {
+  //   deploymentId,
+  //   platformReleaseId,
+  //   expectedRevision?   // 0 means "expect no active Platform pointer"
+  // }
+  //
+  // Registration != deployment.
+  // Deployment != Profile activation.
+  //
+  // If an active Profile exists, the immutable Deployment
+  // Configuration for the exact Platform/Profile pair must already
+  // exist before ACTIVE Platform state can advance.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/platform-deployments/commit"
+    )
+  ) {
+    const releaseStorage =
+      requirePlatformReleaseStorage();
+
+
+    if (
+      !releaseStorage.ok
+    ) {
+      return json(
+        releaseStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            releaseStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const deploymentStorage =
+      requirePlatformDeploymentStorage();
+
+
+    if (
+      !deploymentStorage.ok
+    ) {
+      return json(
+        deploymentStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            deploymentStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const profileActivationStorage =
+      requireProfileActivationStorage();
+
+
+    if (
+      !profileActivationStorage.ok
+    ) {
+      return json(
+        profileActivationStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            profileActivationStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+    const usageEpochStorage =
+      requireUsageEpochStorage();
+
+
+    if (
+      !usageEpochStorage.ok
+    ) {
+      return json(
+        usageEpochStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            usageEpochStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload:
+      any = {};
+
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      !payload ||
+      typeof payload !==
+        "object" ||
+      Array.isArray(
+        payload
+      )
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Platform Deployment commit body must be an object.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const allowedKeys =
+      new Set([
+        "deploymentId",
+        "platformReleaseId",
+        "expectedRevision",
+      ]);
+
+
+    for (
+      const key of
+        Object.keys(
+          payload
+        )
+    ) {
+      if (
+        !allowedKeys.has(
+          key
+        )
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              `Platform Deployment commit body.${key} is not supported.`,
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    let deploymentId:
+      string;
+
+    let platformReleaseId:
+      string;
+
+
+    try {
+      deploymentId =
+        requireControlPlaneId(
+          payload.deploymentId,
+          "deploymentId"
+        );
+
+      platformReleaseId =
+        requireControlPlaneId(
+          payload.platformReleaseId,
+          "platformReleaseId"
+        );
+
+      createPlatformReleaseObjectKey(
+        platformReleaseId
+      );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    let expectedRevision:
+      number |
+      null =
+        null;
+
+
+    if (
+      payload.expectedRevision !==
+        undefined &&
+      payload.expectedRevision !==
+        null
+    ) {
+      if (
+        typeof payload
+          .expectedRevision !==
+          "number" ||
+        !Number.isInteger(
+          payload
+            .expectedRevision
+        ) ||
+        payload
+          .expectedRevision <
+          0
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              "expectedRevision must be a non-negative integer.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      expectedRevision =
+        payload
+          .expectedRevision;
+    }
+
+
+    let releaseRecord:
+      Awaited<
+        ReturnType<
+          typeof loadAuthoritativePlatformReleaseRecord
+        >
+      >;
+
+
+    try {
+      releaseRecord =
+        await loadAuthoritativePlatformReleaseRecord(
+          platformReleaseId
+        );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Platform Release not found.",
+
+            platformReleaseId,
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Platform Deployment release load failed",
+        {
+          platformReleaseId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to load authoritative Platform Release.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let currentPlatformPointer:
+      any |
+      null;
+
+
+    try {
+      currentPlatformPointer =
+        await readActivePlatformReleasePointer({
+          client:
+            dynamodb,
+
+          tableName:
+            PLATFORM_DEPLOYMENT_TABLE,
+        });
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Active Platform pointer read failed",
+        {
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read active Platform state.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Retry safety for the same deployment occurrence.
+     *
+     * A workflow retry must not create another deployment occurrence
+     * if this exact deploymentId is already the current ACTIVE state.
+     */
+    if (
+      currentPlatformPointer
+        ?.deploymentId ===
+      deploymentId
+    ) {
+      if (
+        currentPlatformPointer
+          .platformReleaseId !==
+          platformReleaseId ||
+        currentPlatformPointer
+          .platformReleaseSha256 !==
+          releaseRecord
+            .releaseSha256
+      ) {
+        return json(
+          409,
+          {
+            ok:
+              false,
+
+            error:
+              "deploymentId already identifies different active Platform state.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          alreadyCommitted:
+            true,
+
+          active:
+            currentPlatformPointer,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const currentRevision =
+      currentPlatformPointer
+        ?.revision ??
+      0;
+
+
+    if (
+      expectedRevision !==
+        null &&
+      expectedRevision !==
+        currentRevision
+    ) {
+      return json(
+        409,
+        {
+          ok:
+            false,
+
+          error:
+            "Platform deployment revision conflict. Refresh active Platform state and retry.",
+
+          expectedRevision,
+
+          currentRevision,
+        },
+        corsOrigin
+      );
+    }
+
+    /**
+     * A new formal Platform Deployment may only activate a Platform
+     * Release that explicitly declares a PPS understood by this
+     * control plane.
+     *
+     * This check intentionally happens AFTER same-deploymentId
+     * idempotency handling. Historical already-committed v1
+     * occurrences remain safely retryable because no state transition
+     * occurs on that path.
+     */
+    try {
+      requireDeclaredProfilePlatformSpecification(
+        releaseRecord.release
+      );
+    } catch (
+      error: any
+    ) {
+      if (
+        isProfilePlatformCompatibilityGateError(
+          error
+        )
+      ) {
+        return json(
+          409,
+          profilePlatformGateFailureBody({
+            error,
+
+            platformReleaseId,
+          }),
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Platform Deployment PPS declaration verification failed",
+        {
+          platformReleaseId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to verify Platform Release PPS declaration.",
+        },
+        corsOrigin
+      );
+    }
+
+    /**
+     * Read the exact opposite control-plane pointer that will later
+     * be condition-checked inside the Platform deployment transaction.
+     */
+    let activeProfilePointer:
+      any |
+      null;
+
+
+    try {
+      activeProfilePointer =
+        await readActiveProfilePointer({
+          client:
+            dynamodb,
+
+          tableName:
+            PROFILE_ACTIVATION_TABLE,
+        });
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Active Profile pointer read for Platform deployment failed",
+        {
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read active Profile state for Platform deployment.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let deploymentConfiguration:
+      any |
+      null =
+        null;
+
+    let deploymentConfigurationId:
+      string |
+      null =
+        null;
+
+
+    if (
+      activeProfilePointer
+    ) {
+      const configurationStorage =
+        requireDeploymentConfigurationStorage();
+
+
+      if (
+        !configurationStorage.ok
+      ) {
+        return json(
+          configurationStorage.status,
+          {
+            ok:
+              false,
+
+            error:
+              configurationStorage.msg,
+          },
+          corsOrigin
+        );
+      }
+
+
+      try {
+        const storedConfiguration =
+          await loadDeploymentConfigurationForComposition({
+            platformReleaseId,
+
+            profileVariantId:
+              activeProfilePointer
+                .profileVariantId,
+
+            contentSchemaVersion:
+              activeProfilePointer
+                .contentSchemaVersion,
+
+            contentHash:
+              activeProfilePointer
+                .contentHash,
+          });
+
+        assertDeclaredProfilePlatformCompatible({
+          platformRelease:
+            releaseRecord.release,
+
+          deploymentConfiguration:
+            storedConfiguration
+              .configuration,
+        });
+
+
+        deploymentConfiguration =
+          storedConfiguration
+            .configuration;
+
+        deploymentConfigurationId =
+          deploymentConfiguration
+            .deploymentConfigurationId;
+
+      } catch (
+        error: any
+      ) {
+        if (
+          isS3NotFound(
+            error
+          )
+        ) {
+          return json(
+            409,
+            {
+              ok:
+                false,
+
+              error:
+                "Deployment Configuration for the requested Platform Release and active Profile does not exist.",
+
+              platformReleaseId,
+
+              profileVariantId:
+                activeProfilePointer
+                  .profileVariantId,
+            },
+            corsOrigin
+          );
+        }
+
+        if (
+          isProfilePlatformCompatibilityGateError(
+            error
+          )
+        ) {
+          return json(
+            409,
+            profilePlatformGateFailureBody({
+              error,
+
+              platformReleaseId,
+
+              profileVariantId:
+                activeProfilePointer
+                  .profileVariantId,
+
+              deploymentConfigurationId:
+                computeDeploymentConfigurationId({
+                  stage:
+                    STAGE as
+                      | "dev"
+                      | "prod",
+
+                  platformReleaseId,
+
+                  profileVariantId:
+                    activeProfilePointer
+                      .profileVariantId,
+                }),
+            }),
+            corsOrigin
+          );
+        }
+
+
+        console.error(
+          "Platform Deployment configuration verification failed",
+          {
+            platformReleaseId,
+
+            profileVariantId:
+              activeProfilePointer
+                .profileVariantId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to verify Deployment Configuration for Platform deployment.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    const deployedAt =
+      new Date()
+        .toISOString();
+
+
+    let transition:
+      ReturnType<
+        typeof buildPlatformDeploymentTransition
+      >;
+
+
+    try {
+      transition =
+        buildPlatformDeploymentTransition({
+          currentPointer:
+            currentPlatformPointer,
+
+          deploymentId,
+
+          platformReleaseId:
+            releaseRecord
+              .release
+              .platformReleaseId,
+
+          deployedAt,
+
+          platformReleaseSha256:
+            releaseRecord
+              .releaseSha256,
+        });
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    const currentDeploymentConfigurationId =
+      currentPlatformPointer &&
+      activeProfilePointer
+        ? computeDeploymentConfigurationId({
+            stage:
+              STAGE as
+                | "dev"
+                | "prod",
+
+            platformReleaseId:
+              currentPlatformPointer
+                .platformReleaseId,
+
+            profileVariantId:
+              activeProfilePointer
+                .profileVariantId,
+          })
+        : null;
+
+
+    let usageEpochLifecycle:
+      Awaited<
+        ReturnType<
+          typeof prepareUsageEpochLifecycle
+        >
+      >;
+
+
+    try {
+      usageEpochLifecycle =
+        await prepareUsageEpochLifecycle({
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_EPOCHS_TABLE,
+
+          stage:
+            STAGE as
+              | "dev"
+              | "prod",
+
+          currentDeploymentConfigurationId,
+
+          targetDeploymentConfiguration:
+            deploymentConfiguration,
+
+          transitionAt:
+            deployedAt,
+
+          transition: {
+            kind:
+              USAGE_EPOCH_TRANSITION_KIND
+                .PLATFORM_DEPLOYMENT,
+
+            occurrenceId:
+              deploymentId,
+          },
+        });
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Usage Epoch preparation for Platform deployment failed",
+        {
+          deploymentId,
+
+          platformReleaseId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to prepare Usage Epoch lifecycle for Platform deployment.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      await commitPlatformDeploymentTransition({
+        client:
+          dynamodb,
+
+        tableName:
+          PLATFORM_DEPLOYMENT_TABLE,
+
+        transition,
+
+        profileGuard: {
+          tableName:
+            PROFILE_ACTIVATION_TABLE,
+
+          pointer:
+            activeProfilePointer,
+        },
+
+        usageEpochLifecycle: {
+          tableName:
+            USAGE_EPOCHS_TABLE,
+
+          plan:
+            usageEpochLifecycle,
+        },
+
+      });
+    } catch (
+      error: any
+    ) {
+      if (
+        isPlatformDeploymentConflict(
+          error
+        )
+      ) {
+        return json(
+          409,
+          {
+            ok:
+              false,
+
+            error:
+              "Platform deployment conflict. Platform, Profile, or Usage Epoch control-plane state changed before commit; refresh and retry.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Platform Deployment transaction failed",
+        {
+          deploymentId,
+
+          platformReleaseId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to commit Platform Deployment.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      201,
+      {
+        ok:
+          true,
+
+        alreadyCommitted:
+          false,
+
+        deployment:
+          transition
+            .ledger,
+
+        active:
+          transition
+            .pointer,
+
+        deploymentConfigurationId,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // POST /profile-variants/activate
+  //
+  // Owner-only.
+  //
+  // body:
+  // {
+  //   profileVariantId,
+  //   expectedRevision?   // 0 means "expect no active pointer"
+  // }
+  //
+  // Publish != Activate.
+  //
+  // Activation never checks out historical code and never
+  // redeploys React/CDK. It only atomically changes control-plane
+  // state to point at an already-published immutable variant.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/profile-variants/activate"
+    )
+  ) {
+    const variantStorage =
+      requireProfileVariantStorage();
+
+    if (
+      !variantStorage.ok
+    ) {
+      return json(
+        variantStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            variantStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const activationStorage =
+      requireProfileActivationStorage();
+
+    if (
+      !activationStorage.ok
+    ) {
+      return json(
+        activationStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            activationStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const platformDeploymentStorage =
+      requirePlatformDeploymentStorage();
+
+
+    if (
+      !platformDeploymentStorage.ok
+    ) {
+      return json(
+        platformDeploymentStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            platformDeploymentStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+    const usageEpochStorage =
+      requireUsageEpochStorage();
+
+
+    if (
+      !usageEpochStorage.ok
+    ) {
+      return json(
+        usageEpochStorage.status,
+        {
+          ok:
+            false,
+
+          error:
+            usageEpochStorage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload:
+      any = {};
+
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const profileVariantId =
+      String(
+        payload
+          .profileVariantId ||
+        ""
+      ).trim();
+
+
+    let manifestKey:
+      string;
+
+
+    try {
+      manifestKey =
+        createProfileVariantManifestKey(
+          profileVariantId
+        );
+    } catch (
+      error: any
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Optional owner-side optimistic concurrency token.
+     *
+     * 0 = caller expects there to be no ACTIVE pointer yet.
+     */
+    let expectedRevision:
+      number | null =
+        null;
+
+
+    if (
+      payload.expectedRevision !==
+        undefined &&
+      payload.expectedRevision !==
+        null
+    ) {
+      if (
+        typeof payload
+          .expectedRevision !==
+          "number" ||
+        !Number.isInteger(
+          payload
+            .expectedRevision
+        ) ||
+        payload
+          .expectedRevision <
+          0
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              "expectedRevision must be a non-negative integer.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      expectedRevision =
+        payload
+          .expectedRevision;
+    }
+
+
+    /**
+     * The target must already exist as a published immutable
+     * Profile Variant.
+     */
+    let stored:
+      Awaited<
+        ReturnType<
+          typeof readPublishedProfileVariant
+        >
+      >;
+
+
+    try {
+      stored =
+        await readPublishedProfileVariant(
+          manifestKey
+        );
+    } catch (
+      error: any
+    ) {
+      if (
+        isS3NotFound(
+          error
+        )
+      ) {
+        return json(
+          404,
+          {
+            ok:
+              false,
+
+            error:
+              "Profile Variant not found.",
+
+            profileVariantId,
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Profile Variant activation read failed",
+        {
+          profileVariantId,
+
+          manifestKey,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read Profile Variant for activation.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let parsed:
+      any;
+
+
+    try {
+      parsed =
+        JSON.parse(
+          stored.body
+        );
+    } catch {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Stored Profile Variant manifest is corrupt.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let variant:
+      any;
+
+
+    try {
+      variant =
+        normalizeAndValidateProfileVariantDocument(
+          parsed
+        );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Profile Variant activation validation failed",
+        {
+          profileVariantId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Stored Profile Variant failed activation validation.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Verify the exact immutable manifest bytes when S3 exposes
+     * its checksum.
+     */
+    const manifestSha256 =
+      sha256Hex(
+        stored.body
+      );
+
+
+    const storedManifestSha256 =
+      base64Sha256ToHex(
+        stored
+          .checksumSha256
+      );
+
+
+    if (
+      storedManifestSha256 &&
+      storedManifestSha256 !==
+        manifestSha256
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Stored Profile Variant checksum verification failed.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Read the opposite Platform control-plane pointer first.
+     *
+     * The exact state observed here will be condition-checked inside
+     * the Profile activation transaction.
+     */
+    let activePlatformPointer:
+      any |
+      null;
+
+
+    try {
+      activePlatformPointer =
+        await readActivePlatformReleasePointer({
+          client:
+            dynamodb,
+
+          tableName:
+            PLATFORM_DEPLOYMENT_TABLE,
+        });
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Active Platform pointer read for Profile activation failed",
+        {
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read active Platform state for Profile activation.",
+        },
+        corsOrigin
+      );
+    }
+
+    let deploymentConfiguration:
+      any |
+      null =
+        null;
+
+
+    if (
+      activePlatformPointer
+    ) {
+      const releaseStorage =
+        requirePlatformReleaseStorage();
+
+
+      if (
+        !releaseStorage.ok
+      ) {
+        return json(
+          releaseStorage.status,
+          {
+            ok:
+              false,
+
+            error:
+              releaseStorage.msg,
+          },
+          corsOrigin
+        );
+      }
+
+      const configurationStorage =
+        requireDeploymentConfigurationStorage();
+
+
+      if (
+        !configurationStorage.ok
+      ) {
+        return json(
+          configurationStorage.status,
+          {
+            ok:
+              false,
+
+            error:
+              configurationStorage.msg,
+          },
+          corsOrigin
+        );
+      }
+
+      let activeReleaseRecord:
+        Awaited<
+          ReturnType<
+            typeof loadAuthoritativePlatformReleaseRecord
+          >
+        >;
+
+
+      try {
+        activeReleaseRecord =
+          await loadAuthoritativePlatformReleaseRecord(
+            activePlatformPointer
+              .platformReleaseId
+          );
+      } catch (
+        error: any
+      ) {
+        console.error(
+          "Profile activation active Platform Release verification failed",
+          {
+            platformReleaseId:
+              activePlatformPointer
+                .platformReleaseId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to verify active Platform Release for Profile activation.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      /**
+       * The ACTIVE Platform pointer is bound to exact immutable
+       * Platform Release bytes.
+       *
+       * The later transaction guards this exact pointer. Verify those
+       * bytes now before evaluating compatibility.
+       */
+      if (
+        activeReleaseRecord
+          .releaseSha256 !==
+        activePlatformPointer
+          .platformReleaseSha256
+      ) {
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Active Platform Release checksum does not match the active Platform pointer.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      try {
+        requireDeclaredProfilePlatformSpecification(
+          activeReleaseRecord.release
+        );
+      } catch (
+        error: any
+      ) {
+        if (
+          isProfilePlatformCompatibilityGateError(
+            error
+          )
+        ) {
+          return json(
+            409,
+            profilePlatformGateFailureBody({
+              error,
+
+              platformReleaseId:
+                activePlatformPointer
+                  .platformReleaseId,
+
+              profileVariantId:
+                variant
+                  .profileVariantId,
+            }),
+            corsOrigin
+          );
+        }
+
+
+        console.error(
+          "Profile activation PPS declaration verification failed",
+          {
+            platformReleaseId:
+              activePlatformPointer
+                .platformReleaseId,
+
+            profileVariantId:
+              variant
+                .profileVariantId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to verify active Platform PPS declaration.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      try {
+        const storedConfiguration =
+          await loadDeploymentConfigurationForComposition({
+            platformReleaseId:
+              activePlatformPointer
+                .platformReleaseId,
+
+            profileVariantId:
+              variant
+                .profileVariantId,
+
+            contentSchemaVersion:
+              variant
+                .contentSchemaVersion,
+
+            contentHash:
+              variant
+                .contentHash,
+          });
+
+        assertDeclaredProfilePlatformCompatible({
+          platformRelease:
+            activeReleaseRecord.release,
+
+          deploymentConfiguration:
+            storedConfiguration
+              .configuration,
+        });
+
+        deploymentConfiguration =
+          storedConfiguration
+            .configuration;
+
+      } catch (
+        error: any
+      ) {
+        if (
+          isS3NotFound(
+            error
+          )
+        ) {
+          return json(
+            409,
+            {
+              ok:
+                false,
+
+              error:
+                "Deployment Configuration for the active Platform Release and requested Profile Variant does not exist.",
+
+              platformReleaseId:
+                activePlatformPointer
+                  .platformReleaseId,
+
+              profileVariantId:
+                variant
+                  .profileVariantId,
+            },
+            corsOrigin
+          );
+        }
+
+        if (
+          isProfilePlatformCompatibilityGateError(
+            error
+          )
+        ) {
+          return json(
+            409,
+            profilePlatformGateFailureBody({
+              error,
+
+              platformReleaseId:
+                activePlatformPointer
+                  .platformReleaseId,
+
+              profileVariantId:
+                variant
+                  .profileVariantId,
+
+              deploymentConfigurationId:
+                computeDeploymentConfigurationId({
+                  stage:
+                    STAGE as
+                      | "dev"
+                      | "prod",
+
+                  platformReleaseId:
+                    activePlatformPointer
+                      .platformReleaseId,
+
+                  profileVariantId:
+                    variant
+                      .profileVariantId,
+                }),
+            }),
+            corsOrigin
+          );
+        }
+
+
+        console.error(
+          "Profile activation configuration verification failed",
+          {
+            platformReleaseId:
+              activePlatformPointer
+                .platformReleaseId,
+
+            profileVariantId:
+              variant
+                .profileVariantId,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok:
+              false,
+
+            error:
+              "Failed to verify Deployment Configuration for Profile activation.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
+    /**
+     * Strongly consistent control-plane read.
+     */
+    let currentPointer:
+      any | null;
+
+
+    try {
+      currentPointer =
+        await readActiveProfilePointer({
+          client:
+            dynamodb,
+
+          tableName:
+            PROFILE_ACTIVATION_TABLE,
+        });
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Active Profile pointer read failed",
+        {
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to read active Profile state.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const currentRevision =
+      currentPointer
+        ?.revision ??
+      0;
+
+
+    if (
+      expectedRevision !==
+        null &&
+      expectedRevision !==
+        currentRevision
+    ) {
+      return json(
+        409,
+        {
+          ok:
+            false,
+
+          error:
+            "Profile activation revision conflict. Refresh active Profile state and retry.",
+
+          expectedRevision,
+
+          currentRevision,
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * 4 chars + 32 UUID hex chars = 36 chars.
+     *
+     * Stable safe ID format:
+     * act_0123456789abcdef...
+     */
+    const activationId =
+      `act_${randomUUID()
+        .replace(
+          /-/g,
+          ""
+        )}`;
+
+
+    const activatedAt =
+      new Date()
+        .toISOString();
+
+
+    const transition =
+      buildProfileActivationTransition({
+        currentPointer,
+
+        activationId,
+
+        profileVariantId:
+          variant
+            .profileVariantId,
+
+        activatedAt,
+
+        contentSchemaVersion:
+          variant
+            .contentSchemaVersion,
+
+        contentHash:
+          variant
+            .contentHash,
+      });
+
+    const currentDeploymentConfigurationId =
+      currentPointer &&
+      activePlatformPointer
+        ? computeDeploymentConfigurationId({
+            stage:
+              STAGE as
+                | "dev"
+                | "prod",
+
+            platformReleaseId:
+              activePlatformPointer
+                .platformReleaseId,
+
+            profileVariantId:
+              currentPointer
+                .profileVariantId,
+          })
+        : null;
+
+
+    let usageEpochLifecycle:
+      Awaited<
+        ReturnType<
+          typeof prepareUsageEpochLifecycle
+        >
+      >;
+
+
+    try {
+      usageEpochLifecycle =
+        await prepareUsageEpochLifecycle({
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_EPOCHS_TABLE,
+
+          stage:
+            STAGE as
+              | "dev"
+              | "prod",
+
+          currentDeploymentConfigurationId,
+
+          targetDeploymentConfiguration:
+            deploymentConfiguration,
+
+          transitionAt:
+            activatedAt,
+
+          transition: {
+            kind:
+              USAGE_EPOCH_TRANSITION_KIND
+                .PROFILE_ACTIVATION,
+
+            occurrenceId:
+              activationId,
+          },
+        });
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Usage Epoch preparation for Profile activation failed",
+        {
+          activationId,
+
+          profileVariantId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to prepare Usage Epoch lifecycle for Profile activation.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    /**
+     * Atomic commit:
+     *
+     * 1. condition-check the exact opposite Platform pointer
+     * 2. append immutable activation ledger row
+     * 3. replace Profile CONTROL / ACTIVE only if the previously-read
+     *    Profile revision/identity still matches
+     *
+     * If either control-plane state changed, none of the writes commit.
+     */
+    try {
+      await commitProfileActivationTransition({
+        client:
+          dynamodb,
+
+        tableName:
+          PROFILE_ACTIVATION_TABLE,
+
+        transition,
+
+        platformGuard: {
+          tableName:
+            PLATFORM_DEPLOYMENT_TABLE,
+
+          pointer:
+            activePlatformPointer,
+        },
+
+        usageEpochLifecycle: {
+          tableName:
+            USAGE_EPOCHS_TABLE,
+
+          plan:
+            usageEpochLifecycle,
+        },
+
+      });
+    } catch (
+      error: any
+    ) {
+      if (
+        isProfileActivationConflict(
+          error
+        )
+      ) {
+        return json(
+          409,
+          {
+            ok:
+              false,
+
+            error:
+              "Profile activation conflict. Profile, Platform, or Usage Epoch control-plane state changed before commit; refresh and retry."
+          },
+          corsOrigin
+        );
+      }
+
+
+      console.error(
+        "Profile activation transaction failed",
+        {
+          profileVariantId,
+
+          activationId,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to activate Profile Variant.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      201,
+      {
+        ok:
+          true,
+
+        activation:
+          transition
+            .ledger,
+
+        active:
+          transition
+            .pointer,
+
+        manifestKey,
+
+        manifestSha256,
+      },
+      corsOrigin
+    );
+  }
+
 
   // -----------------------------
   // POST /snapshots/presign-put  (SNAPSHOTS BUCKET)
@@ -685,6 +10103,22 @@ export async function handler(event: Event) {
         const tagKey = safeKeyPart(metaIn.tagKey || "");
         const tagValue = safeKeyPart(metaIn.tagValue || "");
         const profileVersionId = safeKeyPart(metaIn.profileVersionId || "unknown");
+
+        const platformReleaseId =
+          safeKeyPart(
+            metaIn
+              .platformReleaseId ||
+            ""
+          );
+
+
+        const platformDeploymentId =
+          safeKeyPart(
+            metaIn
+              .platformDeploymentId ||
+            ""
+          );
+
         const gitSha = safeKeyPart(metaIn.gitSha || "");
         const checkpointTag = safeKeyPart(metaIn.checkpointTag || "");
         const geoHint = safeMetaValue(metaIn.geoHint || "", 180);
@@ -698,6 +10132,23 @@ export async function handler(event: Event) {
         if (tagValue) nextMeta.tagvalue = tagValue;
 
         if (profileVersionId) nextMeta.profileversionid = profileVersionId;
+
+        if (
+          platformReleaseId
+        ) {
+          nextMeta
+            .platformreleaseid =
+            platformReleaseId;
+        }
+
+
+        if (
+          platformDeploymentId
+        ) {
+          nextMeta
+            .platformdeploymentid =
+            platformDeploymentId;
+        }
 
         if (gitSha) nextMeta.gitsha = gitSha;
         if (checkpointTag) nextMeta.checkpointtag = checkpointTag;
@@ -863,9 +10314,25 @@ export async function handler(event: Event) {
             profileVersionId: m.profileversionid || "",
             gitSha: m.gitsha || "",
             checkpointTag: m.checkpointtag || "",
-            repoArtifactKey: m.repoartifactkey || "",
-            repoArtifactSha256: m.repoartifactsha256 || "",
-            remark: m.remark || "",
+            repoArtifactKey:
+              m.repoartifactkey ||
+              "",
+
+            repoArtifactSha256:
+              m.repoartifactsha256 ||
+              "",
+
+            platformReleaseId:
+              m.platformreleaseid ||
+              "",
+
+            platformDeploymentId:
+              m.platformdeploymentid ||
+              "",
+
+            remark:
+              m.remark ||
+              "",
             };
 
             // 2) If important fields missing, fallback to JSON parse (backward compatible)
@@ -907,8 +10374,25 @@ export async function handler(event: Event) {
                         : derived.profileVersionId || metaFromHead.profileVersionId || "",
                     gitSha: metaFromHead.gitSha || derived.gitSha || "",
                     checkpointTag: metaFromHead.checkpointTag || derived.checkpointTag || "",
-                    repoArtifactKey: metaFromHead.repoArtifactKey || derived.repoArtifactKey || "",
-                    repoArtifactSha256: metaFromHead.repoArtifactSha256 || derived.repoArtifactSha256 || "",
+                    repoArtifactKey:
+                      metaFromHead.repoArtifactKey ||
+                      derived.repoArtifactKey ||
+                      "",
+
+                    repoArtifactSha256:
+                      metaFromHead.repoArtifactSha256 ||
+                      derived.repoArtifactSha256 ||
+                      "",
+
+                    platformReleaseId:
+                      metaFromHead.platformReleaseId ||
+                      derived.platformReleaseId ||
+                      "",
+
+                    platformDeploymentId:
+                      metaFromHead.platformDeploymentId ||
+                      derived.platformDeploymentId ||
+                      "",
                     },
                 ] as const;
                 }
@@ -940,8 +10424,27 @@ export async function handler(event: Event) {
         size: o.Size ?? 0,
         lastModified: o.LastModified ? o.LastModified.toISOString() : null,
 
-        // ✅ NEW: meta for UI columns + badges
+        // Existing legacy metadata consumed by the Snapshot UI.
         meta,
+
+        /**
+         * P9C:
+         *
+         * Additive read-only historical classification.
+         *
+         * Snapshot metadata contains legacy evidence only. No formal
+         * identity is inferred from Git SHA/profileVersionId.
+         */
+        historicalTruth:
+          buildLegacySnapshotHistoricalTruth({
+            snapshotKey:
+              key,
+
+            createdAt:
+              kmeta.createdAt,
+
+            meta,
+          }),
         };
     })
     .sort((a, b) => (b.lastModified || "").localeCompare(a.lastModified || ""));
@@ -1256,7 +10759,30 @@ export async function handler(event: Event) {
         const body = await streamToString(out.Body);
         const history = body ? JSON.parse(body) : null;
 
-        return json(200, { ok: true, history }, corsOrigin);
+        /**
+         * P9C:
+         *
+         * deploy/history.json remains legacy compatibility storage.
+         *
+         * We enrich only the in-memory response. The S3 object is
+         * never rewritten.
+         */
+        const enrichedHistory =
+          enrichLegacyDeployHistory(
+            history
+          );
+
+        return json(
+          200,
+          {
+            ok:
+              true,
+
+            history:
+              enrichedHistory,
+          },
+          corsOrigin
+        );
     } catch (e: any) {
         const name = e?.name || "";
         const msg = String(e?.message || e);
@@ -1269,51 +10795,15 @@ export async function handler(event: Event) {
     }
     }
 
-  // -----------------------------
-  // POST /deploy/trigger (owner-only)
-  // body: { gitSha, checkpointTag?, profileVersion?, reason?, sourceSnapshotKey? }
-  // triggers GitHub Actions workflow_dispatch
-  // -----------------------------
-  if (method === "POST" && path.endsWith("/deploy/trigger")) {
-    const cfg = requireGithubConfig();
-    if (!cfg.ok) return json(cfg.status, { ok: false, error: cfg.msg }, corsOrigin);
+  return json(
+    404,
+    {
+      ok:
+        false,
 
-    let payload: any = {};
-    try {
-      payload = event.body ? JSON.parse(event.body) : {};
-    } catch {
-      return json(400, { ok: false, error: "Invalid JSON body" }, corsOrigin);
-    }
-
-    const gitSha = String(payload.gitSha || "").trim();
-    if (!isLikelyGitSha(gitSha)) {
-      return json(400, { ok: false, error: "gitSha is required (7-40 hex chars)" }, corsOrigin);
-    }
-
-    const checkpointTag = safeKeyPart(payload.checkpointTag || "");
-    const profileVersion = safeKeyPart(payload.profileVersion || "");
-    const sourceSnapshotKey = safeKeyPart(payload.sourceSnapshotKey || "");
-    const reason = safeKeyPart(payload.reason || "owner trigger");
-
-    const inputs: Record<string, string> = {
-      gitSha,
-      checkpointTag: checkpointTag || "unknown",
-      profileVersion: profileVersion || "unknown",
-      sourceSnapshotKey: sourceSnapshotKey || "unknown",
-      reason,
-    };
-
-    const out = await dispatchGithubWorkflow(inputs);
-    if (!out.ok) {
-      return json(
-        502,
-        { ok: false, error: `GitHub dispatch failed (${out.status})`, details: out.error },
-        corsOrigin
-      );
-    }
-
-    return json(200, { ok: true, message: "Deploy triggered" }, corsOrigin);
-  }
-
-  return json(404, { ok: false, error: "Not found" }, corsOrigin);
+      error:
+        "Not found",
+    },
+    corsOrigin
+  );
 }

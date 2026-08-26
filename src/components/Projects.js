@@ -13,7 +13,13 @@ import { HiOutlineFilter } from "react-icons/hi";
 import { FaProjectDiagram, FaPlay, FaGithub } from "react-icons/fa";
 import { MdArticle } from "react-icons/md";
 
-import { PROJECTS, PROJECT_FILTER_OPTIONS } from "../data/projects";
+import {
+  PROJECT_FILTER_OPTIONS,
+} from "../config/projectFilters";
+
+import {
+  CTA_IDS,
+} from "../utils/analytics";
 
 import SectionHeader from "./shared/SectionHeader";
 import Pill from "./shared/Pill";
@@ -21,7 +27,9 @@ import Pill from "./shared/Pill";
 import { cx } from "../utils/cx";
 import { CARD_SURFACE, CARD_ROUNDED_XL } from "../utils/ui";
 
-export default function Project() {
+export default function Project({
+  projects = [],
+}) {
   // ------------------------------------------------------------
   // Filters (data stays dumb, UI stays predictable)
   // ------------------------------------------------------------
@@ -199,21 +207,56 @@ export default function Project() {
     ].filter(Boolean);
   }, []);
 
-  const filteredProjects = useMemo(() => {
-    if (filters.length === 0) return PROJECTS;
+  const filteredProjects =
+    useMemo(
+      () => {
+        if (
+          filters.length ===
+            0
+        ) {
+          return projects;
+        }
 
-    return PROJECTS.filter((project) => {
-      const combined = projectFilterIndex(project);
-      return filters.every((f) => combined.includes(f));
-    });
-  }, [filters, projectFilterIndex]);
+        return projects.filter(
+          (project) => {
+            const combined =
+              projectFilterIndex(
+                project
+              );
 
-  const getCount = useCallback(
-    (value) => {
-      return PROJECTS.filter((p) => projectFilterIndex(p).includes(value)).length;
-    },
-    [projectFilterIndex]
-  );
+            return filters.every(
+              (filter) =>
+                combined.includes(
+                  filter
+                )
+            );
+          }
+        );
+      },
+      [
+        filters,
+        projectFilterIndex,
+        projects,
+      ]
+    );
+
+  const getCount =
+    useCallback(
+      (value) => {
+        return projects.filter(
+          (project) =>
+            projectFilterIndex(
+              project
+            ).includes(
+              value
+            )
+        ).length;
+      },
+      [
+        projects,
+        projectFilterIndex,
+      ]
+    );
 
   // ------------------------------------------------------------
   // UI
@@ -315,7 +358,7 @@ export default function Project() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10 px-6 py-4 md:px-25">
         {filteredProjects.map((project) => (
           <div
-            key={project.title}
+            key={project.id}
             className={cx(CARD_SURFACE, CARD_ROUNDED_XL, "p-6 text-left")}
           >
             <div className="flex items-center justify-between mb-2">
@@ -358,6 +401,8 @@ export default function Project() {
                   href={project.demo}
                   target="_blank"
                   rel="noopener noreferrer"
+                  data-analytics={CTA_IDS.PROJECT_LIVE_DEMO}
+                  data-analytics-project-id={project.id}
                   className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:opacity-90 transition font-medium"
                 >
                   <FaPlay />
@@ -371,6 +416,8 @@ export default function Project() {
                     href={`${project.github}#readme`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    data-analytics={CTA_IDS.PROJECT_README}
+                    data-analytics-project-id={project.id}
                     className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700/80 via-gray-800/90 to-gray-900/90 text-white dark:text-gray-100 rounded-lg border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
                   >
                     <MdArticle />
@@ -381,6 +428,8 @@ export default function Project() {
                     href={project.github}
                     target="_blank"
                     rel="noopener noreferrer"
+                    data-analytics={CTA_IDS.PROJECT_GITHUB}
+                    data-analytics-project-id={project.id}
                     className="flex items-center gap-2 text-sm px-4 py-2 bg-gradient-to-r from-gray-700/80 via-gray-800/90 to-gray-900/90 text-white dark:text-gray-100 rounded-lg border dark:border-gray-600 hover:bg-gray-50 transition font-medium"
                   >
                     <FaGithub />

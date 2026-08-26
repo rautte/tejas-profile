@@ -15,7 +15,10 @@ import { cx } from "../utils/cx";
  * - Keep visuals the same (gradient + glass + glow + blobs)
  */
 
-export default function Hero({ darkMode }) {
+export default function Hero({
+  darkMode,
+  hero = {},
+}) {
   const particleColor = useMemo(
     () => (darkMode ? "#b4b4b4e4" : "#24013bda"),
     [darkMode]
@@ -140,7 +143,7 @@ export default function Hero({ darkMode }) {
           >
             👋
           </motion.span>
-          I’m Tejas Raut
+          {hero.greeting} {hero.name}
         </motion.h1>
       </motion.div>
 

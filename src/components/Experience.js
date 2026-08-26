@@ -2,7 +2,6 @@
 
 import React from "react";
 import { FaBriefcase } from "react-icons/fa";
-import { EXPERIENCE } from "../data/experience";
 
 import SectionHeader from "./shared/SectionHeader";
 import Pill from "./shared/Pill";
@@ -69,14 +68,16 @@ function ExperienceCard({ exp }) {
   );
 }
 
-export default function Experience() {
+export default function Experience({
+  experience = [],
+}) {
   return (
     <section className={SECTION_SHELL}>
       <SectionHeader icon={FaBriefcase} title="Experience" />
 
       <div className={SECTION_CONTAINER}>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10">
-          {EXPERIENCE.map((exp) => (
+          {experience.map((exp) => (
             <ExperienceCard key={`${exp.company}-${exp.role}`} exp={exp} />
           ))}
         </div>

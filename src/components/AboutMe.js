@@ -2,22 +2,48 @@
 import React from "react";
 import { FaUser } from "react-icons/fa";
 
-import profilePic from "../assets/images/LI_Profile.jpg";
-import { ABOUT_ME } from "../data/aboutMe";
-
 import SectionHeader from "./shared/SectionHeader";
 
 import { SECTION_SHELL, SECTION_CONTAINER, BODY_TEXT } from "../utils/ui";
 
-export default function AboutMe() {
+
+export default function AboutMe({
+  aboutMe = {},
+  resolveAsset,
+}) {
+
+  const profilePhotoSrc =
+    typeof resolveAsset ===
+      "function"
+        ? resolveAsset(
+            aboutMe
+              .profilePhotoAssetId
+          )
+        : null;
+
   const content = {
     quote: {
-      mobile: ABOUT_ME.mobile?.quote ?? ABOUT_ME.quote,
-      desktop: ABOUT_ME.desktop?.quote ?? ABOUT_ME.quote,
+      mobile:
+        aboutMe.mobile?.quote ??
+        aboutMe.quote ??
+        "",
+
+      desktop:
+        aboutMe.desktop?.quote ??
+        aboutMe.quote ??
+        "",
     },
+
     paragraphs: {
-      mobile: ABOUT_ME.mobile?.paragraphs ?? ABOUT_ME.paragraphs ?? [],
-      desktop: ABOUT_ME.desktop?.paragraphs ?? ABOUT_ME.paragraphs ?? [],
+      mobile:
+        aboutMe.mobile?.paragraphs ??
+        aboutMe.paragraphs ??
+        [],
+
+      desktop:
+        aboutMe.desktop?.paragraphs ??
+        aboutMe.paragraphs ??
+        [],
     },
   };
 
@@ -32,8 +58,8 @@ export default function AboutMe() {
           {/* Image */}
           <div className="w-32 h-32 sm:w-44 sm:h-44 md:w-48 md:h-48 rounded-full overflow-hidden border-4 border-purple-400 dark:border-purple-300 shadow-lg shrink-0">
             <img
-              src={profilePic}
-              alt={ABOUT_ME.name}
+              src={profilePhotoSrc}
+              alt={aboutMe.name || "Profile"}
               className="w-full h-full rounded-full object-cover [object-position:40%_35%]"
               loading="lazy"
             />
@@ -42,7 +68,7 @@ export default function AboutMe() {
           {/* Mobile-only intro text */}
           <div className="md:hidden flex flex-col items-start text-left">
             <div className="text-[17px] font-semibold text-gray-700 dark:text-gray-300 leading-tight">
-              👋 I’m {ABOUT_ME.name}
+              👋 I’m {aboutMe.name}
             </div>
           </div>
 
@@ -107,65 +133,4 @@ export default function AboutMe() {
     </section>
   );
 }
-
-
-
-// // src/components/AboutMe.js
-// import React from "react";
-// import { FaUser } from "react-icons/fa";
-
-// import profilePic from "../assets/images/LI_Profile.jpg";
-// import { ABOUT_ME } from "../data/aboutMe";
-
-// import SectionHeader from "./shared/SectionHeader";
-
-// import { SECTION_SHELL, SECTION_CONTAINER, BODY_TEXT } from "../utils/ui";
-
-// export default function AboutMe() {
-//   return (
-//     <section className={SECTION_SHELL}>
-//       <SectionHeader icon={FaUser} title="About Me" />
-
-//       {/* Content (NO CARD) */}
-//       <div className={SECTION_CONTAINER}>
-//         {/* Image + Intro (mobile row, desktop unchanged) */}
-//         <div className="flex flex-row md:flex-row items-center justify-center gap-10 sm:gap-16 md:gap-28 mb-4 sm:mb-10">
-//           {/* Image */}
-//           <div className="w-32 h-32 sm:w-44 sm:h-44 md:w-48 md:h-48 rounded-full overflow-hidden border-4 border-purple-400 dark:border-purple-300 shadow-lg shrink-0">
-//             <img
-//               src={profilePic}
-//               alt={ABOUT_ME.name}
-//               className="w-full h-full rounded-full object-cover [object-position:40%_35%]"
-//               loading="lazy"
-//             />
-//           </div>
-
-//           {/* Mobile-only intro text */}
-//           <div className="md:hidden flex flex-col items-start text-left">
-//             <div className="text-[17px] font-semibold text-gray-700 dark:text-gray-300 leading-tight">
-//               👋 I’m {ABOUT_ME.name}
-//             </div>
-//           </div>
-
-//           {/* Desktop quote (ONLY desktop) */}
-//           <blockquote className="hidden md:block italic text-gray-700 dark:text-gray-300 text-left max-w-xl">
-//             <span className="block text-md leading-relaxed">{ABOUT_ME.quote}</span>
-//           </blockquote>
-//         </div>
-
-//         {/* Mobile-only quote below (ONLY mobile) */}
-//         <blockquote className="md:hidden italic text-gray-700 dark:text-gray-300 text-center mb-6">
-//           <span className="block text-[12px] leading-relaxed">{ABOUT_ME.quote}</span>
-//         </blockquote>
-
-//         {/* Text */}
-//         <div className={`${BODY_TEXT} space-y-4 sm:space-y-5 max-w-[68ch] md:max-w-none`}>
-//           {ABOUT_ME.paragraphs.map((p) => (
-//             <p key={p}>{p}</p>
-//           ))}
-//         </div>
-//       </div>
-//     </section>
-//   );
-// }
 

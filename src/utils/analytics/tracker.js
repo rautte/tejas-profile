@@ -1,7 +1,15 @@
 // src/utils/analytics/tracker.js
 
 import { clearEvents } from "./store";
-import { ingestAnalyticsBatch } from "./analyticsApi";
+
+import {
+  ingestAnalyticsBatch,
+  sendAnalyticsBatchBeacon,
+} from "./analyticsApi";
+
+import {
+  readAnalyticsRuntimeIdentity,
+} from "./runtimeIdentity";
 
 import {
   getVisitorId,
@@ -37,6 +45,14 @@ const ALLOWED_EVENT_TYPES = new Set([
   "project_open",
   "code_snippet_view",
 ]);
+
+const IMPORTANT_EVENT_TYPES =
+  new Set([
+    "cta_click",
+    "project_open",
+    "code_snippet_view",
+    "deep_link",
+  ]);
 
 let initialized = false;
 let runtimeStarted = false;
@@ -124,17 +140,83 @@ function safeString(value, max) {
 }
 
 function baseContext(sessionId) {
-  const pv = readBuildProfileVersion();
+  const pv =
+    readBuildProfileVersion();
+
+  const runtimeIdentity =
+    readAnalyticsRuntimeIdentity();
+
 
   return {
-    visitorId: getVisitorId(),
-    sessionId,
-    tabId: getTabId(),
+    visitorId:
+      getVisitorId(),
 
-    profileVersionId: String(pv?.id || "unknown"),
-    gitSha: pv?.gitSha
-      ? String(pv.gitSha)
-      : null,
+    sessionId,
+
+    tabId:
+      getTabId(),
+
+
+    /**
+     * Legacy application/deployment identity.
+     *
+     * Kept during P4 migration because the current backend,
+     * release catalogue and Admin Analytics queries still
+     * depend on profileVersionId.
+     */
+    profileVersionId:
+      String(
+        pv?.id ||
+          "unknown"
+      ),
+
+    gitSha:
+      pv?.gitSha
+        ? String(
+            pv.gitSha
+          )
+        : null,
+
+
+    /**
+     * Runtime Profile identity.
+     *
+     * This is evaluated for every event, rather than being
+     * bound to the visitor/session. Activating another
+     * Profile Variant therefore changes subsequent event
+     * identity without creating a new Analytics session.
+     */
+    profileVariantId:
+      runtimeIdentity
+        .profileVariantId,
+
+    contentSchemaVersion:
+      runtimeIdentity
+        .contentSchemaVersion,
+
+    profileTargetingLocation:
+      runtimeIdentity
+        .targeting
+        .location,
+
+    profileTargetingJobRole:
+      runtimeIdentity
+        .targeting
+        .jobRole,
+
+
+    /**
+     * These remain null until an explicit domain source
+     * exists. Never derive them from gitSha or the legacy
+     * profileVersionId.
+     */
+    platformReleaseId:
+      runtimeIdentity
+        .platformReleaseId,
+
+    deploymentConfigurationId:
+      runtimeIdentity
+        .deploymentConfigurationId,
   };
 }
 
@@ -294,6 +376,49 @@ function ensureCurrentSession() {
   emitSessionStartIfNeeded(sessionId);
 
   return sessionId;
+}
+
+function beaconPendingAnalytics() {
+  if (!shouldCollectAnalytics()) {
+    return false;
+  }
+
+  if (!queue.length) {
+    return false;
+  }
+
+  let queuedAny =
+    false;
+
+  for (
+    let offset = 0;
+    offset < queue.length;
+    offset += MAX_BATCH
+  ) {
+    const batch =
+      queue.slice(
+        offset,
+        offset + MAX_BATCH
+      );
+
+    if (!batch.length) {
+      continue;
+    }
+
+    const accepted =
+      sendAnalyticsBatchBeacon({
+        events: batch,
+      });
+
+    if (!accepted) {
+      return queuedAny;
+    }
+
+    queuedAny =
+      true;
+  }
+
+  return queuedAny;
 }
 
 async function flush(reason = "timer") {
@@ -478,7 +603,13 @@ function startRuntime() {
         forceFlush: true,
       });
 
-      flush("hidden");
+      const beaconQueued =
+        beaconPendingAnalytics();
+
+      if (!beaconQueued) {
+        flush("hidden");
+      }
+
       return;
     }
 
@@ -520,7 +651,12 @@ function startRuntime() {
       forceFlush: true,
     });
 
-    flush("pagehide");
+    const beaconQueued =
+      beaconPendingAnalytics();
+
+    if (!beaconQueued) {
+      flush("pagehide");
+    }
   };
 
   document.addEventListener(
@@ -627,48 +763,95 @@ export async function flushAndClose() {
     forceFlush: true,
   });
 
+  const beaconQueued =
+    beaconPendingAnalytics();
+
+  if (beaconQueued) {
+    return;
+  }
+
   try {
     await flush("close");
   } catch {}
 }
 
-export function trackEvent(evt) {
+/**
+ * Synchronous navigation-safe duplicate delivery attempt.
+ *
+ * Used immediately before links/downloads may background or suspend
+ * the current browser context.
+ */
+export function flushForNavigation() {
+  return beaconPendingAnalytics();
+}
+
+export function trackEvents(events) {
   if (!shouldCollectAnalytics()) {
     return;
   }
 
-  const type =
-    String(evt?.type || "").trim();
-
-  if (!ALLOWED_EVENT_TYPES.has(type)) {
+  if (!Array.isArray(events)) {
     return;
   }
 
   const sessionId =
     ensureCurrentSession();
 
-  // session_start is emitted only through the claim mechanism.
-  if (type === "session_start") {
-    return;
+  let shouldFlush =
+    false;
+
+  for (const evt of events) {
+    const type =
+      String(
+        evt?.type || ""
+      ).trim();
+
+    if (
+      !ALLOWED_EVENT_TYPES.has(
+        type
+      )
+    ) {
+      continue;
+    }
+
+    // session_start is emitted only through
+    // the shared-session claim mechanism.
+    if (type === "session_start") {
+      continue;
+    }
+
+    const normalized =
+      normalizeEvent(
+        evt,
+        sessionId
+      );
+
+    if (!normalized) {
+      continue;
+    }
+
+    recordNormalized(
+      normalized
+    );
+
+    if (
+      IMPORTANT_EVENT_TYPES.has(
+        normalized.type
+      )
+    ) {
+      shouldFlush =
+        true;
+    }
   }
 
-  const normalized =
-    normalizeEvent(evt, sessionId);
-
-  if (!normalized) return;
-
-  recordNormalized(normalized);
-
-  if (
-    [
-      "cta_click",
-      "project_open",
-      "code_snippet_view",
-      "deep_link",
-    ].includes(normalized.type)
-  ) {
+  if (shouldFlush) {
     flush("important");
   }
+}
+
+
+export function trackEvent(evt) {
+  trackEvents([evt]);
 }
 
 /**

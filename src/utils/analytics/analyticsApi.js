@@ -1,9 +1,8 @@
 // src/utils/analytics/analyticsApi.js
 
 import {
-  OWNER_SESSION_KEY,
-  OWNER_TOKEN_KEY,
-} from "../../config/owner";
+  readOwnerSessionToken,
+} from "../owner/ownerSession";
 
 const SNAPSHOTS_API =
   process.env.REACT_APP_SNAPSHOTS_API || "";
@@ -34,30 +33,6 @@ function mustHaveAnalyticsIngestApi() {
   );
 }
 
-function isOwnerEnabled() {
-  try {
-    return (
-      sessionStorage.getItem(
-        OWNER_SESSION_KEY
-      ) === "1"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function ownerToken() {
-  try {
-    return (
-      sessionStorage.getItem(
-        OWNER_TOKEN_KEY
-      ) || ""
-    );
-  } catch {
-    return "";
-  }
-}
-
 function analyticsHeaders({
   requireOwner = false,
 } = {}) {
@@ -66,28 +41,28 @@ function analyticsHeaders({
       "application/json",
   };
 
-  const ownerEnabled =
-    isOwnerEnabled();
 
   const token =
-    ownerToken();
+    readOwnerSessionToken();
 
-  if (
-    ownerEnabled &&
-    token
-  ) {
-    headers["x-owner-token"] =
+
+  if (token) {
+    headers[
+      "x-owner-token"
+    ] =
       token;
   }
 
+
   if (
     requireOwner &&
-    (!ownerEnabled || !token)
+    !token
   ) {
     throw new Error(
       "Owner mode is required to view analytics."
     );
   }
+
 
   return headers;
 }
@@ -123,6 +98,341 @@ async function readJsonResponse(
 
   return data;
 }
+
+function cleanString(
+  value
+) {
+  return String(
+    value ??
+      ""
+  ).trim();
+}
+
+
+function requireControlPlaneId(
+  value,
+  field
+) {
+  const id =
+    cleanString(
+      value
+    );
+
+
+  if (
+    !id ||
+    id.length > 160 ||
+    !/^[A-Za-z0-9._:-]+$/.test(
+      id
+    )
+  ) {
+    throw new Error(
+      `${field} is invalid.`
+    );
+  }
+
+
+  return id;
+}
+
+
+function archiveLimit(
+  value
+) {
+  const parsed =
+    Number(
+      value
+    );
+
+
+  if (
+    !Number.isInteger(
+      parsed
+    ) ||
+    parsed < 1 ||
+    parsed > 100
+  ) {
+    throw new Error(
+      "limit must be an integer between 1 and 100."
+    );
+  }
+
+
+  return parsed;
+}
+
+
+const USAGE_EPOCH_STATES =
+  new Set([
+    "OPEN",
+    "CLOSING",
+    "CLOSED",
+  ]);
+
+
+/**
+ * Owner-only immutable Usage Epoch history.
+ *
+ * Backend permits one efficient selector:
+ *
+ * - lifecycle state
+ * OR
+ * - deploymentConfigurationId
+ *
+ * Never emulate an "all epochs" catalog client-side.
+ */
+export async function listUsageEpochs({
+  state =
+    "CLOSED",
+
+  deploymentConfigurationId,
+
+  limit =
+    25,
+
+  nextToken,
+
+  signal,
+} = {}) {
+  const base =
+    mustHaveSnapshotsApi();
+
+  const configurationId =
+    cleanString(
+      deploymentConfigurationId
+    );
+
+  const normalizedState =
+    cleanString(
+      state ||
+        "CLOSED"
+    ).toUpperCase();
+
+
+  if (
+    configurationId
+  ) {
+    requireControlPlaneId(
+      configurationId,
+      "deploymentConfigurationId"
+    );
+  } else if (
+    !USAGE_EPOCH_STATES.has(
+      normalizedState
+    )
+  ) {
+    throw new Error(
+      "state must be OPEN, CLOSING, or CLOSED."
+    );
+  }
+
+
+  const qs =
+    new URLSearchParams();
+
+
+  if (
+    configurationId
+  ) {
+    qs.set(
+      "deploymentConfigurationId",
+      configurationId
+    );
+  } else {
+    qs.set(
+      "state",
+      normalizedState
+    );
+  }
+
+
+  qs.set(
+    "limit",
+    String(
+      archiveLimit(
+        limit
+      )
+    )
+  );
+
+
+  const token =
+    cleanString(
+      nextToken
+    );
+
+
+  if (token) {
+    qs.set(
+      "nextToken",
+      token
+    );
+  }
+
+
+  const response =
+    await fetch(
+      `${base}/usage-epochs/list?${qs.toString()}`,
+      {
+        method:
+          "GET",
+
+        headers:
+          analyticsHeaders({
+            requireOwner:
+              true,
+          }),
+
+        cache:
+          "no-store",
+
+        signal,
+      }
+    );
+
+
+  const data =
+    await readJsonResponse(
+      response,
+      "Usage Epoch history query"
+    );
+
+
+  if (
+    !data ||
+    data.ok !== true ||
+    !Array.isArray(
+      data.epochs
+    )
+  ) {
+    throw new Error(
+      data?.error ||
+        "Usage Epoch history returned an invalid response."
+    );
+  }
+
+
+  return data;
+}
+
+
+/**
+ * Read one immutable Configuration Analytics Report by its
+ * authoritative Usage Epoch identity.
+ */
+export async function getConfigurationAnalyticsReport({
+  usageEpochId,
+  signal,
+} = {}) {
+  const id =
+    requireControlPlaneId(
+      usageEpochId,
+      "usageEpochId"
+    );
+
+  const base =
+    mustHaveSnapshotsApi();
+
+  const qs =
+    new URLSearchParams({
+      usageEpochId:
+        id,
+    });
+
+
+  const response =
+    await fetch(
+      `${base}/configuration-analytics-reports/get?${qs.toString()}`,
+      {
+        method:
+          "GET",
+
+        headers:
+          analyticsHeaders({
+            requireOwner:
+              true,
+          }),
+
+        cache:
+          "no-store",
+
+        signal,
+      }
+    );
+
+
+  const data =
+    await readJsonResponse(
+      response,
+      "Configuration Analytics Report read"
+    );
+
+
+  const responseEpochId =
+    cleanString(
+      data
+        ?.usageEpoch
+        ?.usageEpochId
+    );
+
+  const reportEpochId =
+    cleanString(
+      data
+        ?.report
+        ?.usageEpochId
+    );
+
+  const epochReportId =
+    cleanString(
+      data
+        ?.usageEpoch
+        ?.report
+        ?.reportId
+    );
+
+  const reportId =
+    cleanString(
+      data
+        ?.report
+        ?.reportId
+    );
+
+  const epochSha =
+    cleanString(
+      data
+        ?.usageEpoch
+        ?.report
+        ?.reportSha256
+    );
+
+  const responseSha =
+    cleanString(
+      data
+        ?.reportSha256
+    );
+
+
+  if (
+    !data ||
+    data.ok !== true ||
+    responseEpochId !== id ||
+    reportEpochId !== id ||
+    !reportId ||
+    reportId !==
+      epochReportId ||
+    !responseSha ||
+    responseSha !==
+      epochSha
+  ) {
+    throw new Error(
+      "Configuration Analytics Report response identity does not match the requested Usage Epoch."
+    );
+  }
+
+
+  return data;
+}
+
 
 export async function ingestAnalyticsBatch(
   payload
@@ -165,6 +475,61 @@ export async function ingestAnalyticsBatch(
 }
 
 /**
+ * Lifecycle/navigation-safe best-effort Analytics delivery.
+ *
+ * sendBeacon() is deliberately supplemental to the normal fetch transport.
+ * Event IDs make duplicate delivery safe at the aggregate layer.
+ *
+ * text/plain is intentional:
+ * it keeps the cross-origin beacon request CORS-simple while the backend
+ * still parses the body as JSON.
+ */
+export function sendAnalyticsBatchBeacon(
+  payload
+) {
+  if (
+    typeof navigator === "undefined" ||
+    typeof navigator.sendBeacon !== "function"
+  ) {
+    return false;
+  }
+
+  let url;
+
+  try {
+    url =
+      `${mustHaveAnalyticsIngestApi()}/analytics/ingest`;
+  } catch {
+    return false;
+  }
+
+  try {
+    const serialized =
+      JSON.stringify(payload);
+
+    const body =
+      typeof Blob !== "undefined"
+        ? new Blob(
+            [serialized],
+            {
+              type:
+                "text/plain;charset=UTF-8",
+            }
+          )
+        : serialized;
+
+    return Boolean(
+      navigator.sendBeacon(
+        url,
+        body
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Canonical production analytics query.
  *
  * profileVersionId:
@@ -176,6 +541,14 @@ export async function ingestAnalyticsBatch(
  */
 export async function queryAnalyticsAgg({
   profileVersionId = "all",
+
+  profileVariantId = "all",
+
+  profileTargetingLocation =
+    "all",
+
+  profileTargetingJobRole =
+    "all",
 
   boundaryId = "all",
 
@@ -199,6 +572,47 @@ export async function queryAnalyticsAgg({
         "all"
     )
   );
+
+  if (
+    profileVariantId &&
+    profileVariantId !==
+      "all"
+  ) {
+    qs.set(
+      "profileVariantId",
+      String(
+        profileVariantId
+      )
+    );
+  }
+
+
+  if (
+    profileTargetingLocation &&
+    profileTargetingLocation !==
+      "all"
+  ) {
+    qs.set(
+      "profileTargetingLocation",
+      String(
+        profileTargetingLocation
+      )
+    );
+  }
+
+
+  if (
+    profileTargetingJobRole &&
+    profileTargetingJobRole !==
+      "all"
+  ) {
+    qs.set(
+      "profileTargetingJobRole",
+      String(
+        profileTargetingJobRole
+      )
+    );
+  }
 
   if (
     boundaryId &&
@@ -404,6 +818,14 @@ export async function queryAnalyticsDays(
   {
     profileVersionId = "all",
 
+    profileVariantId = "all",
+
+    profileTargetingLocation =
+      "all",
+
+    profileTargetingJobRole =
+      "all",
+
     boundaryId = "all",
 
     from,
@@ -417,9 +839,19 @@ export async function queryAnalyticsDays(
   const data =
     await queryAnalyticsAgg({
       profileVersionId,
+
+      profileVariantId,
+
+      profileTargetingLocation,
+
+      profileTargetingJobRole,
+
       boundaryId,
+
       from,
+
       to,
+
       signal,
     });
 

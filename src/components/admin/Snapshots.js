@@ -7,6 +7,17 @@ import { FaRegSave } from "react-icons/fa";
 import { HiStar } from "react-icons/hi2";
 
 import SectionHeader from "../shared/SectionHeader";
+
+import ProfileVariantActivationPanel from "./ProfileVariantActivationPanel";
+import ProfileVariantCatalogPanel from "./ProfileVariantCatalogPanel";
+import PlatformReleaseCatalogPanel from "./PlatformReleaseCatalogPanel";
+import CurrentRuntimeCompositionCard from "./CurrentRuntimeCompositionCard";
+
+import {
+  HistoricalTruthBadge,
+  LegacyDeployHistoryTruthPanel,
+} from "./LegacyHistoricalTruth";
+
 import { cx } from "../../utils/cx";
 import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../../utils/ui";
 
@@ -16,7 +27,6 @@ import {
   deleteSnapshot,
   restoreSnapshot,
   listTrashSnapshots,
-  triggerDeploy,
   getDeployHistory,
   purgeSnapshot,
   updateSnapshotRemark,
@@ -88,42 +98,6 @@ function parseMetaFromKey(key) {
   return { filename, from, to, createdAt: createdAtLabel, createdAtIso };
 }
 
-
-function extractDeployMetaFromSnapshotJson(snapJson) {
-  if (!snapJson || typeof snapJson !== "object") return null;
-
-  // Your profileVersion util returns: { id, gitSha, buildTime, repo: {...} }
-  // Some snapshots might store it under different names; we try multiple.
-  const pv =
-    snapJson.profileVersion ||
-    snapJson.profile_version ||
-    snapJson.buildMeta ||
-    snapJson.build_meta ||
-    null;
-
-  const gitSha =
-    pv?.gitSha ||
-    pv?.git_sha ||
-    pv?.repo?.commit ||
-    snapJson.gitSha ||
-    snapJson.git_sha ||
-    null;
-
-  const checkpointTag =
-    pv?.repo?.checkpointTag ||
-    pv?.checkpointTag ||
-    snapJson.checkpointTag ||
-    null;
-
-  const profileVersion =
-    pv?.id || pv?.profileVersion || snapJson.profileVersionId || null;
-
-  return {
-    gitSha,
-    checkpointTag,
-    profileVersion,
-  };
-}
 
 // function shortSha(sha) {
 //   return sha ? String(sha).slice(0, 12) : "";
@@ -1034,6 +1008,7 @@ const TAB_IDS = ["profile", "analytics"];
 const COL = {
   // "data" columns (selectable)
   PROFILE_VERSION_ID: "profileVersionId",
+  HISTORICAL_TRUTH: "historicalTruth",
   FILENAME: "filename",
   GIT_SHA: "gitSha",
   CATEGORY: "category",
@@ -1063,6 +1038,38 @@ const COLUMN_DEFS = [
         showCopy={Boolean(it.meta?.profileVersionId)}
       />
     ),
+  },
+  {
+    id:
+      COL.HISTORICAL_TRUTH,
+
+    label:
+      "Historical_Truth",
+
+    sortable:
+      false,
+
+    tabs: [
+      "profile",
+      "analytics",
+    ],
+
+    getValue:
+      (it) =>
+        it
+          ?.historicalTruth
+          ?.classification ||
+        "",
+
+    renderCell:
+      (it) => (
+        <HistoricalTruthBadge
+          historicalTruth={
+            it
+              ?.historicalTruth
+          }
+        />
+      ),
   },
   {
     id: COL.FILENAME,
@@ -1209,6 +1216,7 @@ const TAB_CONFIG = {
     // default “select” (data columns shown when no query applied)
     defaultSelect: [
       COL.PROFILE_VERSION_ID,
+      COL.HISTORICAL_TRUTH,
       COL.FILENAME,
       COL.GIT_SHA,
       COL.CATEGORY,
@@ -1226,6 +1234,7 @@ const TAB_CONFIG = {
     label: "Analytics",
     defaultSelect: [
       COL.PROFILE_VERSION_ID,
+      COL.HISTORICAL_TRUTH,
       COL.FILENAME,
       COL.CATEGORY,
       COL.TAG_KEY,
@@ -1270,7 +1279,6 @@ function SnapshotsTable({
   activeGitSha,
   prevGitSha,
   showTrash,
-  askDeploy,
   downloadRepoZip,
   remarkEditKey,
   remarkDraft,
@@ -1290,7 +1298,14 @@ function SnapshotsTable({
     .filter(Boolean);
   return (
     <div className={containerClassName}>
-        <table className={cx("w-full text-sm", isProfileTab ? "min-w-[1640px]" : "min-w-[1480px]")}>
+        <table
+          className={cx(
+            "w-full text-sm",
+            isProfileTab
+              ? "min-w-[1820px]"
+              : "min-w-[1660px]"
+          )}
+        >
         <thead className="sticky top-0 z-10 bg-gray-100/90 dark:bg-[#121224]/90 backdrop-blur border-b border-gray-200/70 dark:border-white/10">
             <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
             {/* selection */}
@@ -1345,17 +1360,11 @@ function SnapshotsTable({
             {/* remark (always) */}
             <th className="py-3 px-4 font-semibold whitespace-nowrap w-[520px]">Remark</th>
 
-            {/* deploy (profile only) */}
-            {isProfileTab ? (
-                <th className="py-3 px-4 font-semibold whitespace-nowrap">Deploy</th>
-            ) : null}
             </tr>
         </thead>
 
         <tbody>
             {visibleRows.map((it) => {
-            const sha = it.meta?.gitSha || "";
-            const isActiveRow = Boolean(sha && activeGitSha && sha === activeGitSha);
             const isFocused = it.key === focusedKey;
 
             return (
@@ -1579,28 +1588,6 @@ function SnapshotsTable({
                     )}
                 </td>
 
-                {/* deploy */}
-                {isProfileTab ? (
-                    <td className="text-xs py-3 px-4 whitespace-nowrap w-[360px]">
-                    <ActionButton
-                        variant="green"
-                        disabled={showTrash || isActiveRow}
-                        onClick={(e) => {
-                        e.stopPropagation();
-                        askDeploy(it.key);
-                        }}
-                        title={
-                        showTrash
-                            ? "Restore first, then deploy"
-                            : isActiveRow
-                            ? "Already active — deploy disabled"
-                            : "Deploy this snapshot's version"
-                        }
-                    >
-                        {isActiveRow ? "Active" : "Deploy"}
-                    </ActionButton>
-                    </td>
-                ) : null}
                 </tr>
             );
             })}
@@ -1659,7 +1646,146 @@ function comparePrimitive(a, b, dir) {
     : String(B).localeCompare(String(A));
 }
 
-export default function AdminSnapshots() {
+export default function AdminSnapshots({
+  activeProfile =
+    null,
+
+  activeProfileVariantId =
+    "",
+
+  activePlatformReleaseId =
+    "",
+
+  activeDeploymentConfigurationId =
+    "",
+
+  onRefreshActiveProfile,
+}) {
+
+    const profileCatalogRef =
+      useRef(
+        null
+      );
+
+    const platformCatalogRef =
+      useRef(
+        null
+      );
+
+
+    const [
+      profileCatalogSelectionRequest,
+      setProfileCatalogSelectionRequest,
+    ] =
+      useState(
+        null
+      );
+
+
+    const [
+      platformCatalogSelectionRequest,
+      setPlatformCatalogSelectionRequest,
+    ] =
+      useState(
+        null
+      );
+
+
+    const openProfileVariantHistory =
+      useCallback(
+        (
+          profileVariantId
+        ) => {
+          const id =
+            String(
+              profileVariantId ??
+                ""
+            ).trim();
+
+
+          if (!id) {
+            return;
+          }
+
+
+          setProfileCatalogSelectionRequest(
+            (
+              current
+            ) => ({
+              id,
+
+              requestId:
+                (
+                  current
+                    ?.requestId ||
+                  0
+                ) +
+                1,
+            })
+          );
+
+
+          profileCatalogRef
+            .current
+            ?.scrollIntoView?.({
+              behavior:
+                "smooth",
+
+              block:
+                "start",
+            });
+        },
+        []
+      );
+
+
+    const openPlatformReleaseHistory =
+      useCallback(
+        (
+          platformReleaseId
+        ) => {
+          const id =
+            String(
+              platformReleaseId ??
+                ""
+            ).trim();
+
+
+          if (!id) {
+            return;
+          }
+
+
+          setPlatformCatalogSelectionRequest(
+            (
+              current
+            ) => ({
+              id,
+
+              requestId:
+                (
+                  current
+                    ?.requestId ||
+                  0
+                ) +
+                1,
+            })
+          );
+
+
+          platformCatalogRef
+            .current
+            ?.scrollIntoView?.({
+              behavior:
+                "smooth",
+
+              block:
+                "start",
+            });
+        },
+        []
+      );
+
     const [items, setItems] = useState([]);
     const [trashItems, setTrashItems] = useState([]);
 
@@ -1694,12 +1820,6 @@ export default function AdminSnapshots() {
     const [restoreOpen, setRestoreOpen] = useState(false);
     const [restoreKey, setRestoreKey] = useState("");
     const [restoreBusy, setRestoreBusy] = useState(false);
-
-    const [deployOpen, setDeployOpen] = useState(false);
-    const [deployBusy, setDeployBusy] = useState(false);
-    const [deployErr, setDeployErr] = useState("");
-    const [deployKey, setDeployKey] = useState("");
-    const [deployMeta, setDeployMeta] = useState(null);
 
     const [remarkEditKey, setRemarkEditKey] = useState("");
     const [remarkDraft, setRemarkDraft] = useState("");
@@ -2226,78 +2346,6 @@ export default function AdminSnapshots() {
     }
   }, [deleteKey, refresh, refreshTrash, showTrash]);
 
-  const askDeploy = useCallback(async (key) => {
-    setDeployErr("");
-    setDeployKey(key);
-    setDeployMeta(null);
-    setDeployOpen(true);
-
-    try {
-        const row = rows.find((r) => r.key === key);
-        const shaFromList = row?.meta?.gitSha || "";
-        const checkpointFromList = row?.meta?.checkpointTag || "";
-        const pvFromList = row?.meta?.profileVersionId || "";
-
-        // ✅ Prefer list meta (fast path)
-        if (shaFromList) {
-        setDeployMeta({
-            gitSha: shaFromList,
-            checkpointTag: checkpointFromList || null,
-            profileVersion: pvFromList || null,
-        });
-        return;
-        }
-
-        // fallback: fetch snapshot JSON (older snapshots)
-        const snap = await fetchSnapshotJson(key);
-        const meta = extractDeployMetaFromSnapshotJson(snap);
-
-        if (!meta?.gitSha) {
-        setDeployErr(
-            "This snapshot has no git SHA (metadata or JSON). Re-publish snapshot with build meta."
-        );
-        return;
-        }
-
-        setDeployMeta(meta);
-    } catch (e) {
-        setDeployErr(String(e?.message || e));
-    }
-  }, [rows]);
-
-  const doDeploy = useCallback(async () => {
-    if (!deployMeta?.gitSha) return;
-
-    setDeployBusy(true);
-    setDeployErr("");
-
-    try {
-      const res = await triggerDeploy({
-        gitSha: deployMeta.gitSha,
-        checkpointTag: deployMeta.checkpointTag,
-        profileVersion: deployMeta.profileVersion,
-        reason: "owner redeploy from snapshots UI",
-        sourceSnapshotKey: deployKey,
-      });
-
-      // close modal
-      setDeployOpen(false);
-      setDeployKey("");
-      setDeployMeta(null);
-
-      // optionally show run URL in the main error line area (as success)
-      if (res?.runUrl) {
-        setErr(`✅ Deploy triggered. Run: ${res.runUrl}`);
-      } else {
-        setErr(`✅ Deploy triggered.`);
-      }
-    } catch (e) {
-      setDeployErr(String(e?.message || e));
-    } finally {
-      setDeployBusy(false);
-    }
-  }, [deployMeta, deployKey]);
-
 //   const askRestore = useCallback((key) => {
 //     setRestoreKey(key);
 //     setRestoreOpen(true);
@@ -2472,10 +2520,111 @@ export default function AdminSnapshots() {
       <SectionHeader icon={FaRegSave} title="Snapshots" />
 
       <div className="px-6 space-y-6">
-        <p className="mt-10 text-gray-600 dark:text-gray-400 max-w-3xl">
-          Owner-only snapshot archive stored privately in S3. Preview, download, and delete
-          (recoverable via Trash).
-        </p>
+        <div className="mt-10">
+          <CurrentRuntimeCompositionCard
+            activeProfileVariantId={
+              activeProfileVariantId
+            }
+
+            activePlatformReleaseId={
+              activePlatformReleaseId
+            }
+
+            activeDeploymentConfigurationId={
+              activeDeploymentConfigurationId
+            }
+          />
+        </div>
+
+
+        <div>
+          <ProfileVariantActivationPanel
+            active={
+              activeProfile
+            }
+
+            activeProfileVariantId={
+              activeProfileVariantId
+            }
+
+            onRefreshActiveProfile={
+              onRefreshActiveProfile
+            }
+          />
+        </div>
+
+
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            Immutable control-plane history
+          </div>
+
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-3xl">
+            Read-only Profile Variant and Platform Release history.
+            Deployment Configurations cross-link the two immutable catalogs without activating or deploying anything.
+          </p>
+        </div>
+
+
+
+
+        <div
+          ref={
+            profileCatalogRef
+          }
+        >
+          <ProfileVariantCatalogPanel
+            activeProfileVariantId={
+              activeProfileVariantId
+            }
+
+            selectionRequest={
+              profileCatalogSelectionRequest
+            }
+
+            onOpenPlatformRelease={
+              openPlatformReleaseHistory
+            }
+          />
+        </div>
+
+
+        <div
+          ref={
+            platformCatalogRef
+          }
+        >
+          <PlatformReleaseCatalogPanel
+            activePlatformReleaseId={
+              activePlatformReleaseId
+            }
+
+            selectionRequest={
+              platformCatalogSelectionRequest
+            }
+
+            onOpenProfileVariant={
+              openProfileVariantHistory
+            }
+          />
+        </div>
+
+
+        <div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            Snapshot archive
+          </div>
+
+          <p className="mt-1 text-gray-600 dark:text-gray-400 max-w-3xl">
+            Legacy owner-only Snapshot archive stored privately in S3. Each row is truth-classified
+            without converting Git SHA or Profile Version into formal control-plane identity. Preview,
+            download, archive, and restore remain available here. Production rollback or redeploy is
+            performed through the explicit Redeploy (Owner) GitHub Actions workflow.
+            Snapshot redeploy does not activate immutable Profile Variant content; authoritative formal
+            Profile and Platform history remains in the immutable catalogs above.
+          </p>
+        </div>
+
 
         {err ? (
           <div className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
@@ -2488,6 +2637,12 @@ export default function AdminSnapshots() {
             ⚠️ Deploy history unavailable: {historyErr}
           </div>
         ) : null}
+
+        <LegacyDeployHistoryTruthPanel
+          history={
+            deployHistory
+          }
+        />
 
         <SectionCard
           title={showTrash ? "Archived snapshots" : "Saved snapshots"}
@@ -2538,7 +2693,6 @@ export default function AdminSnapshots() {
                 activeGitSha={activeGitSha}
                 prevGitSha={prevGitSha}
                 showTrash={showTrash}
-                askDeploy={askDeploy}
                 downloadRepoZip={downloadRepoZip}
                 remarkEditKey={remarkEditKey}
                 remarkDraft={remarkDraft}
@@ -2601,7 +2755,6 @@ export default function AdminSnapshots() {
             activeGitSha={activeGitSha}
             prevGitSha={prevGitSha}
             showTrash={showTrash}
-            askDeploy={askDeploy}
             downloadRepoZip={downloadRepoZip}
             remarkEditKey={remarkEditKey}
             remarkDraft={remarkDraft}
@@ -2723,60 +2876,6 @@ export default function AdminSnapshots() {
         onConfirm={doBulkPurge}
       />
 
-      <ConfirmModal
-        open={deployOpen}
-        title="Deploy this version to production?"
-        body={
-          deployErr
-            ? "Fix the issue below and try again."
-            : "This will trigger a GitHub Actions workflow to redeploy GitHub Pages at the selected commit."
-        }
-        confirmText="Deploy"
-        confirmVariant="green"
-        busy={deployBusy}
-        onClose={() => {
-          setDeployOpen(false);
-          setDeployErr("");
-        }}
-        onConfirm={doDeploy}
-        extra={
-          <div className="space-y-2 text-xs text-gray-700 dark:text-gray-300">
-            <div className="break-words">
-              <span className="font-semibold text-gray-800 dark:text-gray-200">
-                Snapshot key:
-              </span>{" "}
-              {deployKey || "—"}
-            </div>
-
-            <div className="break-words">
-              <span className="font-semibold text-gray-800 dark:text-gray-200">
-                Git SHA:
-              </span>{" "}
-              {deployMeta?.gitSha ? deployMeta.gitSha.slice(0, 12) : "—"}
-            </div>
-
-            <div className="break-words">
-              <span className="font-semibold text-gray-800 dark:text-gray-200">
-                Checkpoint:
-              </span>{" "}
-              {deployMeta?.checkpointTag || "—"}
-            </div>
-
-            <div className="break-words">
-              <span className="font-semibold text-gray-800 dark:text-gray-200">
-                Profile version:
-              </span>{" "}
-              {deployMeta?.profileVersion || "—"}
-            </div>
-
-            {deployErr ? (
-              <div className="mt-2 text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
-                {deployErr}
-              </div>
-            ) : null}
-          </div>
-        }
-      />
 
       <ConfirmModal
         open={restoreOpen}

@@ -11,23 +11,118 @@ import {
   GetItemCommand,
 } from "@aws-sdk/client-dynamodb";
 
-import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import {
+  marshall,
+  unmarshall,
+} from "@aws-sdk/util-dynamodb";
+
+
+import {
+  GetSecretValueCommand,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager";
+
+
 import * as crypto from "node:crypto";
+
+import {
+  verifyOwnerSessionToken,
+} from "./owner-session-auth";
+
+import {
+  projectAnalyticsEventToUsageEpoch,
+} from "./usage-epoch-analytics-projection";
+
+import {
+  ALLOWED_EVENT_TYPES,
+  MAX_EVENT_AGE_MS,
+  PUBLIC_SECTION_ORDER,
+  PUBLIC_SECTIONS,
+  canonicalizeDeepLinkValue,
+} from "./analytics-domain";
 
 
 type APIGatewayV2Event = any;
 
-const s3 = new S3Client({});
-const ddb = new DynamoDBClient({});
+const s3 =
+  new S3Client({});
+
+
+const ddb =
+  new DynamoDBClient({});
+
+
+const secretsManager =
+  new SecretsManagerClient({});
 
 const {
-  ANALYTICS_EVENTS_BUCKET = "",
-  ANALYTICS_TABLE = "",
-  OWNER_TOKEN = "",
-  ANALYTICS_EDGE_TOKEN = "",
-  ALLOWED_ORIGINS = "",
-  STAGE = "dev",
+  ANALYTICS_EVENTS_BUCKET =
+    "",
+
+  ANALYTICS_TABLE =
+    "",
+
+  USAGE_EPOCHS_TABLE =
+    "",
+
+  USAGE_EPOCH_ANALYTICS_TABLE =
+    "",
+
+  OWNER_TOKEN_SECRET_ID =
+    "",
+
+  OWNER_SESSION_SIGNING_KEY_SECRET_ID =
+    "",
+
+  ANALYTICS_EDGE_TOKEN_SECRET_ID =
+    "",
+
+  ALLOWED_ORIGINS =
+    "",
+
+  STAGE =
+    "dev",
 } = process.env;
+
+
+// Existing Jest suites use deterministic in-process
+// credentials. Production Lambda environments never
+// receive these legacy plaintext variables after P10D2.
+const TEST_OWNER_TOKEN =
+  process.env.NODE_ENV === "test"
+    ? String(
+        process.env.OWNER_TOKEN ||
+        ""
+      ).trim()
+    : "";
+
+
+const TEST_OWNER_SESSION_SIGNING_KEY =
+  process.env.NODE_ENV ===
+    "test"
+    ? String(
+        process.env
+          .OWNER_SESSION_SIGNING_KEY ||
+        ""
+      ).trim()
+    : "";
+
+
+const TEST_ANALYTICS_EDGE_TOKEN =
+  process.env.NODE_ENV === "test"
+    ? String(
+        process.env
+          .ANALYTICS_EDGE_TOKEN ||
+        ""
+      ).trim()
+    : "";
+
+
+const secretCache =
+  new Map<
+    string,
+    string
+  >();
 
 const allowedOrigins = new Set(
   String(ALLOWED_ORIGINS || "")
@@ -40,9 +135,6 @@ const MAX_EVENTS_PER_BATCH = 50;
 
 const MAX_JOURNEY_EVENTS_PER_FRAGMENT = 100;
 
-const MAX_EVENT_AGE_MS =
-  24 * 60 * 60 * 1000;
-
 const MAX_FUTURE_SKEW_MS =
   5 * 60 * 1000;
 
@@ -54,8 +146,8 @@ const DEFAULT_QUERY_DAYS = 7;
 // Exact daily-partition querying is excellent for our scale,
 // but we intentionally prevent accidental multi-year runaway queries.
 //
-// Phase 7 can introduce monthly historical rollups if we eventually
-// want an effectively-unbounded "All Time" view.
+// Monthly historical rollups can be introduced later if we
+// need an effectively-unbounded "All Time" view.
 const MAX_QUERY_DAYS = 366;
 
 const QUERY_CONCURRENCY = 10;
@@ -90,32 +182,6 @@ const ANALYTICS_BOUNDARY_PREFIX =
 const CONTROL_ID_RE =
   /^[A-Za-z0-9._:-]+$/;
 
-const PUBLIC_SECTION_ORDER = [
-  "About Me",
-  "Experience",
-  "Skills",
-  "Education",
-  "Resume",
-  "Projects",
-  "Code Lab",
-  "Fun Zone",
-  "Timeline",
-] as const;
-
-const PUBLIC_SECTIONS = new Set<string>(
-  PUBLIC_SECTION_ORDER
-);
-
-const ALLOWED_EVENT_TYPES = new Set([
-  "session_start",
-  "section_view",
-  "section_time",
-  "scroll_depth",
-  "cta_click",
-  "deep_link",
-  "project_open",
-  "code_snippet_view",
-]);
 
 function identityHash(
   kind: "visitor" | "session",
@@ -146,9 +212,312 @@ function corsHeaders(origin?: string) {
   };
 }
 
-function isOwner(headers: Record<string, string>) {
-  const token = String(headers["x-owner-token"] || headers["X-Owner-Token"] || "").trim();
-  return Boolean(OWNER_TOKEN && token && token === OWNER_TOKEN);
+function secretsMatch(
+  candidate:
+    string,
+
+  expected:
+    string
+) {
+  const left =
+    String(
+      candidate ||
+      ""
+    ).trim();
+
+  const right =
+    String(
+      expected ||
+      ""
+    ).trim();
+
+
+  if (
+    !left ||
+    !right
+  ) {
+    return false;
+  }
+
+
+  const leftDigest =
+    crypto
+      .createHash(
+        "sha256"
+      )
+      .update(
+        left,
+        "utf8"
+      )
+      .digest();
+
+
+  const rightDigest =
+    crypto
+      .createHash(
+        "sha256"
+      )
+      .update(
+        right,
+        "utf8"
+      )
+      .digest();
+
+
+  return crypto
+    .timingSafeEqual(
+      leftDigest,
+      rightDigest
+    );
+}
+
+
+async function readSecretString(
+  secretId:
+    string,
+
+  label:
+    string
+) {
+  if (
+    !secretId
+  ) {
+    throw new Error(
+      `${label} secret id not configured`
+    );
+  }
+
+
+  const cached =
+    secretCache.get(
+      secretId
+    );
+
+
+  if (
+    cached
+  ) {
+    return cached;
+  }
+
+
+  const out =
+    await secretsManager.send(
+      new GetSecretValueCommand({
+        SecretId:
+          secretId,
+      })
+    );
+
+
+  const value =
+    String(
+      out.SecretString ||
+      ""
+    ).trim();
+
+
+  if (
+    !value
+  ) {
+    throw new Error(
+      `${label} secret is empty`
+    );
+  }
+
+
+  secretCache.set(
+    secretId,
+    value
+  );
+
+
+  return value;
+}
+
+
+async function getOwnerToken() {
+  if (
+    TEST_OWNER_TOKEN
+  ) {
+    return TEST_OWNER_TOKEN;
+  }
+
+
+  return readSecretString(
+    OWNER_TOKEN_SECRET_ID,
+    "Owner token"
+  );
+}
+
+async function getOwnerSessionSigningKey() {
+  if (
+    TEST_OWNER_SESSION_SIGNING_KEY
+  ) {
+    return TEST_OWNER_SESSION_SIGNING_KEY;
+  }
+
+
+  return readSecretString(
+    OWNER_SESSION_SIGNING_KEY_SECRET_ID,
+    "Owner session signing key"
+  );
+}
+
+async function getAnalyticsEdgeToken() {
+  if (
+    TEST_ANALYTICS_EDGE_TOKEN
+  ) {
+    return TEST_ANALYTICS_EDGE_TOKEN;
+  }
+
+
+  return readSecretString(
+    ANALYTICS_EDGE_TOKEN_SECRET_ID,
+    "Analytics edge token"
+  );
+}
+
+
+async function hasValidAnalyticsEdgeCredential(
+  headers:
+    Record<string, string>
+) {
+  const candidate =
+    safeStr(
+      headers[
+        "x-analytics-edge-token"
+      ] ||
+      headers[
+        "X-Analytics-Edge-Token"
+      ],
+      128
+    );
+
+
+  if (!candidate) {
+    return false;
+  }
+
+
+  try {
+    const expected =
+      await getAnalyticsEdgeToken();
+
+
+    return secretsMatch(
+      candidate,
+      expected
+    );
+  } catch (e: any) {
+    // Analytics ingestion must fail closed when
+    // the edge credential cannot be resolved.
+    console.error(
+      "Analytics edge authentication failed closed",
+      {
+        secretConfigured:
+          Boolean(
+            ANALYTICS_EDGE_TOKEN_SECRET_ID
+          ),
+
+        error:
+          String(
+            e?.message ||
+            e
+          ),
+      }
+    );
+
+
+    return false;
+  }
+}
+
+
+async function isOwner(
+  headers:
+    Record<string, string>
+) {
+  const candidate =
+    String(
+      headers[
+        "x-owner-token"
+      ] ||
+      headers[
+        "X-Owner-Token"
+      ] ||
+      ""
+    ).trim();
+
+
+  if (!candidate) {
+    return false;
+  }
+
+
+  try {
+    const expectedMaster =
+      await getOwnerToken();
+
+
+    // CI / machine callers retain the stage-specific
+    // master credential contract.
+    if (
+      secretsMatch(
+        candidate,
+        expectedMaster
+      )
+    ) {
+      return true;
+    }
+
+
+    const signingKey =
+      await getOwnerSessionSigningKey();
+
+
+    const session =
+      verifyOwnerSessionToken({
+        token:
+          candidate,
+
+        stage:
+          STAGE as
+            "dev" |
+            "prod",
+
+        signingKey,
+      });
+
+
+    return session.ok;
+  } catch (e: any) {
+    // Authentication fails closed when runtime
+    // credentials cannot be resolved.
+    console.error(
+      "Owner authentication failed closed",
+      {
+        ownerSecretConfigured:
+          Boolean(
+            OWNER_TOKEN_SECRET_ID
+          ),
+
+        sessionSecretConfigured:
+          Boolean(
+            OWNER_SESSION_SIGNING_KEY_SECRET_ID
+          ),
+
+        error:
+          String(
+            e?.message ||
+            e
+          ),
+      }
+    );
+
+
+    return false;
+  }
 }
 
 function nowIso() {
@@ -213,32 +582,28 @@ function decodeGeoHeader(
   }
 }
 
-function getGeoFromHeaders(
+async function getGeoFromHeaders(
   headers:
     Record<string, string>
 ) {
-  const edgeToken =
-    safeStr(
-      headers[
-        "x-analytics-edge-token"
-      ] ||
-      headers[
-        "X-Analytics-Edge-Token"
-      ],
-      128
-    );
-
-  // Never trust CloudFront-looking headers
-  // from a direct API Gateway request.
+  // Defense in depth:
+  // geo headers are trusted only when the request
+  // carries the independently verified CloudFront
+  // Analytics edge credential.
   if (
-    !ANALYTICS_EDGE_TOKEN ||
-    edgeToken !==
-      ANALYTICS_EDGE_TOKEN
+    !(await hasValidAnalyticsEdgeCredential(
+      headers
+    ))
   ) {
     return {
-      countryCode: null,
-      regionCode: null,
-      city: null,
+      countryCode:
+        null,
+
+      regionCode:
+        null,
+
+      city:
+        null,
     };
   }
 
@@ -549,6 +914,66 @@ function normalizeEvent(e: any) {
     return null;
   }
 
+  const rawProfileVariantId =
+    safeStr(
+      e?.profileVariantId,
+      160
+    );
+
+  const profileVariantId =
+    rawProfileVariantId &&
+    /^[A-Za-z0-9._:-]+$/.test(
+      rawProfileVariantId
+    )
+      ? rawProfileVariantId
+      : null;
+
+
+  const contentSchemaVersion =
+    typeof e?.contentSchemaVersion ===
+        "number" &&
+    Number.isInteger(
+      e.contentSchemaVersion
+    ) &&
+    e.contentSchemaVersion > 0
+      ? e.contentSchemaVersion
+      : null;
+
+
+  const profileTargetingLocation =
+    safeStr(
+      e?.profileTargetingLocation,
+      240
+    ) || null;
+
+
+  const profileTargetingJobRole =
+    safeStr(
+      e?.profileTargetingJobRole,
+      240
+    ) || null;
+
+
+  /**
+   * P5 will formalize these identity contracts.
+   *
+   * P4 accepts explicit values only.
+   * Never derive either identity from profileVersionId
+   * or any Git/build metadata.
+   */
+  const platformReleaseId =
+    safeStr(
+      e?.platformReleaseId,
+      160
+    ) || null;
+
+
+  const deploymentConfigurationId =
+    safeStr(
+      e?.deploymentConfigurationId,
+      160
+    ) || null;
+
   let section =
     e?.section
       ? safeStr(e.section, 80)
@@ -596,6 +1021,33 @@ function normalizeEvent(e: any) {
         120
       ) || "unknown",
 
+
+    /**
+     * Runtime Profile identity.
+     *
+     * Optional for backward compatibility with historical
+     * and pre-P4 clients.
+     */
+    profileVariantId,
+
+    contentSchemaVersion,
+
+    profileTargetingLocation,
+
+    profileTargetingJobRole,
+
+
+    /**
+     * Future explicit deployment identities.
+     *
+     * They remain null until a caller provides a real
+     * identity. No legacy derivation is allowed.
+     */
+    platformReleaseId,
+
+    deploymentConfigurationId,
+
+
     section,
 
     ctaId:
@@ -637,14 +1089,32 @@ function normalizeEvent(e: any) {
 
     path:
       e?.path
-        ? safeStr(e.path, 240)
+        ? (
+            type === "deep_link"
+              ? canonicalizeDeepLinkValue(
+                  e.path
+                )
+              : safeStr(
+                  e.path,
+                  240
+                )
+          ) || null
         : null,
 
     hash:
       e?.hash
-        ? safeStr(e.hash, 240)
+        ? (
+            type === "deep_link"
+              ? canonicalizeDeepLinkValue(
+                  e.hash
+                )
+              : safeStr(
+                  e.hash,
+                  240
+                )
+          ) || null
         : null,
-  };
+      };
 
   // Compatibility for a pre-eventId client.
   // Deterministic fingerprint means a retry gets the same ID.
@@ -656,6 +1126,16 @@ function normalizeEvent(e: any) {
           normalized.ts,
           normalized.sessionId,
           normalized.tabId,
+
+          normalized.profileVersionId,
+
+          normalized.profileVariantId,
+          normalized.contentSchemaVersion,
+          normalized.profileTargetingLocation,
+          normalized.profileTargetingJobRole,
+          normalized.platformReleaseId,
+          normalized.deploymentConfigurationId,
+
           normalized.section,
           normalized.ctaId,
           normalized.projectId,
@@ -747,24 +1227,38 @@ function buildJourneyToken(
   //
   // We store only a fingerprint of eventId here to keep
   // each Dynamo value compact.
-  return JSON.stringify({
-    t:
-      event.ts,
+  const token:
+    Record<string, any> = {
+      t:
+        event.ts,
 
-    i:
-      sha256(
-        event.eventId
-      ).slice(
-        0,
-        20
-      ),
+      i:
+        sha256(
+          event.eventId
+        ).slice(
+          0,
+          20
+        ),
 
-    k:
-      kind,
+      k:
+        kind,
 
-    v:
-      value,
-  });
+      v:
+        value,
+    };
+
+  /**
+   * Profile Variant identity is optional so historical
+   * journey tokens remain fully backward-compatible.
+   */
+  if (event.profileVariantId) {
+    token.p =
+      event.profileVariantId;
+  }
+
+  return JSON.stringify(
+    token
+  );
 }
 
 function sessionFragmentKey(
@@ -833,6 +1327,25 @@ function buildSessionFragmentInit(
     deepLinks: {},
   };
 
+  /**
+   * Exact Profile Variant metric attribution.
+   *
+   * This is intentionally separate from the legacy
+   * metrics map so historical fragments whose metrics
+   * object already exists can be upgraded safely via
+   * one top-level if_not_exists initialization.
+   */
+  const profileVariantMetrics = {
+    eventCounts: {},
+    activeMs: {},
+    sectionVisits: {},
+    sectionTimeMs: {},
+    ctaCounts: {},
+    projectOpens: {},
+    snippetViews: {},
+    deepLinks: {},
+  };
+
   const names: Record<string, string> = {
     "#visitorHash": "visitorHash",
     "#sessionHash": "sessionHash",
@@ -841,6 +1354,8 @@ function buildSessionFragmentInit(
     "#lastEventAt": "lastEventAt",
     "#updatedAt": "updatedAt",
     "#metrics": "metrics",
+    "#profileVariantMetrics":
+      "profileVariantMetrics",
   };
 
   const values: Record<string, any> = {
@@ -851,6 +1366,8 @@ function buildSessionFragmentInit(
     ":eventTs": event.ts,
     ":now": nowIso(),
     ":metrics": metrics,
+    ":profileVariantMetrics":
+      profileVariantMetrics,
   };
 
   const sets = [
@@ -861,6 +1378,10 @@ function buildSessionFragmentInit(
     "#lastEventAt = if_not_exists(#lastEventAt, :eventTs)",
     "#updatedAt = if_not_exists(#updatedAt, :now)",
     "#metrics = if_not_exists(#metrics, :metrics)",
+    "#profileVariantMetrics = " +
+      "if_not_exists(" +
+      "#profileVariantMetrics, " +
+      ":profileVariantMetrics)",
   ];
 
   if (geo.countryCode) {
@@ -1089,6 +1610,186 @@ function buildSessionEventUpdate(
     );
   }
 
+  /**
+   * Exact section reach for the ACTIVE Profile Variant.
+   *
+   * JSON tuples avoid delimiter ambiguity while keeping
+   * the legacy sectionsSeen set untouched.
+   */
+  if (
+    event.section &&
+    event.profileVariantId
+  ) {
+    names[
+      "#profileVariantSectionsSeen"
+    ] =
+      "profileVariantSectionsSeen";
+
+    values[
+      ":profileVariantSectionsSeen"
+    ] =
+      new Set([
+        JSON.stringify([
+          event.profileVariantId,
+          event.section,
+        ]),
+      ]);
+
+    adds.push(
+      "#profileVariantSectionsSeen " +
+      ":profileVariantSectionsSeen"
+    );
+  }
+
+  /**
+   * One logical Analytics session may span multiple
+   * ACTIVE Profile Variants.
+   *
+   * Store identity dimensions as sets rather than
+   * scalar session attributes so a mid-session Profile
+   * activation never overwrites historical context.
+   */
+  if (event.profileVariantId) {
+    names["#profileVariantIds"] =
+      "profileVariantIds";
+
+    values[":profileVariantIds"] =
+      new Set([
+        event.profileVariantId,
+      ]);
+
+    adds.push(
+      "#profileVariantIds :profileVariantIds"
+    );
+  }
+
+
+  if (
+    typeof event.contentSchemaVersion ===
+      "number"
+  ) {
+    names["#contentSchemaVersions"] =
+      "contentSchemaVersions";
+
+    values[":contentSchemaVersions"] =
+      new Set([
+        event.contentSchemaVersion,
+      ]);
+
+    adds.push(
+      "#contentSchemaVersions :contentSchemaVersions"
+    );
+  }
+
+
+  if (
+    event.profileTargetingLocation
+  ) {
+    names["#profileTargetingLocations"] =
+      "profileTargetingLocations";
+
+    values[":profileTargetingLocations"] =
+      new Set([
+        event.profileTargetingLocation,
+      ]);
+
+    adds.push(
+      "#profileTargetingLocations :profileTargetingLocations"
+    );
+  }
+
+
+  if (
+    event.profileTargetingJobRole
+  ) {
+    names["#profileTargetingJobRoles"] =
+      "profileTargetingJobRoles";
+
+    values[":profileTargetingJobRoles"] =
+      new Set([
+        event.profileTargetingJobRole,
+      ]);
+
+    adds.push(
+      "#profileTargetingJobRoles :profileTargetingJobRoles"
+    );
+  }
+
+
+  if (
+    event.platformReleaseId
+  ) {
+    names["#platformReleaseIds"] =
+      "platformReleaseIds";
+
+    values[":platformReleaseIds"] =
+      new Set([
+        event.platformReleaseId,
+      ]);
+
+    adds.push(
+      "#platformReleaseIds :platformReleaseIds"
+    );
+  }
+
+
+  if (
+    event.deploymentConfigurationId
+  ) {
+    names["#deploymentConfigurationIds"] =
+      "deploymentConfigurationIds";
+
+    values[":deploymentConfigurationIds"] =
+      new Set([
+        event.deploymentConfigurationId,
+      ]);
+
+    adds.push(
+      "#deploymentConfigurationIds :deploymentConfigurationIds"
+    );
+  }
+
+  /**
+   * Preserve the exact association between one ACTIVE
+   * Profile Variant and the runtime identity context
+   * carried by the same Analytics event.
+   *
+   * Independent identity sets above remain useful for
+   * membership queries, while this tuple prevents
+   * cross-product ambiguity when a session fragment
+   * contains multiple Profile Variants.
+   */
+  if (event.profileVariantId) {
+    names[
+      "#profileVariantContexts"
+    ] =
+      "profileVariantContexts";
+
+    values[
+      ":profileVariantContexts"
+    ] =
+      new Set([
+        JSON.stringify([
+          event.profileVariantId,
+
+          event.contentSchemaVersion,
+
+          event.profileTargetingLocation,
+
+          event.profileTargetingJobRole,
+
+          event.platformReleaseId,
+
+          event.deploymentConfigurationId,
+        ]),
+      ]);
+
+    adds.push(
+      "#profileVariantContexts " +
+      ":profileVariantContexts"
+    );
+  }
+
   function addMetric(
     mapName: string,
     prefix: string,
@@ -1126,6 +1827,88 @@ function buildSessionEventUpdate(
     );
   }
 
+  /**
+   * Increment one exact metric bucket for the ACTIVE
+   * Profile Variant carried by this event.
+   *
+   * This participates in the same conditioned
+   * UpdateItem as processedEventIds, so legacy and
+   * Profile Variant metrics remain atomically
+   * idempotent.
+   */
+  function addProfileVariantMetric(
+    mapName: string,
+    prefix: string,
+    key: string,
+    amount: number
+  ) {
+    if (!event.profileVariantId) {
+      return;
+    }
+
+    names["#profileVariantMetrics"] =
+      "profileVariantMetrics";
+
+    if (
+      values[":zero"] ===
+      undefined
+    ) {
+      values[":zero"] =
+        0;
+    }
+
+    const mapAlias =
+      `#pvmap_${prefix}`;
+
+    const keyHash =
+      sha256(key).slice(
+        0,
+        12
+      );
+
+    const keyAlias =
+      `#pvkey_${prefix}_${keyHash}`;
+
+    const valueAlias =
+      `:pvvalue_${prefix}_${keyHash}`;
+
+    names[mapAlias] =
+      mapName;
+
+    names[keyAlias] =
+      key;
+
+    values[valueAlias] =
+      amount;
+
+    sets.push(
+      `#profileVariantMetrics.${mapAlias}.${keyAlias} = ` +
+      `if_not_exists(` +
+      `#profileVariantMetrics.${mapAlias}.${keyAlias}, ` +
+      `:zero) + ${valueAlias}`
+    );
+  }
+
+
+  function profileVariantDimensionKey(
+    value: string
+  ) {
+    return JSON.stringify([
+      event.profileVariantId,
+      value,
+    ]);
+  }
+
+
+  if (event.profileVariantId) {
+    addProfileVariantMetric(
+      "eventCounts",
+      "event",
+      event.profileVariantId,
+      1
+    );
+  }
+
   if (
     event.type === "section_view" &&
     event.section
@@ -1136,6 +1919,17 @@ function buildSessionEventUpdate(
       event.section,
       1
     );
+
+    if (event.profileVariantId) {
+      addProfileVariantMetric(
+        "sectionVisits",
+        "section_view",
+        profileVariantDimensionKey(
+          event.section
+        ),
+        1
+      );
+    }
   }
 
   if (
@@ -1160,6 +1954,24 @@ function buildSessionEventUpdate(
     adds.push(
       "#activeMs :activeMs"
     );
+
+    if (event.profileVariantId) {
+      addProfileVariantMetric(
+        "sectionTimeMs",
+        "section_time",
+        profileVariantDimensionKey(
+          event.section
+        ),
+        event.ms
+      );
+
+      addProfileVariantMetric(
+        "activeMs",
+        "active",
+        event.profileVariantId,
+        event.ms
+      );
+    }
   }
 
   if (
@@ -1172,6 +1984,17 @@ function buildSessionEventUpdate(
       event.ctaId,
       1
     );
+
+    if (event.profileVariantId) {
+      addProfileVariantMetric(
+        "ctaCounts",
+        "cta",
+        profileVariantDimensionKey(
+          event.ctaId
+        ),
+        1
+      );
+    }
   }
 
   if (
@@ -1184,6 +2007,17 @@ function buildSessionEventUpdate(
       event.projectId,
       1
     );
+
+    if (event.profileVariantId) {
+      addProfileVariantMetric(
+        "projectOpens",
+        "project",
+        profileVariantDimensionKey(
+          event.projectId
+        ),
+        1
+      );
+    }
   }
 
   if (
@@ -1196,6 +2030,17 @@ function buildSessionEventUpdate(
       event.snippetId,
       1
     );
+
+    if (event.profileVariantId) {
+      addProfileVariantMetric(
+        "snippetViews",
+        "snippet",
+        profileVariantDimensionKey(
+          event.snippetId
+        ),
+        1
+      );
+    }
   }
 
   if (
@@ -1208,6 +2053,19 @@ function buildSessionEventUpdate(
       event.hash || event.path || "",
       1
     );
+
+    if (event.profileVariantId) {
+      addProfileVariantMetric(
+        "deepLinks",
+        "deep_link",
+        profileVariantDimensionKey(
+          event.hash ||
+          event.path ||
+          ""
+        ),
+        1
+      );
+    }
   }
 
   if (
@@ -1227,6 +2085,30 @@ function buildSessionEventUpdate(
     adds.push(
       "#depthMilestones :depthMilestones"
     );
+
+
+    if (event.profileVariantId) {
+      names[
+        "#profileVariantDepthMilestones"
+      ] =
+        "profileVariantDepthMilestones";
+
+      values[
+        ":profileVariantDepthMilestones"
+      ] =
+        new Set([
+          JSON.stringify([
+            event.profileVariantId,
+            event.section,
+            event.depthPct,
+          ]),
+        ]);
+
+      adds.push(
+        "#profileVariantDepthMilestones " +
+        ":profileVariantDepthMilestones"
+      );
+    }
   }
 
   return {
@@ -2121,7 +3003,7 @@ async function handleAnalyticsMeta(
   const cors =
     corsHeaders(origin);
 
-  if (!isOwner(headers)) {
+  if (!(await isOwner(headers))) {
     return json(
       401,
       {
@@ -2254,7 +3136,7 @@ async function handleRegisterRelease(
   const cors =
     corsHeaders(origin);
 
-  if (!isOwner(headers)) {
+  if (!(await isOwner(headers))) {
     return json(
       401,
       {
@@ -2393,7 +3275,7 @@ async function handleCreateBoundary(
   const cors =
     corsHeaders(origin);
 
-  if (!isOwner(headers)) {
+  if (!(await isOwner(headers))) {
     return json(
       401,
       {
@@ -2746,6 +3628,28 @@ async function handleIngest(event: APIGatewayV2Event) {
     return { statusCode: 204, headers: cors, body: "" };
   }
 
+  // Public analytics ingestion is edge-only.
+  //
+  // Browsers send Analytics to CloudFront. CloudFront
+  // injects the stage-specific origin credential.
+  // Direct API Gateway callers must never bypass this
+  // boundary, even when they provide plausible
+  // CloudFront geo headers.
+  if (
+    !(await hasValidAnalyticsEdgeCredential(
+      headers
+    ))
+  ) {
+    return json(
+      401,
+      {
+        error:
+          "Unauthorized",
+      },
+      cors
+    );
+  }
+
   // basic bot filter (doesn’t have to be perfect)
   if (isBot(headers)) {
     return json(204, { ok: true, ignored: "bot" }, cors);
@@ -2756,7 +3660,7 @@ async function handleIngest(event: APIGatewayV2Event) {
   // Client-side exclusion is the primary mechanism, but this is the
   // server-side safety net. Owner events are neither aggregated nor
   // written to raw analytics storage.
-  if (isOwner(headers)) {
+  if (await isOwner(headers)) {
     return {
       statusCode: 204,
       headers: cors,
@@ -2764,7 +3668,10 @@ async function handleIngest(event: APIGatewayV2Event) {
     };
   }
 
-  const geo = getGeoFromHeaders(headers);
+  const geo =
+    await getGeoFromHeaders(
+      headers
+    );
 
   let payload: any = {};
   try {
@@ -2996,6 +3903,39 @@ async function handleIngest(event: APIGatewayV2Event) {
         boundary
       );
 
+    /**
+     * Automatic historical archive projection.
+     *
+     * This is intentionally independent from result.accepted:
+     *
+     * live write succeeded + projection failed
+     *   -> request retries
+     *   -> live write becomes duplicate
+     *   -> projection still gets another chance
+     *
+     * Legacy events without complete formal runtime identity continue
+     * through the live Analytics path but are not fabricated into a
+     * Usage Epoch.
+     */
+    await projectAnalyticsEventToUsageEpoch({
+      client:
+        ddb,
+
+      usageEpochTableName:
+        USAGE_EPOCHS_TABLE,
+
+      projectionTableName:
+        USAGE_EPOCH_ANALYTICS_TABLE,
+
+      stage:
+        STAGE,
+
+      event:
+        analyticsEvent,
+
+      geo,
+    });
+
     if (result.accepted) {
       acceptedCount += 1;
     }
@@ -3156,6 +4096,40 @@ function rawEventForStorage(
 
     profileVersionId:
       event.profileVersionId,
+
+
+    /**
+     * Runtime Profile identity.
+     *
+     * These are already normalized by normalizeEvent()
+     * before reaching raw storage.
+     */
+    profileVariantId:
+      event.profileVariantId,
+
+    contentSchemaVersion:
+      event.contentSchemaVersion,
+
+    profileTargetingLocation:
+      event.profileTargetingLocation,
+
+    profileTargetingJobRole:
+      event.profileTargetingJobRole,
+
+
+    /**
+     * Future deployment identities are persisted only
+     * when explicitly supplied.
+     *
+     * They are never derived from profileVersionId
+     * or Git/build metadata.
+     */
+    platformReleaseId:
+      event.platformReleaseId,
+
+    deploymentConfigurationId:
+      event.deploymentConfigurationId,
+
 
     section:
       event.section,
@@ -3757,11 +4731,44 @@ function stringSetValues(
   return [];
 }
 
+function positiveIntegerSetValues(
+  value: any
+): number[] {
+  const values =
+    value instanceof Set
+      ? [...value]
+      : Array.isArray(value)
+        ? value
+        : [];
+
+  const normalized =
+    new Set<number>();
+
+  for (const raw of values) {
+    const value =
+      Number(raw);
+
+    if (
+      Number.isInteger(value) &&
+      value > 0
+    ) {
+      normalized.add(value);
+    }
+  }
+
+  return [
+    ...normalized,
+  ];
+}
+
 type ParsedJourneyEvent = {
   ts: number;
   fingerprint: string;
   type: string;
   value: string;
+
+  profileVariantId:
+    string | null;
 };
 
 const JOURNEY_KINDS =
@@ -3795,11 +4802,32 @@ function parseJourneyToken(
         32
       );
 
-    const value =
+    const rawValue =
       safeStr(
         parsed?.v,
         240
       );
+
+    const value =
+      type === "deep_link"
+        ? canonicalizeDeepLinkValue(
+            rawValue
+          )
+        : rawValue;
+
+    const rawProfileVariantId =
+      safeStr(
+        parsed?.p,
+        160
+      );
+
+    const profileVariantId =
+      rawProfileVariantId &&
+      /^[A-Za-z0-9._:-]+$/.test(
+        rawProfileVariantId
+      )
+        ? rawProfileVariantId
+        : null;
 
     if (
       !Number.isFinite(ts) ||
@@ -3815,6 +4843,8 @@ function parseJourneyToken(
       fingerprint,
       type,
       value,
+
+      profileVariantId,
     };
   } catch {
     return null;
@@ -3884,12 +4914,904 @@ function getInteractionCounter(
   return value;
 }
 
+type IdentityMembershipCounter = {
+  visitors:
+    Set<string>;
+
+  sessions:
+    Set<string>;
+
+  fragments:
+    number;
+};
+
+
+function touchIdentityMembership(
+  map: Map<
+    string,
+    IdentityMembershipCounter
+  >,
+  identity: string,
+  visitorHash: string,
+  sessionHash: string
+) {
+  let state =
+    map.get(identity);
+
+  if (!state) {
+    state = {
+      visitors:
+        new Set<string>(),
+
+      sessions:
+        new Set<string>(),
+
+      fragments:
+        0,
+    };
+
+    map.set(
+      identity,
+      state
+    );
+  }
+
+  state.visitors.add(
+    visitorHash
+  );
+
+  state.sessions.add(
+    sessionHash
+  );
+
+  state.fragments +=
+    1;
+}
+
+type RuntimeProfileFilter = {
+  profileVariantId:
+    string | null;
+
+  profileTargetingLocation:
+    string | null;
+
+  profileTargetingJobRole:
+    string | null;
+};
+
+
+type ParsedProfileVariantContext = {
+  rawToken: string;
+
+  profileVariantId:
+    string;
+
+  contentSchemaVersion:
+    number | null;
+
+  profileTargetingLocation:
+    string | null;
+
+  profileTargetingJobRole:
+    string | null;
+
+  platformReleaseId:
+    string | null;
+
+  deploymentConfigurationId:
+    string | null;
+};
+
+
+function hasRuntimeProfileFilter(
+  filter:
+    RuntimeProfileFilter
+) {
+  return Boolean(
+    filter.profileVariantId ||
+    filter.profileTargetingLocation ||
+    filter.profileTargetingJobRole
+  );
+}
+
+
+function parseProfileVariantContextToken(
+  token: string
+): ParsedProfileVariantContext | null {
+  try {
+    const parsed =
+      JSON.parse(token);
+
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length < 6
+    ) {
+      return null;
+    }
+
+    const profileVariantId =
+      safeStr(
+        parsed[0],
+        160
+      );
+
+    if (
+      !profileVariantId ||
+      !/^[A-Za-z0-9._:-]+$/.test(
+        profileVariantId
+      )
+    ) {
+      return null;
+    }
+
+    const schemaValue =
+      Number(
+        parsed[1]
+      );
+
+    const contentSchemaVersion =
+      Number.isInteger(
+        schemaValue
+      ) &&
+      schemaValue > 0
+        ? schemaValue
+        : null;
+
+    const profileTargetingLocation =
+      parsed[2] == null
+        ? null
+        : (
+            safeStr(
+              parsed[2],
+              240
+            ) || null
+          );
+
+    const profileTargetingJobRole =
+      parsed[3] == null
+        ? null
+        : (
+            safeStr(
+              parsed[3],
+              240
+            ) || null
+          );
+
+    const platformReleaseId =
+      parsed[4] == null
+        ? null
+        : (
+            safeStr(
+              parsed[4],
+              160
+            ) || null
+          );
+
+    const deploymentConfigurationId =
+      parsed[5] == null
+        ? null
+        : (
+            safeStr(
+              parsed[5],
+              160
+            ) || null
+          );
+
+    return {
+      rawToken:
+        token,
+
+      profileVariantId,
+
+      contentSchemaVersion,
+
+      profileTargetingLocation,
+
+      profileTargetingJobRole,
+
+      platformReleaseId,
+
+      deploymentConfigurationId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+
+function parseProfileVariantDimensionKey(
+  key: string
+): {
+  profileVariantId: string;
+  value: string;
+} | null {
+  try {
+    const parsed =
+      JSON.parse(key);
+
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== 2
+    ) {
+      return null;
+    }
+
+    const profileVariantId =
+      safeStr(
+        parsed[0],
+        160
+      );
+
+    const value =
+      typeof parsed[1] ===
+        "string"
+        ? parsed[1]
+        : "";
+
+    if (
+      !profileVariantId ||
+      !/^[A-Za-z0-9._:-]+$/.test(
+        profileVariantId
+      ) ||
+      !value
+    ) {
+      return null;
+    }
+
+    return {
+      profileVariantId,
+      value,
+    };
+  } catch {
+    return null;
+  }
+}
+
+
+function selectedProfileVariantMetricTotal(
+  source: any,
+  selectedProfileVariantIds:
+    Set<string>
+) {
+  let total = 0;
+
+  const values =
+    numericMap(source);
+
+  for (
+    const profileVariantId of
+      selectedProfileVariantIds
+  ) {
+    total +=
+      numericValue(
+        values[
+          profileVariantId
+        ]
+      );
+  }
+
+  return total;
+}
+
+
+function selectedProfileVariantDimensionMetrics(
+  source: any,
+  selectedProfileVariantIds:
+    Set<string>
+) {
+  const output:
+    Record<string, number> =
+      {};
+
+  for (
+    const [
+      encodedKey,
+      amount,
+    ] of Object.entries(
+      numericMap(source)
+    )
+  ) {
+    const parsed =
+      parseProfileVariantDimensionKey(
+        encodedKey
+      );
+
+    if (
+      !parsed ||
+      !selectedProfileVariantIds
+        .has(
+          parsed.profileVariantId
+        )
+    ) {
+      continue;
+    }
+
+    output[
+      parsed.value
+    ] =
+      (
+        output[
+          parsed.value
+        ] || 0
+      ) +
+      amount;
+  }
+
+  return output;
+}
+
+
+function profileVariantContextsForItem(
+  item: any
+) {
+  const contexts:
+    ParsedProfileVariantContext[] =
+      [];
+
+  for (
+    const token of
+      stringSetValues(
+        item?.profileVariantContexts
+      )
+  ) {
+    const context =
+      parseProfileVariantContextToken(
+        token
+      );
+
+    if (context) {
+      contexts.push(
+        context
+      );
+    }
+  }
+
+  return contexts;
+}
+
+
+function selectedProfileVariantIdsForItem(
+  item: any,
+  filter:
+    RuntimeProfileFilter
+) {
+  const eventCounts =
+    numericMap(
+      item
+        ?.profileVariantMetrics
+        ?.eventCounts
+    );
+
+  let selected =
+    new Set<string>(
+      Object.entries(
+        eventCounts
+      )
+        .filter(
+          ([
+            profileVariantId,
+            amount,
+          ]) =>
+            Boolean(
+              profileVariantId &&
+              /^[A-Za-z0-9._:-]+$/.test(
+                profileVariantId
+              ) &&
+              amount > 0
+            )
+        )
+        .map(
+          ([
+            profileVariantId,
+          ]) =>
+            profileVariantId
+        )
+    );
+
+
+  if (
+    filter.profileVariantId
+  ) {
+    selected =
+      selected.has(
+        filter.profileVariantId
+      )
+        ? new Set([
+            filter.profileVariantId,
+          ])
+        : new Set<string>();
+  }
+
+
+  if (
+    filter.profileTargetingLocation ||
+    filter.profileTargetingJobRole
+  ) {
+    const matchingContextIds =
+      new Set<string>();
+
+    for (
+      const context of
+        profileVariantContextsForItem(
+          item
+        )
+    ) {
+      if (
+        filter.profileVariantId &&
+        context.profileVariantId !==
+          filter.profileVariantId
+      ) {
+        continue;
+      }
+
+      if (
+        filter.profileTargetingLocation &&
+        context
+          .profileTargetingLocation !==
+          filter.profileTargetingLocation
+      ) {
+        continue;
+      }
+
+      if (
+        filter.profileTargetingJobRole &&
+        context
+          .profileTargetingJobRole !==
+          filter.profileTargetingJobRole
+      ) {
+        continue;
+      }
+
+      matchingContextIds.add(
+        context.profileVariantId
+      );
+    }
+
+    selected =
+      new Set(
+        [
+          ...selected,
+        ].filter(
+          (profileVariantId) =>
+            matchingContextIds.has(
+              profileVariantId
+            )
+        )
+      );
+  }
+
+  return selected;
+}
+
+
+function projectRuntimeProfileFilteredFragments(
+  byDay:
+    Map<string, any[]>,
+  filter:
+    RuntimeProfileFilter
+) {
+  if (
+    !hasRuntimeProfileFilter(
+      filter
+    )
+  ) {
+    return byDay;
+  }
+
+  const projectedByDay =
+    new Map<
+      string,
+      any[]
+    >();
+
+  for (
+    const [
+      day,
+      items,
+    ] of byDay.entries()
+  ) {
+    const projectedItems:
+      any[] = [];
+
+    for (
+      const item of items
+    ) {
+      const selectedProfileVariantIds =
+        selectedProfileVariantIdsForItem(
+          item,
+          filter
+        );
+
+      if (
+        selectedProfileVariantIds
+          .size === 0
+      ) {
+        continue;
+      }
+
+      const variantMetrics =
+        item?.profileVariantMetrics ||
+        {};
+
+      const eventCount =
+        selectedProfileVariantMetricTotal(
+          variantMetrics
+            .eventCounts,
+          selectedProfileVariantIds
+        );
+
+      if (eventCount <= 0) {
+        continue;
+      }
+
+      const activeMs =
+        selectedProfileVariantMetricTotal(
+          variantMetrics
+            .activeMs,
+          selectedProfileVariantIds
+        );
+
+
+      const sectionsSeen =
+        new Set<string>();
+
+      for (
+        const token of
+          stringSetValues(
+            item
+              ?.profileVariantSectionsSeen
+          )
+      ) {
+        try {
+          const parsed =
+            JSON.parse(token);
+
+          if (
+            !Array.isArray(parsed) ||
+            parsed.length !== 2
+          ) {
+            continue;
+          }
+
+          const profileVariantId =
+            safeStr(
+              parsed[0],
+              160
+            );
+
+          const section =
+            safeStr(
+              parsed[1],
+              80
+            );
+
+          if (
+            selectedProfileVariantIds
+              .has(
+                profileVariantId
+              ) &&
+            PUBLIC_SECTIONS.has(
+              section
+            )
+          ) {
+            sectionsSeen.add(
+              section
+            );
+          }
+        } catch {
+          continue;
+        }
+      }
+
+
+      const depthMilestones =
+        new Set<string>();
+
+      for (
+        const token of
+          stringSetValues(
+            item
+              ?.profileVariantDepthMilestones
+          )
+      ) {
+        try {
+          const parsed =
+            JSON.parse(token);
+
+          if (
+            !Array.isArray(parsed) ||
+            parsed.length !== 3
+          ) {
+            continue;
+          }
+
+          const profileVariantId =
+            safeStr(
+              parsed[0],
+              160
+            );
+
+          const section =
+            safeStr(
+              parsed[1],
+              80
+            );
+
+          const depthPct =
+            Number(
+              parsed[2]
+            );
+
+          if (
+            selectedProfileVariantIds
+              .has(
+                profileVariantId
+              ) &&
+            PUBLIC_SECTIONS.has(
+              section
+            ) &&
+            [25, 50, 75, 100]
+              .includes(
+                depthPct
+              )
+          ) {
+            depthMilestones.add(
+              `${section}|${depthPct}`
+            );
+          }
+        } catch {
+          continue;
+        }
+      }
+
+
+      const journeyEvents =
+        new Set<string>();
+
+      for (
+        const token of
+          stringSetValues(
+            item?.journeyEvents
+          )
+      ) {
+        const parsed =
+          parseJourneyToken(
+            token
+          );
+
+        if (
+          parsed
+            ?.profileVariantId &&
+          selectedProfileVariantIds
+            .has(
+              parsed
+                .profileVariantId
+            )
+        ) {
+          journeyEvents.add(
+            token
+          );
+        }
+      }
+
+
+      const relevantContexts =
+        profileVariantContextsForItem(
+          item
+        ).filter(
+          (context) => {
+            if (
+              !selectedProfileVariantIds
+                .has(
+                  context
+                    .profileVariantId
+                )
+            ) {
+              return false;
+            }
+
+            if (
+              filter
+                .profileTargetingLocation &&
+              context
+                .profileTargetingLocation !==
+                filter
+                  .profileTargetingLocation
+            ) {
+              return false;
+            }
+
+            if (
+              filter
+                .profileTargetingJobRole &&
+              context
+                .profileTargetingJobRole !==
+                filter
+                  .profileTargetingJobRole
+            ) {
+              return false;
+            }
+
+            return true;
+          }
+        );
+
+
+      const contentSchemaVersions =
+        new Set<number>();
+
+      const profileTargetingLocations =
+        new Set<string>();
+
+      const profileTargetingJobRoles =
+        new Set<string>();
+
+      const platformReleaseIds =
+        new Set<string>();
+
+      const deploymentConfigurationIds =
+        new Set<string>();
+
+
+      for (
+        const context of
+          relevantContexts
+      ) {
+        if (
+          context
+            .contentSchemaVersion !==
+          null
+        ) {
+          contentSchemaVersions.add(
+            context
+              .contentSchemaVersion
+          );
+        }
+
+        if (
+          context
+            .profileTargetingLocation
+        ) {
+          profileTargetingLocations
+            .add(
+              context
+                .profileTargetingLocation
+            );
+        }
+
+        if (
+          context
+            .profileTargetingJobRole
+        ) {
+          profileTargetingJobRoles
+            .add(
+              context
+                .profileTargetingJobRole
+            );
+        }
+
+        if (
+          context
+            .platformReleaseId
+        ) {
+          platformReleaseIds.add(
+            context
+              .platformReleaseId
+          );
+        }
+
+        if (
+          context
+            .deploymentConfigurationId
+        ) {
+          deploymentConfigurationIds
+            .add(
+              context
+                .deploymentConfigurationId
+            );
+        }
+      }
+
+
+      projectedItems.push({
+        ...item,
+
+        eventCount,
+
+        activeMs,
+
+        sectionsSeen,
+
+        depthMilestones,
+
+        journeyEvents,
+
+        profileVariantIds:
+          new Set(
+            selectedProfileVariantIds
+          ),
+
+        contentSchemaVersions,
+
+        profileTargetingLocations,
+
+        profileTargetingJobRoles,
+
+        platformReleaseIds,
+
+        deploymentConfigurationIds,
+
+        profileVariantContexts:
+          new Set(
+            relevantContexts.map(
+              (context) =>
+                context.rawToken
+            )
+          ),
+
+        metrics: {
+          sectionVisits:
+            selectedProfileVariantDimensionMetrics(
+              variantMetrics
+                .sectionVisits,
+              selectedProfileVariantIds
+            ),
+
+          sectionTimeMs:
+            selectedProfileVariantDimensionMetrics(
+              variantMetrics
+                .sectionTimeMs,
+              selectedProfileVariantIds
+            ),
+
+          ctaCounts:
+            selectedProfileVariantDimensionMetrics(
+              variantMetrics
+                .ctaCounts,
+              selectedProfileVariantIds
+            ),
+
+          projectOpens:
+            selectedProfileVariantDimensionMetrics(
+              variantMetrics
+                .projectOpens,
+              selectedProfileVariantIds
+            ),
+
+          snippetViews:
+            selectedProfileVariantDimensionMetrics(
+              variantMetrics
+                .snippetViews,
+              selectedProfileVariantIds
+            ),
+
+          deepLinks:
+            selectedProfileVariantDimensionMetrics(
+              variantMetrics
+                .deepLinks,
+              selectedProfileVariantIds
+            ),
+        },
+      });
+    }
+
+    projectedByDay.set(
+      day,
+      projectedItems
+    );
+  }
+
+  return projectedByDay;
+}
+
 function aggregateSessionFragments(
   days: string[],
   byDay:
     Map<string, any[]>,
   profileVersionFilter:
     string | null,
+  runtimeProfileFilter:
+    RuntimeProfileFilter,
   visitorFirstSeenByHash:
     Map<string, number>,
   effectiveRangeStartTs:
@@ -3988,7 +5910,7 @@ function aggregateSessionFragments(
         activeMs: number;
       }
     >();
-    
+
 
   const cities =
     new Map<
@@ -4011,7 +5933,6 @@ function aggregateSessionFragments(
       }
     >();
 
-  
 
   const profileVersions =
     new Map<
@@ -4025,6 +5946,58 @@ function aggregateSessionFragments(
         activeMs: number;
       }
     >();
+
+  /**
+   * Runtime identity membership statistics.
+   *
+   * These counters intentionally expose visitors,
+   * sessions, and fragment membership only.
+   *
+   * Fragment-level eventCount/activeMs cannot be
+   * attributed exactly when one fragment contains
+   * multiple runtime identities.
+   */
+  const profileVariants =
+    new Map<
+      string,
+      IdentityMembershipCounter
+    >();
+
+
+  const contentSchemas =
+    new Map<
+      string,
+      IdentityMembershipCounter
+    >();
+
+
+  const targetingLocations =
+    new Map<
+      string,
+      IdentityMembershipCounter
+    >();
+
+
+  const targetingJobRoles =
+    new Map<
+      string,
+      IdentityMembershipCounter
+    >();
+
+
+  const platformReleases =
+    new Map<
+      string,
+      IdentityMembershipCounter
+    >();
+
+
+  const deploymentConfigurations =
+    new Map<
+      string,
+      IdentityMembershipCounter
+    >();
+
 
   const daily = days.map(
     (day) => ({
@@ -4043,6 +6016,7 @@ function aggregateSessionFragments(
       fragmentCount: 0,
     })
   );
+
 
   const dailyByDay =
     new Map(
@@ -4105,7 +6079,12 @@ function aggregateSessionFragments(
     >,
     source: any,
     visitorHash: string,
-    sessionHash: string
+    sessionHash: string,
+    normalizeKey:
+      (
+        key: string
+      ) => string =
+        (key) => key
   ) {
     for (
       const [key, amount]
@@ -4113,10 +6092,17 @@ function aggregateSessionFragments(
         numericMap(source)
       )
     ) {
+      const normalizedKey =
+        normalizeKey(key);
+
+      if (!normalizedKey) {
+        continue;
+      }
+
       const counter =
         getInteractionCounter(
           target,
-          key
+          normalizedKey
         );
 
       counter.count +=
@@ -4266,6 +6252,151 @@ function aggregateSessionFragments(
       }
 
       // -------------------------
+      // Runtime identity membership
+      // -------------------------
+
+      for (
+        const rawProfileVariantId of
+          stringSetValues(
+            item?.profileVariantIds
+          )
+      ) {
+        const profileVariantId =
+          safeStr(
+            rawProfileVariantId,
+            160
+          );
+
+        if (
+          profileVariantId &&
+          /^[A-Za-z0-9._:-]+$/.test(
+            profileVariantId
+          )
+        ) {
+          touchIdentityMembership(
+            profileVariants,
+            profileVariantId,
+            visitorHash,
+            sessionHash
+          );
+        }
+      }
+
+
+      for (
+        const contentSchemaVersion of
+          positiveIntegerSetValues(
+            item?.contentSchemaVersions
+          )
+      ) {
+        touchIdentityMembership(
+          contentSchemas,
+          String(
+            contentSchemaVersion
+          ),
+          visitorHash,
+          sessionHash
+        );
+      }
+
+
+      for (
+        const rawLocation of
+          stringSetValues(
+            item
+              ?.profileTargetingLocations
+          )
+      ) {
+        const location =
+          safeStr(
+            rawLocation,
+            240
+          );
+
+        if (location) {
+          touchIdentityMembership(
+            targetingLocations,
+            location,
+            visitorHash,
+            sessionHash
+          );
+        }
+      }
+
+
+      for (
+        const rawJobRole of
+          stringSetValues(
+            item
+              ?.profileTargetingJobRoles
+          )
+      ) {
+        const jobRole =
+          safeStr(
+            rawJobRole,
+            240
+          );
+
+        if (jobRole) {
+          touchIdentityMembership(
+            targetingJobRoles,
+            jobRole,
+            visitorHash,
+            sessionHash
+          );
+        }
+      }
+
+
+      for (
+        const rawPlatformReleaseId of
+          stringSetValues(
+            item?.platformReleaseIds
+          )
+      ) {
+        const platformReleaseId =
+          safeStr(
+            rawPlatformReleaseId,
+            160
+          );
+
+        if (platformReleaseId) {
+          touchIdentityMembership(
+            platformReleases,
+            platformReleaseId,
+            visitorHash,
+            sessionHash
+          );
+        }
+      }
+
+
+      for (
+        const rawDeploymentConfigurationId of
+          stringSetValues(
+            item
+              ?.deploymentConfigurationIds
+          )
+      ) {
+        const deploymentConfigurationId =
+          safeStr(
+            rawDeploymentConfigurationId,
+            160
+          );
+
+        if (
+          deploymentConfigurationId
+        ) {
+          touchIdentityMembership(
+            deploymentConfigurations,
+            deploymentConfigurationId,
+            visitorHash,
+            sessionHash
+          );
+        }
+      }
+
+      // -------------------------
       // Section metrics
       // -------------------------
 
@@ -4369,7 +6500,8 @@ function aggregateSessionFragments(
         deepLinks,
         metrics.deepLinks,
         visitorHash,
-        sessionHash
+        sessionHash,
+        canonicalizeDeepLinkValue
       );
 
       // -------------------------
@@ -4781,6 +6913,52 @@ function aggregateSessionFragments(
       );
   }
 
+  function identityMembershipOutput(
+    source:
+      Map<
+        string,
+        IdentityMembershipCounter
+      >,
+    idField:
+      string
+  ) {
+    return [
+      ...source.entries(),
+    ]
+      .map(
+        ([
+          id,
+          value,
+        ]) => ({
+          [idField]:
+            id,
+
+          visitors:
+            value.visitors.size,
+
+          sessions:
+            value.sessions.size,
+
+          fragments:
+            value.fragments,
+        })
+      )
+      .sort(
+        (a, b) =>
+          b.sessions -
+            a.sessions ||
+          b.visitors -
+            a.visitors ||
+          String(
+            a[idField]
+          ).localeCompare(
+            String(
+              b[idField]
+            )
+          )
+      );
+  }
+
   return {
     range: {
 
@@ -4808,6 +6986,21 @@ function aggregateSessionFragments(
     filter: {
       profileVersionId:
         profileVersionFilter ||
+        "all",
+
+      profileVariantId:
+        runtimeProfileFilter
+          .profileVariantId ||
+        "all",
+
+      profileTargetingLocation:
+        runtimeProfileFilter
+          .profileTargetingLocation ||
+        "all",
+
+      profileTargetingJobRole:
+        runtimeProfileFilter
+          .profileTargetingJobRole ||
         "all",
 
       boundaryId:
@@ -5019,6 +7212,56 @@ function aggregateSessionFragments(
             a.eventCount
         ),
 
+    profileVariants:
+      identityMembershipOutput(
+        profileVariants,
+        "profileVariantId"
+      ),
+
+
+    contentSchemaVersions:
+      identityMembershipOutput(
+        contentSchemas,
+        "contentSchemaVersion"
+      ).map(
+        (row) => ({
+          ...row,
+
+          contentSchemaVersion:
+            Number(
+              row.contentSchemaVersion
+            ),
+        })
+      ),
+
+
+    profileTargetingLocations:
+      identityMembershipOutput(
+        targetingLocations,
+        "profileTargetingLocation"
+      ),
+
+
+    profileTargetingJobRoles:
+      identityMembershipOutput(
+        targetingJobRoles,
+        "profileTargetingJobRole"
+      ),
+
+
+    platformReleases:
+      identityMembershipOutput(
+        platformReleases,
+        "platformReleaseId"
+      ),
+
+
+    deploymentConfigurations:
+      identityMembershipOutput(
+        deploymentConfigurations,
+        "deploymentConfigurationId"
+      ),
+
     daily:
       daily.map(
         (value) => ({
@@ -5079,8 +7322,42 @@ function buildSessionIntelligence(
     sections:
       Set<string>;
 
+    /**
+     * Legacy deployment/content identity.
+     *
+     * We retain first-fragment timestamps here because the
+     * existing response orders profileVersionIds
+     * chronologically.
+     */
     profileVersions:
       Map<string, number>;
+
+
+    /**
+     * Runtime Profile identity.
+     *
+     * These sets represent identities observed anywhere
+     * across all DynamoDB fragments belonging to this
+     * logical session.
+     */
+    profileVariantIds:
+      Set<string>;
+
+    contentSchemaVersions:
+      Set<number>;
+
+    profileTargetingLocations:
+      Set<string>;
+
+    profileTargetingJobRoles:
+      Set<string>;
+
+    platformReleaseIds:
+      Set<string>;
+
+    deploymentConfigurationIds:
+      Set<string>;
+
 
     journey:
       Map<
@@ -5169,6 +7446,26 @@ function buildSessionIntelligence(
               string,
               number
             >(),
+
+
+          profileVariantIds:
+            new Set<string>(),
+
+          contentSchemaVersions:
+            new Set<number>(),
+
+          profileTargetingLocations:
+            new Set<string>(),
+
+          profileTargetingJobRoles:
+            new Set<string>(),
+
+          platformReleaseIds:
+            new Set<string>(),
+
+          deploymentConfigurationIds:
+            new Set<string>(),
+
 
           journey:
             new Map<
@@ -5290,6 +7587,137 @@ function buildSessionIntelligence(
           profileVersionId,
           pvTs
         );
+      }
+
+      /**
+       * A logical Analytics session may span multiple
+       * DynamoDB boundary fragments and multiple ACTIVE
+       * Profile Variants.
+       *
+       * Union runtime identity across every fragment.
+       */
+      for (
+        const rawProfileVariantId of
+          stringSetValues(
+            item?.profileVariantIds
+          )
+      ) {
+        const profileVariantId =
+          safeStr(
+            rawProfileVariantId,
+            160
+          );
+
+        if (profileVariantId) {
+          state
+            .profileVariantIds
+            .add(
+              profileVariantId
+            );
+        }
+      }
+
+
+      for (
+        const contentSchemaVersion of
+          positiveIntegerSetValues(
+            item?.contentSchemaVersions
+          )
+      ) {
+        state
+          .contentSchemaVersions
+          .add(
+            contentSchemaVersion
+          );
+      }
+
+
+      for (
+        const rawLocation of
+          stringSetValues(
+            item
+              ?.profileTargetingLocations
+          )
+      ) {
+        const location =
+          safeStr(
+            rawLocation,
+            240
+          );
+
+        if (location) {
+          state
+            .profileTargetingLocations
+            .add(location);
+        }
+      }
+
+
+      for (
+        const rawJobRole of
+          stringSetValues(
+            item
+              ?.profileTargetingJobRoles
+          )
+      ) {
+        const jobRole =
+          safeStr(
+            rawJobRole,
+            240
+          );
+
+        if (jobRole) {
+          state
+            .profileTargetingJobRoles
+            .add(jobRole);
+        }
+      }
+
+
+      for (
+        const rawPlatformReleaseId of
+          stringSetValues(
+            item?.platformReleaseIds
+          )
+      ) {
+        const platformReleaseId =
+          safeStr(
+            rawPlatformReleaseId,
+            160
+          );
+
+        if (platformReleaseId) {
+          state
+            .platformReleaseIds
+            .add(
+              platformReleaseId
+            );
+        }
+      }
+
+
+      for (
+        const rawDeploymentConfigurationId of
+          stringSetValues(
+            item
+              ?.deploymentConfigurationIds
+          )
+      ) {
+        const deploymentConfigurationId =
+          safeStr(
+            rawDeploymentConfigurationId,
+            160
+          );
+
+        if (
+          deploymentConfigurationId
+        ) {
+          state
+            .deploymentConfigurationIds
+            .add(
+              deploymentConfigurationId
+            );
+        }
       }
 
       for (
@@ -5712,6 +8140,9 @@ function buildSessionIntelligence(
 
                 value:
                   event.value,
+
+                profileVariantId:
+                  event.profileVariantId,
               })
             );
 
@@ -5800,6 +8231,72 @@ function buildSessionIntelligence(
                 id
             );
 
+        /**
+         * Runtime identity sets do not contain transition
+         * timestamps, so expose deterministic set order.
+         *
+         * Event-time transition history remains available
+         * in raw Analytics events.
+         */
+        const profileVariantIds =
+          [
+            ...state
+              .profileVariantIds,
+          ].sort(
+            (a, b) =>
+              a.localeCompare(b)
+          );
+
+
+        const contentSchemaVersions =
+          [
+            ...state
+              .contentSchemaVersions,
+          ].sort(
+            (a, b) =>
+              a - b
+          );
+
+
+        const profileTargetingLocations =
+          [
+            ...state
+              .profileTargetingLocations,
+          ].sort(
+            (a, b) =>
+              a.localeCompare(b)
+          );
+
+
+        const profileTargetingJobRoles =
+          [
+            ...state
+              .profileTargetingJobRoles,
+          ].sort(
+            (a, b) =>
+              a.localeCompare(b)
+          );
+
+
+        const platformReleaseIds =
+          [
+            ...state
+              .platformReleaseIds,
+          ].sort(
+            (a, b) =>
+              a.localeCompare(b)
+          );
+
+
+        const deploymentConfigurationIds =
+          [
+            ...state
+              .deploymentConfigurationIds,
+          ].sort(
+            (a, b) =>
+              a.localeCompare(b)
+          );
+
         return {
           sessionId:
             `s_${sha256(
@@ -5832,6 +8329,18 @@ function buildSessionIntelligence(
               .length,
 
           profileVersionIds,
+
+          profileVariantIds,
+
+          contentSchemaVersions,
+
+          profileTargetingLocations,
+
+          profileTargetingJobRoles,
+
+          platformReleaseIds,
+
+          deploymentConfigurationIds,
 
           countryCode:
             state.geo
@@ -5971,7 +8480,7 @@ async function handleQuery(
     corsHeaders(origin);
 
   // Owner-only dashboard.
-  if (!isOwner(headers)) {
+  if (!(await isOwner(headers))) {
     return json(
       401,
       {
@@ -6022,6 +8531,133 @@ async function handleQuery(
       "all"
       ? null
       : rawProfileVersion;
+
+    const rawProfileVariant =
+    typeof qs.profileVariantId ===
+      "string"
+      ? qs.profileVariantId
+          .trim()
+      : "";
+
+  let profileVariantFilter:
+    string | null =
+      null;
+
+  if (
+    rawProfileVariant &&
+    rawProfileVariant
+      .toLowerCase() !==
+      "all"
+  ) {
+    if (
+      rawProfileVariant.length >
+        160 ||
+      !/^[A-Za-z0-9._:-]+$/.test(
+        rawProfileVariant
+      )
+    ) {
+      return json(
+        400,
+        {
+          error:
+            "Invalid 'profileVariantId' filter.",
+        },
+        cors
+      );
+    }
+
+    profileVariantFilter =
+      rawProfileVariant;
+  }
+
+
+  const rawTargetingLocation =
+    typeof qs
+      .profileTargetingLocation ===
+      "string"
+      ? qs
+          .profileTargetingLocation
+          .trim()
+      : "";
+
+  let profileTargetingLocationFilter:
+    string | null =
+      null;
+
+  if (
+    rawTargetingLocation &&
+    rawTargetingLocation
+      .toLowerCase() !==
+      "all"
+  ) {
+    if (
+      rawTargetingLocation.length >
+      240
+    ) {
+      return json(
+        400,
+        {
+          error:
+            "Invalid 'profileTargetingLocation' filter.",
+        },
+        cors
+      );
+    }
+
+    profileTargetingLocationFilter =
+      rawTargetingLocation;
+  }
+
+
+  const rawTargetingJobRole =
+    typeof qs
+      .profileTargetingJobRole ===
+      "string"
+      ? qs
+          .profileTargetingJobRole
+          .trim()
+      : "";
+
+  let profileTargetingJobRoleFilter:
+    string | null =
+      null;
+
+  if (
+    rawTargetingJobRole &&
+    rawTargetingJobRole
+      .toLowerCase() !==
+      "all"
+  ) {
+    if (
+      rawTargetingJobRole.length >
+      240
+    ) {
+      return json(
+        400,
+        {
+          error:
+            "Invalid 'profileTargetingJobRole' filter.",
+        },
+        cors
+      );
+    }
+
+    profileTargetingJobRoleFilter =
+      rawTargetingJobRole;
+  }
+
+
+  const runtimeProfileFilter:
+    RuntimeProfileFilter = {
+      profileVariantId:
+        profileVariantFilter,
+
+      profileTargetingLocation:
+        profileTargetingLocationFilter,
+
+      profileTargetingJobRole:
+        profileTargetingJobRoleFilter,
+    };
 
   const rawBoundaryId =
     safeStr(
@@ -6093,9 +8729,17 @@ async function handleQuery(
       boundaryFilter
     );
 
+
+  const analyticsByDay =
+    projectRuntimeProfileFilteredFragments(
+      byDay,
+      runtimeProfileFilter
+    );
+
+
   const visitorHashes =
     collectVisitorHashes(
-      byDay
+      analyticsByDay
     );
 
   const visitorFirstSeenByHash =
@@ -6120,8 +8764,9 @@ async function handleQuery(
   const analytics =
     aggregateSessionFragments(
       range.days,
-      byDay,
+      analyticsByDay,
       profileVersionFilter,
+      runtimeProfileFilter,
       visitorFirstSeenByHash,
       effectiveRangeStartTs,
       boundaryFilter
@@ -6130,7 +8775,7 @@ async function handleQuery(
   const sessionIntelligence =
     buildSessionIntelligence(
       range.days,
-      byDay
+      analyticsByDay
     );
 
   return json(

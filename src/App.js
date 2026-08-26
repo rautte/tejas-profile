@@ -25,20 +25,40 @@ import {
   trackSectionEnter,
   trackScrollDepth,
   trackClick,
+  trackProjectAction,
   trackDeepLinkLanding,
   flushAndClose,
+  flushForNavigation,
 } from "./utils/analytics";
 
 import { excludeCurrentBrowserFromAnalytics, } from "./utils/analytics/exclusion";
+
+import {
+  setAnalyticsRuntimeIdentity,
+} from "./utils/analytics/runtimeIdentity";
+
 import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
-import { OWNER_SESSION_KEY, OWNER_TOKEN_KEY } from "./config/owner";
+
+import {
+  clearOwnerBrowserSession,
+  exchangeOwnerPasscodeForSession,
+  isOwnerBrowserSessionActive,
+  readOwnerSessionExpiresAtMs,
+} from "./utils/owner/ownerSession";
+
 import {
   DEFAULT_SECTION,
   SECTION_ORDER,
   SIDEBAR_GROUPS,
   ADMIN_SECTION_ORDER,
 } from "./data/App";
-import { listSnapshots } from "./utils/snapshots/snapshotsApi";
+
+import {
+  hashPathFromHash,
+  parseFunZoneRoute,
+  resolveSectionLabelFromHash,
+  toSectionSlug,
+} from "./utils/hashRouting";
 
 import ThemeToggle from "./components/shared/ThemeToggle";
 import MobileDockNav from "./components/shared/MobileDockNav";
@@ -84,6 +104,11 @@ import {
   FaLock,
 } from "react-icons/fa";
 
+import {
+  ProfileRuntimeProvider,
+  useProfileRuntime,
+} from "./profile/runtime";
+
 
 const ICONS = {
   "About Me": <FaUser className="text-sm" />,
@@ -106,12 +131,6 @@ const ICONS = {
 const ADMIN_LABELS = ADMIN_SECTION_ORDER;
 
 const LABELS = SECTION_ORDER;
-
-const toSlug = (label) => label.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-const SLUG_TO_LABEL = LABELS.reduce((acc, l) => {
-  acc[toSlug(l)] = l;
-  return acc;
-}, {});
 
 // ------------------------------
 // Theme (Option A): OS-default, override only for this session
@@ -180,46 +199,33 @@ function writeSessionTheme(isDark) {
 // Owner privilege (session-only, hash-query based)
 // ------------------------------
 
-function readOwnerEnabled() {
-  try {
-    return sessionStorage.getItem(OWNER_SESSION_KEY) === "1";
-  } catch {}
-  return false;
-}
 
-function writeOwnerEnabled() {
-  try {
-    sessionStorage.setItem(OWNER_SESSION_KEY, "1");
-  } catch {}
-}
+function AppContent() {
+  const {
+    content:
+      profileContent,
 
-function clearOwnerEnabled() {
-  try {
-    sessionStorage.removeItem(OWNER_SESSION_KEY);
-  } catch {}
-}
+    resolveAsset,
 
+    active:
+      activeProfile,
 
-// ------------------------------
-// Fun Zone hash routing helpers
-// ------------------------------
+    profileVariantId:
+      activeProfileVariantId,
 
-// Accepts: "fun-zone/battleship", "fun-zone/battleship-AX9G", "fun-zone/minesweeper", "fun-zone/tictactoe"
-function parseFunZoneRoute(rawHashPath) {
-  const path = decodeURIComponent((rawHashPath || "").trim()).toLowerCase();
+    platformReleaseId:
+      activePlatformReleaseId,
 
-  if (!path.startsWith("fun-zone/")) return { game: null, code: null };
+    deploymentConfigurationId:
+      activeDeploymentConfigurationId,
 
-  let m = path.match(/^fun-zone\/battleship(?:-([a-z0-9]{4}))?(?:[/?].*)?$/i);
-  if (m) return { game: "battleship", code: m[1] ? m[1].toUpperCase() : null };
+    targeting:
+      activeProfileTargeting,
 
-  if (/^fun-zone\/minesweeper(?:[/?].*)?$/.test(path)) return { game: "minesweeper", code: null };
-  if (/^fun-zone\/tictactoe(?:[/?].*)?$/.test(path)) return { game: "tictactoe", code: null };
-
-  return { game: null, code: null };
-}
-
-function App() {
+    refresh:
+      refreshActiveProfile,
+  } =
+    useProfileRuntime();
 
   const [ownerPromptOpen, setOwnerPromptOpen] = useState(false);
 
@@ -227,7 +233,12 @@ function App() {
     typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
   );
 
-  const [isOwner, setIsOwner] = useState(() => readOwnerEnabled());
+  const [isOwner, setIsOwner] =
+    useState(
+      () =>
+        isOwnerBrowserSessionActive()
+    );
+
   const [ownerError, setOwnerError] = useState("");
 
   useEffect(() => {
@@ -236,6 +247,51 @@ function App() {
     mq.addEventListener?.("change", onChange);
     return () => mq.removeEventListener?.("change", onChange);
   }, []);
+
+  // ------------------------------
+  // Analytics: runtime Profile identity
+  // ------------------------------
+  //
+  // Runtime Profile identity is separate from visitor/session
+  // identity and may change while the same browser session
+  // remains active.
+  //
+  // Keep this effect before analyticsInit() so initial events
+  // observe the runtime state available for this render.
+  useEffect(() => {
+    setAnalyticsRuntimeIdentity({
+      profileVariantId:
+        activeProfileVariantId,
+
+      contentSchemaVersion:
+        activeProfile
+          ?.contentSchemaVersion ??
+        null,
+
+      targeting:
+        activeProfileTargeting,
+
+      /**
+       * These are explicit control-plane runtime identities
+       * delivered by /profile/active.
+       *
+       * Never derive either value from legacy profileVersionId
+       * or gitSha.
+       */
+      platformReleaseId:
+        activePlatformReleaseId,
+
+      deploymentConfigurationId:
+        activeDeploymentConfigurationId,
+    });
+  }, [
+    activeProfileVariantId,
+    activeProfile
+      ?.contentSchemaVersion,
+    activeProfileTargeting,
+    activePlatformReleaseId,
+    activeDeploymentConfigurationId,
+  ]);
 
   // ------------------------------
   // Analytics: init once + flush on tab close
@@ -285,11 +341,17 @@ function App() {
       e.preventDefault();
 
       // If already owner -> toggle OFF silently (no confirm popup)
-      if (readOwnerEnabled()) {
-        clearOwnerEnabled();
-        try { sessionStorage.removeItem(OWNER_TOKEN_KEY); } catch {}
+      if (
+        isOwnerBrowserSessionActive()
+      ) {
+        clearOwnerBrowserSession();
+
         setIsOwner(false);
-        setSelectedSection(DEFAULT_SECTION);
+
+        setSelectedSection(
+          DEFAULT_SECTION
+        );
+
         return;
       }
 
@@ -303,67 +365,215 @@ function App() {
   }, []);
 
 
-  const submitOwnerPasscode = useCallback(
-    async (token) => {
-      const t = (token || "").trim();
-      if (!t) {
-        setOwnerError("Enter a passcode");
-        return;
+  const submitOwnerPasscode =
+    useCallback(
+      async (token) => {
+        const t =
+          String(
+            token ||
+            ""
+          ).trim();
+
+
+        if (!t) {
+          setOwnerError(
+            "Enter a passcode"
+          );
+
+          return;
+        }
+
+
+        try {
+          /**
+           * The master passcode exists only in this call.
+           *
+           * /owner/session verifies it server-side and
+           * returns a short-lived signed browser session.
+           *
+           * The master credential is never written to
+           * sessionStorage.
+           */
+          await exchangeOwnerPasscodeForSession(
+            t
+          );
+
+
+          // Server verified this really is the owner.
+          // Persistently exclude this browser from visitor analytics.
+          excludeCurrentBrowserFromAnalytics();
+
+
+          setIsOwner(
+            true
+          );
+
+          setOwnerError(
+            ""
+          );
+
+          setOwnerPromptOpen(
+            false
+          );
+        } catch (e) {
+          clearOwnerBrowserSession();
+
+          setIsOwner(
+            false
+          );
+
+
+          const msg =
+            String(
+              e?.message ||
+              e
+            );
+
+
+          setOwnerError(
+            e?.status === 401 ||
+            msg
+              .toLowerCase()
+              .includes(
+                "unauthorized"
+              )
+              ? "Incorrect passcode"
+              : msg
+          );
+        }
+      },
+      []
+    );
+
+  useEffect(
+    () => {
+      if (!isOwner) {
+        return undefined;
       }
 
-      // Put token + enable flag FIRST so snapshotsApi attaches x-owner-token
-      try { sessionStorage.setItem(OWNER_TOKEN_KEY, t); } catch {}
-      writeOwnerEnabled();
 
-      try {
-        // ✅ server-verified unlock: if token invalid, API returns 401
-        await listSnapshots();
+      const expiresAtMs =
+        readOwnerSessionExpiresAtMs();
 
-        // Server verified this really is the owner.
-        // Persistently exclude this browser from visitor analytics.
-        excludeCurrentBrowserFromAnalytics();
 
-        setIsOwner(true);
-        setOwnerError("");
-        setOwnerPromptOpen(false);
-      } catch (e) {
-        // ❌ token invalid → rollback
-        try { sessionStorage.removeItem(OWNER_TOKEN_KEY); } catch {}
-        clearOwnerEnabled();
-        setIsOwner(false);
+      const remainingMs =
+        Number(
+          expiresAtMs
+        ) -
+        Date.now();
 
-        const msg = String(e?.message || e);
-        // you’ll likely see "Unauthorized" or "401"
-        setOwnerError(msg.includes("401") || msg.toLowerCase().includes("unauthorized")
-          ? "Incorrect passcode"
-          : msg
+
+      if (
+        !Number.isFinite(
+          remainingMs
+        ) ||
+        remainingMs <= 0
+      ) {
+        clearOwnerBrowserSession();
+
+        setIsOwner(
+          false
         );
+
+        return undefined;
       }
+
+
+      const timer =
+        window.setTimeout(
+          () => {
+            clearOwnerBrowserSession();
+
+            setIsOwner(
+              false
+            );
+          },
+          remainingMs
+        );
+
+
+      return () =>
+        window.clearTimeout(
+          timer
+        );
     },
-    [setIsOwner]
+    [
+      isOwner,
+    ]
   );
 
 
   // ------------------------------
-  // Analytics: delegated click tracking (opt-in via data-analytics attr)
+  // Analytics: delegated interaction tracking
   // ------------------------------
   useEffect(() => {
     const onClick = (e) => {
-      const t = e.target instanceof HTMLElement ? e.target : null;
-      if (!t) return;
+      const target =
+        e.target instanceof HTMLElement
+          ? e.target
+          : null;
 
-      const el = t.closest?.("[data-analytics]");
+      if (!target) return;
+
+      const el =
+        target.closest?.(
+          "[data-analytics]"
+        );
+
       if (!el) return;
 
-      trackClick({
-        id: el.getAttribute("data-analytics"),
-        text: (el.textContent || "").trim().slice(0, 60),
-        href: el.getAttribute("href") || null,
-      });
+      const ctaId =
+        el.getAttribute(
+          "data-analytics"
+        );
+
+      const href =
+        el.getAttribute(
+          "href"
+        ) || null;
+
+      const projectId =
+        el.getAttribute(
+          "data-analytics-project-id"
+        );
+
+      if (projectId) {
+        trackProjectAction({
+          ctaId,
+          projectId,
+          href,
+        });
+      } else {
+        trackClick({
+          id: ctaId,
+          href,
+        });
+      }
+
+      // Navigation/download actions can suspend a mobile tab before
+      // an ordinary fetch finishes. Queue a lifecycle-safe beacon as
+      // a duplicate-safe delivery attempt before the default action.
+      if (
+        el.matches?.("a[href]") &&
+        (
+          el.getAttribute("target") === "_blank" ||
+          el.hasAttribute("download")
+        )
+      ) {
+        flushForNavigation();
+      }
     };
 
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    document.addEventListener(
+      "click",
+      onClick
+    );
+
+    return () =>
+      document.removeEventListener(
+        "click",
+        onClick
+      );
   }, []);
 
   // ------------------------------
@@ -440,15 +650,80 @@ function App() {
 
   const sections = useMemo(() => {
     const base = {
-      "About Me": <AboutMe darkMode={darkMode} isOwner={isOwner} />,
-      Experience: <Experience darkMode={darkMode} isOwner={isOwner} />,
-      Skills: <Skills darkMode={darkMode} isOwner={isOwner} />,
-      Education: <Education darkMode={darkMode} isOwner={isOwner} />,
-      Resume: <Resume darkMode={darkMode} isOwner={isOwner} />,
-      Projects: <Project darkMode={darkMode} isOwner={isOwner} />,
-      "Code Lab": <CodeLab darkMode={darkMode} isOwner={isOwner} />,
-      "Fun Zone": <FunZone darkMode={darkMode} isOwner={isOwner} />,
-      Timeline: <Timeline darkMode={darkMode} isOwner={isOwner} />,
+      "About Me": (
+        <AboutMe
+          darkMode={darkMode}
+          isOwner={isOwner}
+          aboutMe={profileContent.aboutMe}
+          resolveAsset={resolveAsset}
+        />
+      ),
+
+      Experience: (
+        <Experience
+          darkMode={darkMode}
+          isOwner={isOwner}
+          experience={profileContent.experience}
+        />
+      ),
+
+      Skills: (
+        <Skills
+          darkMode={darkMode}
+          isOwner={isOwner}
+          skills={profileContent.skills}
+        />
+      ),
+
+      Education: (
+        <Education
+          darkMode={darkMode}
+          isOwner={isOwner}
+          education={profileContent.education}
+          resolveAsset={resolveAsset}
+        />
+      ),
+
+      Resume: (
+        <Resume
+          darkMode={darkMode}
+          isOwner={isOwner}
+          resume={profileContent.resume}
+          resolveAsset={resolveAsset}
+        />
+      ),
+
+      Projects: (
+        <Project
+          darkMode={darkMode}
+          isOwner={isOwner}
+          projects={profileContent.projects}
+        />
+      ),
+
+      "Code Lab": (
+        <CodeLab
+          darkMode={darkMode}
+          isOwner={isOwner}
+          codeLab={profileContent.codeLab}
+        />
+      ),
+
+      "Fun Zone": (
+        <FunZone
+          darkMode={darkMode}
+          isOwner={isOwner}
+          funZone={profileContent.funZone}
+        />
+      ),
+
+      Timeline: (
+        <Timeline
+          darkMode={darkMode}
+          isOwner={isOwner}
+          timeline={profileContent.timeline}
+        />
+      ),
     };
 
     if (!isOwner) return base;
@@ -459,6 +734,27 @@ function App() {
       Snapshots: (
         <AdminSnapshots
           darkMode={darkMode}
+
+          activeProfile={
+            activeProfile
+          }
+
+          activeProfileVariantId={
+            activeProfileVariantId
+          }
+
+          activePlatformReleaseId={
+            activePlatformReleaseId
+          }
+
+          activeDeploymentConfigurationId={
+            activeDeploymentConfigurationId
+          }
+
+          onRefreshActiveProfile={
+            refreshActiveProfile
+          }
+
           onRequireOwner={() => {
             setOwnerError("");
             setOwnerPromptOpen(true);
@@ -468,7 +764,17 @@ function App() {
       Data: <AdminData darkMode={darkMode} />,
       Settings: <AdminSettings darkMode={darkMode} />,
     };
-  }, [darkMode, isOwner]);
+  }, [
+    darkMode,
+    isOwner,
+    profileContent,
+    resolveAsset,
+    activeProfile,
+    activeProfileVariantId,
+    activePlatformReleaseId,
+    activeDeploymentConfigurationId,
+    refreshActiveProfile,
+  ]);
 
   const mobileDockItems = useMemo(() => {
     const short = {
@@ -530,10 +836,13 @@ function App() {
   // Hash routing + selected section
   // ------------------------------
 
-  const initialSection = (() => {
-    const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0].toLowerCase();
-    return SLUG_TO_LABEL[raw] || DEFAULT_SECTION;
-  })();
+  const initialSection =
+    resolveSectionLabelFromHash(
+      window.location.hash,
+      {
+        fallbackToDefault: true,
+      }
+    );
 
   const [selectedSection, setSelectedSection] = useState(initialSection);
   const isAdminSection = ADMIN_LABELS.includes(selectedSection);
@@ -544,9 +853,12 @@ function App() {
     }
   }, [isOwner, selectedSection]);
 
-  const [hashPath, setHashPath] = useState(() =>
-    window.location.hash.replace(/^#\/?/, "").split("?")[0].toLowerCase()
-  );
+  const [hashPath, setHashPath] =
+    useState(() =>
+      hashPathFromHash(
+        window.location.hash
+      )
+    );
 
   const goTo = useCallback(
     (label, { animated = false } = {}) => {
@@ -573,28 +885,57 @@ function App() {
   // Keep app in sync when user uses browser back/forward
   useEffect(() => {
     const onHash = () => {
-      const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0].toLowerCase();
-      const label = SLUG_TO_LABEL[raw];
-      if (label) setSelectedSection(label);
+      const label =
+        resolveSectionLabelFromHash(
+          window.location.hash
+        );
+
+      if (label) {
+        setSelectedSection(label);
+      }
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+
+    window.addEventListener(
+      "hashchange",
+      onHash
+    );
+
+    return () =>
+      window.removeEventListener(
+        "hashchange",
+        onHash
+      );
   }, []);
 
   useEffect(() => {
     const onHashOnly = () => {
-      const raw = window.location.hash.replace(/^#\/?/, "").split("?")[0].toLowerCase();
-      setHashPath(raw);
+      setHashPath(
+        hashPathFromHash(
+          window.location.hash
+        )
+      );
     };
-    window.addEventListener("hashchange", onHashOnly);
-    return () => window.removeEventListener("hashchange", onHashOnly);
+
+    window.addEventListener(
+      "hashchange",
+      onHashOnly
+    );
+
+    return () =>
+      window.removeEventListener(
+        "hashchange",
+        onHashOnly
+      );
   }, []);
 
   // whenever the selected section changes, write hash like #/project
   useEffect(() => {
     if (hashPath.startsWith("fun-zone/")) return; // don't clobber game routes
 
-    const slug = toSlug(selectedSection);
+    const slug =
+      toSectionSlug(
+        selectedSection
+      );
     const current = window.location.hash || "";
 
     // ✅ If we're already on this slug WITH query params (e.g. #/code-lab?from=battleship),
@@ -1185,14 +1526,15 @@ function App() {
             <button
               type="button"
               onClick={() => {
-                clearOwnerEnabled();
+                clearOwnerBrowserSession();
 
-                try {
-                  sessionStorage.removeItem(OWNER_TOKEN_KEY);
-                } catch {}
+                setIsOwner(
+                  false
+                );
 
-                setIsOwner(false);
-                setSelectedSection(DEFAULT_SECTION);
+                setSelectedSection(
+                  DEFAULT_SECTION
+                );
               }}
               className="
                 ml-1
@@ -1235,7 +1577,10 @@ function App() {
                 heroCollapsed ? "opacity-0 scale-[0.98]" : "opacity-100 scale-100"
               }`}
             >
-              <Hero darkMode={darkMode} />
+              <Hero
+                darkMode={darkMode}
+                hero={profileContent.hero}
+              />
             </div>
 
             {!heroCollapsed && (
@@ -1392,13 +1737,25 @@ function App() {
             </div>
           </main>
 
-          {!isAdminSection && <Footer />}
+          {!isAdminSection && (
+            <Footer
+              links={
+                profileContent
+                  .contactLinks
+              }
+            />
+          )}
         </div>
       </div>
 
       {!isAdminSection && (
         <MobileQuickConnectFab>
-          <QuickConnectPill />
+          <QuickConnectPill
+            links={
+              profileContent
+                .contactLinks
+            }
+          />
         </MobileQuickConnectFab>
       )}
 
@@ -1497,5 +1854,14 @@ function App() {
     </div>
   );
 }
+
+function App() {
+  return (
+    <ProfileRuntimeProvider>
+      <AppContent />
+    </ProfileRuntimeProvider>
+  );
+}
+
 
 export default App;

@@ -1,18 +1,25 @@
 // src/components/Footer.js
 import React from "react";
-import { FaGithub, FaLinkedin, FaGlobe, FaEnvelope } from "react-icons/fa";
 
-import { FOOTER_LINKS, FOOTER_DRAG } from "../data/footer";
+import {
+  getQuickConnectPresentation,
+} from "./shared/quickConnectPresentation";
+
 import {
   footerCtaId,
 } from "../utils/analytics/ids";
 
-const ICONS = {
-  linkedin: FaLinkedin,
-  github: FaGithub,
-  portfolio: FaGlobe,
-  email: FaEnvelope,
-};
+const FOOTER_DRAG =
+  Object.freeze({
+    marginPx:
+      14,
+
+    fallbackPillWidthPx:
+      320,
+
+    defaultOffsetPx:
+      0,
+  });
 
 const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
 
@@ -27,7 +34,9 @@ function getBounds(pillWidth, marginPx) {
   return { minOffset, maxOffset };
 }
 
-export default function Footer() {
+export default function Footer({
+  links = [],
+}) {
   // X offset from center (px). 0 means centered.
   const [xOffset, setXOffset] = React.useState(FOOTER_DRAG.defaultOffsetPx);
 
@@ -113,15 +122,21 @@ export default function Footer() {
         "
         role="group"
       >
-        {FOOTER_LINKS.map((l) => {
-          const Icon = ICONS[l.key];
+        {links.map((l) => {
+          const {
+            Icon,
+            colorClass,
+          } =
+            getQuickConnectPresentation(
+              l.key
+            );
           return (
             <a
               key={l.key}
               href={l.href}
               target={l.href.startsWith("mailto:") ? undefined : "_blank"}
               rel={l.href.startsWith("mailto:") ? undefined : "noopener noreferrer"}
-              className={`${l.colorClass} transition`}
+              className={`${colorClass} transition`}
               aria-label={l.label}
               data-analytics={footerCtaId(l.key)}
             >

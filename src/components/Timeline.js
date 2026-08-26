@@ -2,8 +2,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaMapMarkedAlt } from "react-icons/fa";
 
-import { timelineData } from "../data/timeline";
-
 import SectionHeader from "./shared/SectionHeader";
 import Pill from "./shared/Pill";
 
@@ -102,7 +100,9 @@ function deriveChips(text) {
   return chips.slice(0, 6);
 }
 
-export default function Timeline() {
+export default function Timeline({
+  timeline = [],
+}) {
   const railRef = useRef(null);
   const draggingRef = useRef(false);
 
@@ -112,7 +112,7 @@ export default function Timeline() {
    */
   const grouped = useMemo(() => {
     const map = new Map(); // year -> entries[]
-    for (const entry of timelineData) {
+    for (const entry of timeline) {
       const y = completedYearKey(entry.duration);
       if (!map.has(y)) map.set(y, []);
       map.get(y).push({ ...entry, chips: deriveChips(entry.description) });
@@ -126,7 +126,9 @@ export default function Timeline() {
 
     const years = Array.from(map.keys()).sort((a, b) => a - b); // chronologically left->right
     return { map, years };
-  }, []);
+  }, [
+    timeline,
+  ]);
 
   const years = grouped.years;
   const totalYears = years.length;
@@ -138,6 +140,21 @@ export default function Timeline() {
     // default: last year (most recent)
     return Math.max(0, totalYears - 1);
   });
+
+  useEffect(
+    () => {
+      setActiveYearIndex(
+        Math.max(
+          0,
+          totalYears - 1
+        )
+      );
+    },
+    [
+      timeline,
+      totalYears,
+    ]
+  );
 
   /**
    * Concurrency handling:

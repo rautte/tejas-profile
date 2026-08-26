@@ -86,12 +86,18 @@ jobs:
       PROFILE_VERSION: ${{ steps.meta.outputs.PROFILE_VERSION }}
       BUILD_TIME: ${{ steps.meta.outputs.BUILD_TIME }}
 
+      PLATFORM_RELEASE_ID: ${{ steps.meta.outputs.PLATFORM_RELEASE_ID }}
+      FRONTEND_ARTIFACT_SHA256: ${{ steps.frontend-artifact.outputs.SHA256 }}
+      PLATFORM_RELEASE_SHA256: ${{ steps.platform-release.outputs.RELEASE_SHA256 }}
+
       CHECKPOINT_TAG: ${{ steps.meta.outputs.CHECKPOINT_TAG }}
       RELEASE_MODE: ${{ steps.meta.outputs.RELEASE_MODE }}
 
       ASSET_DISTRIBUTION_ID: ${{ steps.prod-assets.outputs.distribution_id }}
+
       SNAPSHOTS_API_URL: ${{ steps.prod-analytics.outputs.api_url }}
       ANALYTICS_EDGE_URL: ${{ steps.prod-analytics.outputs.edge_url }}
+      ACTIVE_PROFILE_API_URL: ${{ steps.prod-analytics.outputs.active_profile_url }}
 
       REPO_ARTIFACT_KEY: ${{ steps.ziprepo.outputs.S3_KEY }}
       REPO_ARTIFACT_SHA256: ${{ steps.ziprepo.outputs.SHA256 }}
@@ -421,6 +427,13 @@ jobs:
 
           PROFILE_VERSION="pv_${GIT_SHA_SHORT}"
 
+          # Formal software-release identity.
+          #
+          # IMPORTANT:
+          # - independent from Git SHA
+          # - independent from legacy PROFILE_VERSION
+          # - a rerun attempt represents a distinct built release
+          PLATFORM_RELEASE_ID="plr_gha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
 
           RELEASE_MODE="${REQUESTED_RELEASE_MODE:-promote}"
 
@@ -440,6 +453,7 @@ jobs:
           echo "GIT_SHA_SHORT=${GIT_SHA_SHORT}" >> "${GITHUB_OUTPUT}"
           echo "BUILD_TIME=${BUILD_TIME}" >> "${GITHUB_OUTPUT}"
           echo "PROFILE_VERSION=${PROFILE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "PLATFORM_RELEASE_ID=${PLATFORM_RELEASE_ID}" >> "${GITHUB_OUTPUT}"
 
           echo "CHECKPOINT_TAG=${CHECKPOINT_TAG}" >> "${GITHUB_OUTPUT}"
           echo "RELEASE_MODE=${RELEASE_MODE}" >> "${GITHUB_OUTPUT}"
@@ -614,13 +628,14 @@ jobs:
           echo "distribution_id=${DISTRIBUTION_ID}" >> "${GITHUB_OUTPUT}"
 
 
-      - name: Resolve PROD Analytics infrastructure
+      - name: Resolve PROD runtime + Analytics infrastructure
         id: prod-analytics
         shell: bash
         run: |
           set -euo pipefail
 
           STACK_NAME="TejasProfileSnapshotsStackProd"
+
 
           API_URL="$(
             aws cloudformation describe-stacks \
@@ -629,6 +644,7 @@ jobs:
               --output text
           )"
 
+
           EDGE_URL="$(
             aws cloudformation describe-stacks \
               --stack-name "${STACK_NAME}" \
@@ -636,39 +652,80 @@ jobs:
               --output text
           )"
 
-          if [[ -z "${API_URL}" || "${API_URL}" == "None" ]]; then
+
+          ACTIVE_PROFILE_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='ActiveProfileApiUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          if [[ -z "${API_URL}" ||
+                "${API_URL}" == "None" ]]; then
+
             echo "ERROR: SnapshotsApiUrl was not found in ${STACK_NAME}."
             exit 1
           fi
 
-          if [[ -z "${EDGE_URL}" || "${EDGE_URL}" == "None" ]]; then
+
+          if [[ -z "${EDGE_URL}" ||
+                "${EDGE_URL}" == "None" ]]; then
+
             echo "ERROR: AnalyticsEdgeUrl was not found in ${STACK_NAME}."
             exit 1
           fi
 
+
+          if [[ -z "${ACTIVE_PROFILE_URL}" ||
+                "${ACTIVE_PROFILE_URL}" == "None" ]]; then
+
+            echo "ERROR: ActiveProfileApiUrl was not found in ${STACK_NAME}."
+            exit 1
+          fi
+
+
           case "${API_URL}" in
             https://*)
               ;;
+
             *)
               echo "ERROR: Invalid PROD SnapshotsApiUrl."
               exit 1
               ;;
           esac
 
+
           case "${EDGE_URL}" in
             https://*.cloudfront.net)
               ;;
+
             *)
               echo "ERROR: Invalid PROD AnalyticsEdgeUrl."
               exit 1
               ;;
           esac
 
+
+          case "${ACTIVE_PROFILE_URL}" in
+            https://*/profile/active)
+              ;;
+
+            *)
+              echo "ERROR: Invalid PROD ActiveProfileApiUrl."
+              exit 1
+              ;;
+          esac
+
+
           echo "PROD Snapshots API resolved."
           echo "PROD Analytics ingest edge resolved."
+          echo "PROD Active Profile API resolved."
+
 
           echo "api_url=${API_URL}" >> "${GITHUB_OUTPUT}"
           echo "edge_url=${EDGE_URL}" >> "${GITHUB_OUTPUT}"
+          echo "active_profile_url=${ACTIVE_PROFILE_URL}" >> "${GITHUB_OUTPUT}"
 
 
       # ------------------------------------------------------------
@@ -683,6 +740,8 @@ jobs:
           set -euo pipefail
 
           {
+            echo "REACT_APP_ACTIVE_PROFILE_API=${{ steps.prod-analytics.outputs.active_profile_url }}"
+
             echo "REACT_APP_SNAPSHOTS_API=${{ steps.prod-analytics.outputs.api_url }}"
 
             echo "REACT_APP_ANALYTICS_INGEST_API=${{ steps.prod-analytics.outputs.edge_url }}"
@@ -717,6 +776,57 @@ jobs:
           CI: true
         run: npm run build
 
+      - name: Compute frontend artifact identity
+        id: frontend-artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -d "build" ]]; then
+            echo "ERROR: React build directory does not exist."
+            exit 1
+          fi
+
+
+          ARTIFACT_PATH="/tmp/frontend_build_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}.tar"
+
+
+          # Create a deterministic archive solely for immutable build
+          # identity.
+          #
+          # Paths, ordering, timestamps and ownership are normalized so
+          # identical build output produces the same SHA-256 regardless
+          # of runner filesystem metadata.
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --format=ustar \
+            -cf "${ARTIFACT_PATH}" \
+            -C build \
+            .
+
+
+          SHA256="$(
+            sha256sum "${ARTIFACT_PATH}" |
+              awk '{print $1}'
+          )"
+
+
+          if [[ ! "${SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "ERROR: Invalid frontend artifact SHA-256."
+            exit 1
+          fi
+
+
+          echo "SHA256=${SHA256}" >> "${GITHUB_OUTPUT}"
+
+
+          echo ""
+          echo "Frontend artifact identity:"
+          echo "${SHA256}"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -759,6 +869,231 @@ jobs:
           echo "${{ steps.ziprepo.outputs.S3_KEY }}"
 
 
+      - name: Register immutable Platform Release
+        id: platform-release
+        shell: bash
+        env:
+          SNAPSHOTS_API_URL: ${{ steps.prod-analytics.outputs.api_url }}
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+
+          PLATFORM_RELEASE_ID: ${{ steps.meta.outputs.PLATFORM_RELEASE_ID }}
+
+          GIT_SHA: ${{ steps.meta.outputs.GIT_SHA }}
+          BUILD_TIME: ${{ steps.meta.outputs.BUILD_TIME }}
+          CHECKPOINT_TAG: ${{ steps.meta.outputs.CHECKPOINT_TAG }}
+
+          FRONTEND_ARTIFACT_SHA256: ${{ steps.frontend-artifact.outputs.SHA256 }}
+
+          REPO_ARTIFACT_KEY: ${{ steps.ziprepo.outputs.S3_KEY }}
+          REPO_ARTIFACT_SHA256: ${{ steps.ziprepo.outputs.SHA256 }}
+
+          DIFF_FILES_JSON: ${{ steps.diff.outputs.DIFF_FILES_JSON }}
+          DIFF_TAG_VALUE: ${{ steps.diff.outputs.DIFF_TAG_VALUE }}
+
+          LEGACY_PROFILE_VERSION: ${{ steps.meta.outputs.PROFILE_VERSION }}
+
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+
+          test -n "${SNAPSHOTS_API_URL}" || {
+            echo "ERROR: SNAPSHOTS_API_URL is empty."
+            exit 1
+          }
+
+          test -n "${OWNER_TOKEN}" || {
+            echo "ERROR: OWNER_TOKEN is empty."
+            exit 1
+          }
+
+          test -n "${PLATFORM_RELEASE_ID}" || {
+            echo "ERROR: PLATFORM_RELEASE_ID is empty."
+            exit 1
+          }
+
+          [[ "${FRONTEND_ARTIFACT_SHA256}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "ERROR: FRONTEND_ARTIFACT_SHA256 is invalid."
+            exit 1
+          }
+
+          [[ "${REPO_ARTIFACT_SHA256}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "ERROR: REPO_ARTIFACT_SHA256 is invalid."
+            exit 1
+          }
+
+
+          CREATED_AT="$(
+            date -u +%Y-%m-%dT%H:%M:%S.%3NZ
+          )"
+
+
+          RELEASE="$(
+            jq -n \
+              --arg platformReleaseId "${PLATFORM_RELEASE_ID}" \
+              --arg createdAt "${CREATED_AT}" \
+              --arg repository "${REPOSITORY}" \
+              --arg gitSha "${GIT_SHA}" \
+              --arg gitRef "refs/heads/main" \
+              --arg checkpointTag "${CHECKPOINT_TAG}" \
+              --arg buildTime "${BUILD_TIME}" \
+              --arg frontendArtifactSha256 "${FRONTEND_ARTIFACT_SHA256}" \
+              --arg githubRunId "${GITHUB_RUN_ID}" \
+              --arg repoArtifactKey "${REPO_ARTIFACT_KEY}" \
+              --arg repoArtifactSha256 "${REPO_ARTIFACT_SHA256}" \
+              --argjson diffFiles "${DIFF_FILES_JSON}" \
+              --arg diffTagValue "${DIFF_TAG_VALUE}" \
+              --argjson ppsVersion '1' \
+              --arg legacyProfileVersion "${LEGACY_PROFILE_VERSION}" \
+              '{
+                schema:
+                  "tejas-profile.platform-release",
+
+                schemaId:
+                  "tejas-profile.platform-release.v2",
+
+                platformReleaseId:
+                  $platformReleaseId,
+
+                stage:
+                  "prod",
+
+                createdAt:
+                  $createdAt,
+
+                source: {
+                  repository:
+                    $repository,
+
+                  gitSha:
+                    $gitSha,
+
+                  gitRef:
+                    $gitRef,
+
+                  checkpointTag:
+                    $checkpointTag
+                },
+
+                build: {
+                  buildTime:
+                    $buildTime,
+
+                  frontendArtifactSha256:
+                    $frontendArtifactSha256,
+
+                  githubRunId:
+                    $githubRunId,
+
+                  repoArtifactKey:
+                    $repoArtifactKey,
+
+                  repoArtifactSha256:
+                    $repoArtifactSha256,
+
+                  diffFiles:
+                    $diffFiles,
+
+                  diffTagValue:
+                    $diffTagValue
+                },
+
+                profileRuntime: {
+                  ppsVersion:
+                    $ppsVersion
+                },
+
+                legacy: {
+                  profileVersionId:
+                    $legacyProfileVersion
+                }
+              }'
+          )"
+
+
+          PAYLOAD="$(
+            jq -n \
+              --argjson release "${RELEASE}" \
+              '{
+                release:
+                  $release
+              }'
+          )"
+
+
+          BASE_URL="${SNAPSHOTS_API_URL%/}"
+
+
+          RESPONSE="$(
+            curl \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              -X POST \
+              -H "content-type: application/json" \
+              -H "x-owner-token: ${OWNER_TOKEN}" \
+              --data "${PAYLOAD}" \
+              "${BASE_URL}/platform-releases/register"
+          )"
+
+
+          RESPONSE_OK="$(
+            jq -r \
+              '.ok // false' \
+              <<< "${RESPONSE}"
+          )"
+
+          RESPONSE_ID="$(
+            jq -r \
+              '.platformReleaseId // empty' \
+              <<< "${RESPONSE}"
+          )"
+
+          RELEASE_SHA256="$(
+            jq -r \
+              '.releaseSha256 // empty' \
+              <<< "${RESPONSE}"
+          )"
+
+
+          if [[ "${RESPONSE_OK}" != "true" ]]; then
+            echo "ERROR: Platform Release registration did not return ok=true."
+            exit 1
+          fi
+
+
+          if [[ "${RESPONSE_ID}" != "${PLATFORM_RELEASE_ID}" ]]; then
+            echo "ERROR: Registered Platform Release identity mismatch."
+            exit 1
+          fi
+
+
+          if [[ ! "${RELEASE_SHA256}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "ERROR: Platform Release response SHA-256 is invalid."
+            exit 1
+          fi
+
+
+          echo "RELEASE_SHA256=${RELEASE_SHA256}" >> "${GITHUB_OUTPUT}"
+
+
+          {
+            echo ""
+            echo "## Formal Platform Release"
+            echo ""
+            echo "- Platform Release: \`${PLATFORM_RELEASE_ID}\`"
+            echo "- Git provenance: \`${GIT_SHA}\`"
+            echo "- Frontend artifact SHA-256: \`${FRONTEND_ARTIFACT_SHA256}\`"
+            echo "- Release document SHA-256: \`${RELEASE_SHA256}\`"
+            echo "- Deployment state: **registered, not yet committed**"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+
+          echo ""
+          echo "Immutable Platform Release registered."
+          echo "Platform Release: ${PLATFORM_RELEASE_ID}"
+
+
   # ============================================================
   # EXPLICIT PROD PAGES DEPLOYMENT
   # ============================================================
@@ -772,6 +1107,10 @@ jobs:
     runs-on: ubuntu-latest
 
     timeout-minutes: 15
+
+    outputs:
+      PLATFORM_DEPLOYMENT_ID: ${{ steps.formal-deployment.outputs.deployment_id }}
+      PLATFORM_DEPLOYED_AT: ${{ steps.formal-deployment.outputs.deployed_at }}
 
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -798,6 +1137,419 @@ jobs:
             sudo apt-get update &&
             sudo apt-get install -y jq
           )
+
+      - name: Prepare and commit formal Platform Deployment
+        id: formal-deployment
+        shell: bash
+        env:
+          SNAPSHOTS_API_URL: ${{ needs.build.outputs.SNAPSHOTS_API_URL }}
+          ACTIVE_PROFILE_API_URL: ${{ needs.build.outputs.ACTIVE_PROFILE_API_URL }}
+
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+
+          PLATFORM_RELEASE_ID: ${{ needs.build.outputs.PLATFORM_RELEASE_ID }}
+          PLATFORM_RELEASE_SHA256: ${{ needs.build.outputs.PLATFORM_RELEASE_SHA256 }}
+
+        run: |
+          set -euo pipefail
+
+
+          test -n "${SNAPSHOTS_API_URL}" || {
+            echo "ERROR: SNAPSHOTS_API_URL is empty."
+            exit 1
+          }
+
+          test -n "${ACTIVE_PROFILE_API_URL}" || {
+            echo "ERROR: ACTIVE_PROFILE_API_URL is empty."
+            exit 1
+          }
+
+          test -n "${OWNER_TOKEN}" || {
+            echo "ERROR: OWNER_TOKEN is empty."
+            exit 1
+          }
+
+          test -n "${PLATFORM_RELEASE_ID}" || {
+            echo "ERROR: PLATFORM_RELEASE_ID is empty."
+            exit 1
+          }
+
+          [[ "${PLATFORM_RELEASE_SHA256}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "ERROR: PLATFORM_RELEASE_SHA256 is invalid."
+            exit 1
+          }
+
+
+          # Formal deployment occurrence identity.
+          #
+          # This is intentionally NOT:
+          # - Git SHA
+          # - PROFILE_VERSION
+          # - Platform Release identity
+          #
+          # The same immutable Platform Release may legitimately
+          # become live more than once.
+
+          PLATFORM_DEPLOYMENT_ID="pdep_gha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+
+          BASE_URL="${SNAPSHOTS_API_URL%/}"
+
+          MAX_ATTEMPTS=12
+
+
+          for ATTEMPT in $(
+            seq \
+              1 \
+              "${MAX_ATTEMPTS}"
+          ); do
+            echo ""
+            echo "Formal Platform Deployment attempt ${ATTEMPT}/${MAX_ATTEMPTS}"
+
+
+            # --------------------------------------------------------
+            # Observe the currently active Profile.
+            #
+            # This read is preparation only.
+            #
+            # The Platform Deployment API independently performs its
+            # own strong Profile read and condition-checks that exact
+            # Profile pointer atomically at commit time.
+            # --------------------------------------------------------
+            ACTIVE_PROFILE_RESPONSE="$(
+              curl \
+                --fail-with-body \
+                --silent \
+                --show-error \
+                -H "accept: application/json" \
+                "${ACTIVE_PROFILE_API_URL}"
+            )"
+
+
+            ACTIVE_OK="$(
+              jq -r \
+                '.ok // false' \
+                <<< "${ACTIVE_PROFILE_RESPONSE}"
+            )"
+
+            ACTIVE_PROFILE_VARIANT_ID="$(
+              jq -r \
+                '.active.profileVariantId // empty' \
+                <<< "${ACTIVE_PROFILE_RESPONSE}"
+            )"
+
+            ACTIVE_VARIANT_ID="$(
+              jq -r \
+                '.variant.profileVariantId // empty' \
+                <<< "${ACTIVE_PROFILE_RESPONSE}"
+            )"
+
+
+            if [[ "${ACTIVE_OK}" != "true" ]]; then
+              echo "ERROR: Active Profile API did not return ok=true."
+              exit 1
+            fi
+
+
+            if [[ -n "${ACTIVE_PROFILE_VARIANT_ID}" &&
+                  -z "${ACTIVE_VARIANT_ID}" ]]; then
+
+              echo "ERROR: Active Profile API returned an active pointer without a variant."
+              exit 1
+            fi
+
+
+            if [[ -z "${ACTIVE_PROFILE_VARIANT_ID}" &&
+                  -n "${ACTIVE_VARIANT_ID}" ]]; then
+
+              echo "ERROR: Active Profile API returned a variant without an active pointer."
+              exit 1
+            fi
+
+
+            if [[ -n "${ACTIVE_PROFILE_VARIANT_ID}" &&
+                  "${ACTIVE_PROFILE_VARIANT_ID}" != "${ACTIVE_VARIANT_ID}" ]]; then
+
+              echo "ERROR: Active Profile API identity mismatch."
+              exit 1
+            fi
+
+
+            # --------------------------------------------------------
+            # Prepare immutable configuration when a Profile is active.
+            #
+            # If Profile state changes afterward, the atomic Platform Deployment commit API
+            # rejects the stale composition atomically and this loop
+            # retries against the new Profile.
+            #
+            # Creating an immutable configuration that ultimately is
+            # not used is valid.
+            # --------------------------------------------------------
+            if [[ -n "${ACTIVE_PROFILE_VARIANT_ID}" ]]; then
+              echo "Preparing Deployment Configuration:"
+              echo "  Platform Release: ${PLATFORM_RELEASE_ID}"
+              echo "  Profile Variant:  ${ACTIVE_PROFILE_VARIANT_ID}"
+
+
+              CONFIG_PAYLOAD="$(
+                jq -n \
+                  --arg platformReleaseId "${PLATFORM_RELEASE_ID}" \
+                  --arg profileVariantId "${ACTIVE_PROFILE_VARIANT_ID}" \
+                  '{
+                    platformReleaseId:
+                      $platformReleaseId,
+
+                    profileVariantId:
+                      $profileVariantId
+                  }'
+              )"
+
+
+              CONFIG_BODY="/tmp/p5f4-config-${ATTEMPT}.json"
+
+
+              CONFIG_STATUS="$(
+                curl \
+                  --silent \
+                  --show-error \
+                  -o "${CONFIG_BODY}" \
+                  -w "%{http_code}" \
+                  -X POST \
+                  -H "content-type: application/json" \
+                  -H "x-owner-token: ${OWNER_TOKEN}" \
+                  --data "${CONFIG_PAYLOAD}" \
+                  "${BASE_URL}/deployment-configurations/create"
+              )"
+
+
+              if [[ "${CONFIG_STATUS}" != "200" &&
+                    "${CONFIG_STATUS}" != "201" ]]; then
+
+                echo "ERROR: Deployment Configuration preparation failed."
+                echo "HTTP status: ${CONFIG_STATUS}"
+                cat "${CONFIG_BODY}" || true
+                exit 1
+              fi
+
+
+              CONFIG_OK="$(
+                jq -r \
+                  '.ok // false' \
+                  "${CONFIG_BODY}"
+              )"
+
+              CONFIG_PLATFORM_RELEASE_ID="$(
+                jq -r \
+                  '.configuration.platformReleaseId // empty' \
+                  "${CONFIG_BODY}"
+              )"
+
+              CONFIG_PROFILE_VARIANT_ID="$(
+                jq -r \
+                  '.configuration.profileVariantId // empty' \
+                  "${CONFIG_BODY}"
+              )"
+
+              CONFIGURATION_ID="$(
+                jq -r \
+                  '.deploymentConfigurationId // empty' \
+                  "${CONFIG_BODY}"
+              )"
+
+
+              if [[ "${CONFIG_OK}" != "true" ]]; then
+                echo "ERROR: Deployment Configuration preparation did not return ok=true."
+                exit 1
+              fi
+
+
+              if [[ "${CONFIG_PLATFORM_RELEASE_ID}" != "${PLATFORM_RELEASE_ID}" ]]; then
+                echo "ERROR: Prepared Deployment Configuration Platform Release mismatch."
+                exit 1
+              fi
+
+
+              if [[ "${CONFIG_PROFILE_VARIANT_ID}" != "${ACTIVE_PROFILE_VARIANT_ID}" ]]; then
+                echo "ERROR: Prepared Deployment Configuration Profile Variant mismatch."
+                exit 1
+              fi
+
+
+              test -n "${CONFIGURATION_ID}" || {
+                echo "ERROR: Deployment Configuration ID is empty."
+                exit 1
+              }
+
+
+              echo "Deployment Configuration ready:"
+              echo "${CONFIGURATION_ID}"
+            else
+              echo "No active Profile exists."
+              echo "Platform commit will atomically guard Profile absence."
+            fi
+
+
+            # --------------------------------------------------------
+            # Commit the actual deployment occurrence.
+            #
+            # Pages deployment has ALREADY succeeded at this point.
+            #
+            # Control-plane commit guarantees:
+            # - authoritative Platform Release
+            # - existing cfg(P,V) when Profile exists
+            # - exact/absence Profile ConditionCheck
+            # - append-only deployment ledger
+            # - atomic ACTIVE Platform transition
+            # --------------------------------------------------------
+            COMMIT_PAYLOAD="$(
+              jq -n \
+                --arg deploymentId "${PLATFORM_DEPLOYMENT_ID}" \
+                --arg platformReleaseId "${PLATFORM_RELEASE_ID}" \
+                '{
+                  deploymentId:
+                    $deploymentId,
+
+                  platformReleaseId:
+                    $platformReleaseId
+                }'
+            )"
+
+
+            COMMIT_BODY="/tmp/p5f4-platform-commit-${ATTEMPT}.json"
+
+
+            COMMIT_STATUS="$(
+              curl \
+                --silent \
+                --show-error \
+                -o "${COMMIT_BODY}" \
+                -w "%{http_code}" \
+                -X POST \
+                -H "content-type: application/json" \
+                -H "x-owner-token: ${OWNER_TOKEN}" \
+                --data "${COMMIT_PAYLOAD}" \
+                "${BASE_URL}/platform-deployments/commit"
+            )"
+
+
+            if [[ "${COMMIT_STATUS}" == "200" ||
+                  "${COMMIT_STATUS}" == "201" ]]; then
+
+              COMMIT_OK="$(
+                jq -r \
+                  '.ok // false' \
+                  "${COMMIT_BODY}"
+              )"
+
+              ACTIVE_DEPLOYMENT_ID="$(
+                jq -r \
+                  '.active.deploymentId // empty' \
+                  "${COMMIT_BODY}"
+              )"
+
+              ACTIVE_PLATFORM_RELEASE_ID="$(
+                jq -r \
+                  '.active.platformReleaseId // empty' \
+                  "${COMMIT_BODY}"
+              )"
+
+              ACTIVE_PLATFORM_RELEASE_SHA256="$(
+                jq -r \
+                  '.active.platformReleaseSha256 // empty' \
+                  "${COMMIT_BODY}"
+              )"
+
+              FORMAL_DEPLOYED_AT="$(
+                jq -r \
+                  '.active.deployedAt // empty' \
+                  "${COMMIT_BODY}"
+              )"
+
+
+              if [[ "${COMMIT_OK}" != "true" ]]; then
+                echo "ERROR: Platform Deployment commit did not return ok=true."
+                exit 1
+              fi
+
+
+              if [[ "${ACTIVE_DEPLOYMENT_ID}" != "${PLATFORM_DEPLOYMENT_ID}" ]]; then
+                echo "ERROR: Active Platform deploymentId mismatch."
+                exit 1
+              fi
+
+
+              if [[ "${ACTIVE_PLATFORM_RELEASE_ID}" != "${PLATFORM_RELEASE_ID}" ]]; then
+                echo "ERROR: Active Platform platformReleaseId mismatch."
+                exit 1
+              fi
+
+
+              if [[ "${ACTIVE_PLATFORM_RELEASE_SHA256}" != "${PLATFORM_RELEASE_SHA256}" ]]; then
+                echo "ERROR: Active Platform release SHA-256 mismatch."
+                exit 1
+              fi
+
+
+              test -n "${FORMAL_DEPLOYED_AT}" || {
+                echo "ERROR: Formal Platform deployedAt is empty."
+                exit 1
+              }
+
+
+              echo "deployment_id=${PLATFORM_DEPLOYMENT_ID}" >> "${GITHUB_OUTPUT}"
+              echo "deployed_at=${FORMAL_DEPLOYED_AT}" >> "${GITHUB_OUTPUT}"
+
+
+              {
+                echo ""
+                echo "## Formal Platform Deployment"
+                echo ""
+                echo "- Platform Release: \`${PLATFORM_RELEASE_ID}\`"
+                echo "- Deployment occurrence: \`${PLATFORM_DEPLOYMENT_ID}\`"
+                echo "- Deployed at: \`${FORMAL_DEPLOYED_AT}\`"
+                echo "- Control plane: **committed**"
+              } >> "${GITHUB_STEP_SUMMARY}"
+
+
+              echo ""
+              echo "Formal Platform Deployment committed."
+              echo "Platform Release: ${PLATFORM_RELEASE_ID}"
+              echo "Deployment: ${PLATFORM_DEPLOYMENT_ID}"
+
+              exit 0
+            fi
+
+
+            # --------------------------------------------------------
+            # 409 is specifically retriable here.
+            #
+            # It means Profile or Platform control-plane state changed
+            # between preparation and atomic commit.
+            # --------------------------------------------------------
+            if [[ "${COMMIT_STATUS}" == "409" ]]; then
+              echo "Control-plane conflict; retrying against fresh state."
+              cat "${COMMIT_BODY}" || true
+
+
+              if [[ "${ATTEMPT}" -eq "${MAX_ATTEMPTS}" ]]; then
+                echo "ERROR: Formal Platform Deployment could not stabilize after ${MAX_ATTEMPTS} attempts."
+                exit 1
+              fi
+
+
+              sleep 2
+              continue
+            fi
+
+
+            echo "ERROR: Platform Deployment commit failed."
+            echo "HTTP status: ${COMMIT_STATUS}"
+            cat "${COMMIT_BODY}" || true
+            exit 1
+          done
+
+
+          echo "ERROR: Formal Platform Deployment loop exited unexpectedly."
+          exit 1
 
 
       - name: Register PROD Analytics deploy boundary
@@ -1075,6 +1827,11 @@ jobs:
 
       - name: Update deploy history (active + previous)
         shell: bash
+        env:
+          PLATFORM_RELEASE_ID: ${{ needs.build.outputs.PLATFORM_RELEASE_ID }}
+          PLATFORM_DEPLOYMENT_ID: ${{ steps.formal-deployment.outputs.deployment_id }}
+          FORMAL_DEPLOYED_AT: ${{ steps.formal-deployment.outputs.deployed_at }}
+
         run: |
           set -euo pipefail
 
@@ -1087,9 +1844,23 @@ jobs:
           GIT_SHA="${{ needs.build.outputs.GIT_SHA }}"
           PROFILE_VERSION="${{ needs.build.outputs.PROFILE_VERSION }}"
 
-          DEPLOYED_AT="$(
-            date -u +%Y-%m-%dT%H:%M:%S.%3NZ
-          )"
+          test -n "${PLATFORM_RELEASE_ID}" || {
+            echo "ERROR: PLATFORM_RELEASE_ID is missing from formal deployment."
+            exit 1
+          }
+
+          test -n "${PLATFORM_DEPLOYMENT_ID}" || {
+            echo "ERROR: PLATFORM_DEPLOYMENT_ID is missing from formal deployment."
+            exit 1
+          }
+
+          test -n "${FORMAL_DEPLOYED_AT}" || {
+            echo "ERROR: FORMAL_DEPLOYED_AT is missing from formal deployment."
+            exit 1
+          }
+
+
+          DEPLOYED_AT="${FORMAL_DEPLOYED_AT}"
 
           RELEASE_MODE="${{ needs.build.outputs.RELEASE_MODE }}"
 
@@ -1136,16 +1907,32 @@ jobs:
               "${TMP_OLD}"
           )"
 
+          OLD_ACTIVE_PLATFORM_RELEASE_ID="$(
+            jq -r \
+              '.active.platformReleaseId // empty' \
+              "${TMP_OLD}"
+          )"
+
+          OLD_ACTIVE_DEPLOYMENT_ID="$(
+            jq -r \
+              '.active.deploymentId // empty' \
+              "${TMP_OLD}"
+          )"
+
 
           jq -n \
             --arg gitSha "${GIT_SHA}" \
             --arg pv "${PROFILE_VERSION}" \
             --arg at "${DEPLOYED_AT}" \
             --arg src "${SOURCE}" \
+            --arg platformReleaseId "${PLATFORM_RELEASE_ID}" \
+            --arg deploymentId "${PLATFORM_DEPLOYMENT_ID}" \
             --arg prevSha "${OLD_ACTIVE_SHA}" \
             --arg prevPv "${OLD_ACTIVE_PV}" \
             --arg prevAt "${OLD_ACTIVE_AT}" \
             --arg prevSrc "${OLD_ACTIVE_SRC}" \
+            --arg prevPlatformReleaseId "${OLD_ACTIVE_PLATFORM_RELEASE_ID}" \
+            --arg prevDeploymentId "${OLD_ACTIVE_DEPLOYMENT_ID}" \
             --slurpfile old "${TMP_OLD}" \
             '
             def oldTimeline:
@@ -1162,45 +1949,129 @@ jobs:
                 end
               );
 
+
+            def formalFields(
+              $releaseId;
+              $deploymentOccurrenceId
+            ):
+              (
+                {}
+                +
+                (
+                  if (
+                    $releaseId |
+                    length
+                  ) > 0
+                  then
+                    {
+                      platformReleaseId:
+                        $releaseId
+                    }
+                  else
+                    {}
+                  end
+                )
+                +
+                (
+                  if (
+                    $deploymentOccurrenceId |
+                    length
+                  ) > 0
+                  then
+                    {
+                      deploymentId:
+                        $deploymentOccurrenceId
+                    }
+                  else
+                    {}
+                  end
+                )
+              );
+
+
+            def currentRecord:
+              (
+                {
+                  gitSha:
+                    $gitSha,
+
+                  profileVersionId:
+                    $pv,
+
+                  deployedAt:
+                    $at,
+
+                  source:
+                    $src
+                }
+                +
+                formalFields(
+                  $platformReleaseId;
+                  $deploymentId
+                )
+              );
+
+
+            def previousRecord:
+              (
+                {
+                  gitSha:
+                    $prevSha,
+
+                  profileVersionId:
+                    $prevPv,
+
+                  deployedAt:
+                    $prevAt,
+
+                  source:
+                    $prevSrc
+                }
+                +
+                formalFields(
+                  $prevPlatformReleaseId;
+                  $prevDeploymentId
+                )
+              );
+
+
             {
-              active: {
-                gitSha: $gitSha,
-                profileVersionId: $pv,
-                deployedAt: $at,
-                source: $src
-              },
+              active:
+                currentRecord,
 
               previous:
                 (
-                  if ($prevSha | length) > 0
+                  if (
+                    $prevSha |
+                    length
+                  ) > 0
                   then
-                    {
-                      gitSha: $prevSha,
-                      profileVersionId: $prevPv,
-                      deployedAt: $prevAt,
-                      source: $prevSrc
-                    }
+                    previousRecord
                   else
                     null
                   end
                 ),
 
+              # Legacy compatibility only.
+              #
+              # This timeline intentionally retains its historical
+              # Git-SHA deduplication semantics.
+              #
+              # The formal Platform Deployment DynamoDB ledger is the
+              # authoritative occurrence history.
               timeline:
                 (
                   (
                     [
-                      {
-                        gitSha: $gitSha,
-                        profileVersionId: $pv,
-                        deployedAt: $at,
-                        source: $src
-                      }
+                      currentRecord
                     ]
                     +
                     oldTimeline
                   )
                   |
-                  unique_by(.gitSha)
+                  unique_by(
+                    .gitSha
+                  )
                   |
                   .[0:25]
                 )
@@ -1253,6 +2124,10 @@ jobs:
           SNAPSHOTS_API: ${{ needs.build.outputs.SNAPSHOTS_API_URL }}
 
           OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+
+          PLATFORM_RELEASE_ID: ${{ needs.build.outputs.PLATFORM_RELEASE_ID }}
+
+          PLATFORM_DEPLOYMENT_ID: ${{ needs.deploy.outputs.PLATFORM_DEPLOYMENT_ID }}
 
           GIT_SHA: ${{ needs.build.outputs.GIT_SHA }}
 

@@ -13,6 +13,7 @@ import {
 } from "react-icons/fa";
 
 import SectionHeader from "../shared/SectionHeader";
+import ConfigurationAnalyticsArchivePanel from "./ConfigurationAnalyticsArchivePanel";
 
 import {
   CARD_ROUNDED_2XL,
@@ -254,8 +255,99 @@ function formatTimestampUtc(
   }
 }
 
+function resolveBoundaryProfileVersion(
+  boundary,
+  releaseCatalog
+) {
+  const storedProfileVersionId =
+    String(
+      boundary
+        ?.profileVersionId ||
+        ""
+    ).trim();
+
+  // New boundaries should have the exact
+  // profile version stored directly.
+  if (storedProfileVersionId) {
+    return storedProfileVersionId;
+  }
+
+  // Backward compatibility:
+  // older Reset boundaries were created before
+  // profileVersionId was stored on resets.
+  //
+  // Infer the release that was active when
+  // the boundary became effective.
+  const effectiveAt =
+    Number(
+      boundary?.effectiveAt
+    );
+
+  if (
+    !Number.isFinite(
+      effectiveAt
+    )
+  ) {
+    return "";
+  }
+
+  const releases =
+    Array.isArray(
+      releaseCatalog
+    )
+      ? releaseCatalog
+      : [];
+
+  let bestMatch =
+    null;
+
+  for (const release of releases) {
+    const releasedAt =
+      Number(
+        release?.releasedAt
+      );
+
+    const profileVersionId =
+      String(
+        release
+          ?.profileVersionId ||
+          ""
+      ).trim();
+
+    if (
+      !profileVersionId ||
+      !Number.isFinite(
+        releasedAt
+      ) ||
+      releasedAt >
+        effectiveAt
+    ) {
+      continue;
+    }
+
+    if (
+      !bestMatch ||
+      releasedAt >
+        bestMatch.releasedAt
+    ) {
+      bestMatch = {
+        releasedAt,
+        profileVersionId,
+      };
+    }
+  }
+
+  return (
+    bestMatch
+      ?.profileVersionId ||
+    ""
+  );
+}
+
+
 function boundaryOptionLabel(
-  boundary
+  boundary,
+  releaseCatalog
 ) {
   if (!boundary) {
     return "Unknown boundary";
@@ -266,10 +358,15 @@ function boundaryOptionLabel(
       ? "Reset"
       : "Deploy";
 
+  const profileVersionId =
+    resolveBoundaryProfileVersion(
+      boundary,
+      releaseCatalog
+    );
+
   const release =
-    boundary.type === "deploy" &&
-    boundary.profileVersionId
-      ? ` · ${boundary.profileVersionId}`
+    profileVersionId
+      ? ` · ${profileVersionId}`
       : "";
 
   return (
@@ -283,6 +380,15 @@ function boundaryOptionLabel(
 function createResetBoundaryRequest() {
   const effectiveAt =
     Date.now();
+
+  const profileVersion =
+    readBuildProfileVersion();
+
+  const profileVersionId =
+    String(
+      profileVersion?.id ||
+      ""
+    ).trim();
 
   const stamp =
     new Date(
@@ -334,6 +440,10 @@ function createResetBoundaryRequest() {
       "reset",
 
     effectiveAt,
+
+    profileVersionId:
+      profileVersionId ||
+      null,
 
     note:
       "Owner analytics baseline reset",
@@ -466,6 +576,59 @@ function comparisonDelta(
       1
     )}% vs previous`
   );
+}
+
+function membershipFilterOptions(
+  rows,
+  field,
+  selected
+) {
+  const options = [];
+  const seen =
+    new Set();
+
+  function add(value) {
+    const clean =
+      String(
+        value || ""
+      ).trim();
+
+    if (
+      !clean ||
+      seen.has(clean)
+    ) {
+      return;
+    }
+
+    seen.add(clean);
+
+    options.push(
+      clean
+    );
+  }
+
+  for (
+    const row of
+      Array.isArray(rows)
+        ? rows
+        : []
+  ) {
+    add(
+      row?.[field]
+    );
+  }
+
+  // Never make a currently selected value
+  // disappear while a filtered response is
+  // loading or the selected scope is empty.
+  if (
+    selected &&
+    selected !== "all"
+  ) {
+    add(selected);
+  }
+
+  return options;
 }
 
 function downloadJsonFile(
@@ -1802,6 +1965,33 @@ function RecentSessions({
                 ? session.profileVersionIds
                 : [];
 
+            const profileVariants =
+              Array.isArray(
+                session
+                  .profileVariantIds
+              )
+                ? session
+                    .profileVariantIds
+                : [];
+
+            const targetingLocations =
+              Array.isArray(
+                session
+                  .profileTargetingLocations
+              )
+                ? session
+                    .profileTargetingLocations
+                : [];
+
+            const targetingJobRoles =
+              Array.isArray(
+                session
+                  .profileTargetingJobRoles
+              )
+                ? session
+                    .profileTargetingJobRoles
+                : [];
+
             const journey =
               Array.isArray(
                 session.journey
@@ -1867,6 +2057,16 @@ function RecentSessions({
                             releases
                           </span>
                         ) : null}
+
+                         {profileVariants.length ? (
+                          <span className="rounded-full border border-indigo-200/70 dark:border-indigo-400/20 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300">
+                            {profileVariants.length ===
+                            1
+                              ? profileVariants[0]
+                              : `${profileVariants.length} variants`}
+                          </span>
+                        ) : null}
+
                       </div>
 
                       <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
@@ -1978,7 +2178,7 @@ function RecentSessions({
 
                 {isExpanded ? (
                   <div className="border-t border-gray-200/70 dark:border-white/10 px-4 py-4">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4 text-xs">
                       <div>
                         <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
                           Releases
@@ -1996,9 +2196,7 @@ function RecentSessions({
                                   }
                                   className="max-w-full break-all rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2 py-1 font-mono text-[10px] text-gray-700 dark:text-gray-300"
                                 >
-                                  {
-                                    id
-                                  }
+                                  {id}
                                 </span>
                               )
                             )
@@ -2009,6 +2207,64 @@ function RecentSessions({
                           )}
                         </div>
                       </div>
+
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                          Profile Variants
+                        </div>
+
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {profileVariants.length ? (
+                            profileVariants.map(
+                              (
+                                id
+                              ) => (
+                                <span
+                                  key={
+                                    id
+                                  }
+                                  className="max-w-full break-all rounded-lg border border-indigo-200/70 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 px-2 py-1 font-mono text-[10px] text-indigo-700 dark:text-indigo-300"
+                                >
+                                  {id}
+                                </span>
+                              )
+                            )
+                          ) : (
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Historical / unavailable
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                          Profile targeting
+                        </div>
+
+                        <div className="mt-1 space-y-1 text-gray-700 dark:text-gray-300">
+                          <div>
+                            Location:{" "}
+                            {targetingLocations.length
+                              ? targetingLocations.join(
+                                  ", "
+                                )
+                              : "—"}
+                          </div>
+
+                          <div>
+                            Role:{" "}
+                            {targetingJobRoles.length
+                              ? targetingJobRoles.join(
+                                  ", "
+                                )
+                              : "—"}
+                          </div>
+                        </div>
+                      </div>
+
 
                       <div>
                         <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
@@ -2073,6 +2329,17 @@ function RecentSessions({
                                       event.value
                                     }
                                   />
+
+                                  {event
+                                    .profileVariantId ? (
+                                    <div className="mt-1 font-mono text-[9px] text-indigo-600 dark:text-indigo-300 break-all">
+                                      {
+                                        event
+                                          .profileVariantId
+                                      }
+                                    </div>
+                                  ) : null}
+
                                 </div>
                               </div>
                             )
@@ -2231,6 +2498,14 @@ function ReleaseTable({
 // -----------------------------
 
 export default function AdminAnalytics() {
+  const [
+    analyticsMode,
+    setAnalyticsMode,
+  ] =
+    useState(
+      "live"
+    );
+
   const profileVersion =
     useMemo(
       () =>
@@ -2283,6 +2558,24 @@ export default function AdminAnalytics() {
   const [
     profileVersionFilter,
     setProfileVersionFilter,
+  ] =
+    useState("all");
+
+  const [
+    profileVariantFilter,
+    setProfileVariantFilter,
+  ] =
+    useState("all");
+
+  const [
+    profileTargetingLocationFilter,
+    setProfileTargetingLocationFilter,
+  ] =
+    useState("all");
+
+  const [
+    profileTargetingJobRoleFilter,
+    setProfileTargetingJobRoleFilter,
   ] =
     useState("all");
 
@@ -2366,6 +2659,12 @@ export default function AdminAnalytics() {
     setReleaseCatalog,
   ] =
     useState([]);
+
+  const [
+    runtimeFilterCatalog,
+    setRuntimeFilterCatalog,
+  ] =
+    useState(null);
 
   const [
     loading,
@@ -2482,6 +2781,67 @@ export default function AdminAnalytics() {
       profileVersionFilter,
     ]);
 
+  const runtimeFiltersActive =
+    profileVariantFilter !==
+      "all" ||
+    profileTargetingLocationFilter !==
+      "all" ||
+    profileTargetingJobRoleFilter !==
+      "all";
+
+
+  const filterCatalog =
+    runtimeFilterCatalog ||
+    data;
+
+
+  const profileVariantOptions =
+    useMemo(
+      () =>
+        membershipFilterOptions(
+          filterCatalog
+            ?.profileVariants,
+          "profileVariantId",
+          profileVariantFilter
+        ),
+      [
+        filterCatalog,
+        profileVariantFilter,
+      ]
+    );
+
+
+  const profileTargetingLocationOptions =
+    useMemo(
+      () =>
+        membershipFilterOptions(
+          filterCatalog
+            ?.profileTargetingLocations,
+          "profileTargetingLocation",
+          profileTargetingLocationFilter
+        ),
+      [
+        filterCatalog,
+        profileTargetingLocationFilter,
+      ]
+    );
+
+
+  const profileTargetingJobRoleOptions =
+    useMemo(
+      () =>
+        membershipFilterOptions(
+          filterCatalog
+            ?.profileTargetingJobRoles,
+          "profileTargetingJobRole",
+          profileTargetingJobRoleFilter
+        ),
+      [
+        filterCatalog,
+        profileTargetingJobRoleFilter,
+      ]
+    );
+
   const boundaryOptions =
     useMemo(
       () =>
@@ -2526,7 +2886,8 @@ export default function AdminAnalytics() {
       ? "All history"
       : selectedBoundary
         ? boundaryOptionLabel(
-            selectedBoundary
+            selectedBoundary,
+            releaseCatalog
           )
         : boundaryFilter;
 
@@ -2647,6 +3008,15 @@ export default function AdminAnalytics() {
               profileVersionId:
                 profileVersionFilter,
 
+              profileVariantId:
+                profileVariantFilter,
+
+              profileTargetingLocation:
+                profileTargetingLocationFilter,
+
+              profileTargetingJobRole:
+                profileTargetingJobRoleFilter,
+
               boundaryId:
                 boundaryFilter,
 
@@ -2659,6 +3029,44 @@ export default function AdminAnalytics() {
               signal,
             });
 
+
+          /**
+           * Filter controls need an unfiltered identity
+           * catalogue for the same date/release/baseline
+           * scope.
+           *
+           * Otherwise selecting prv_A would cause the
+           * filtered response to hide prv_B from the
+           * dropdown, forcing the user through "All"
+           * just to change variants.
+           *
+           * Avoid the extra request when no runtime
+           * Profile filter is active: currentData itself
+           * is already the correct catalogue.
+           */
+          const catalogPromise =
+            runtimeFiltersActive
+              ? queryAnalyticsAgg(
+                  {
+                    profileVersionId:
+                      profileVersionFilter,
+
+                    boundaryId:
+                      boundaryFilter,
+
+                    from:
+                      range.from,
+
+                    to:
+                      range.to,
+
+                    signal,
+                  }
+                )
+              : Promise.resolve(
+                  null
+                );
+
           const previousPromise =
             comparePrevious &&
             comparisonRange
@@ -2666,6 +3074,15 @@ export default function AdminAnalytics() {
                   {
                     profileVersionId:
                       profileVersionFilter,
+
+                    profileVariantId:
+                      profileVariantFilter,
+
+                    profileTargetingLocation:
+                      profileTargetingLocationFilter,
+
+                    profileTargetingJobRole:
+                      profileTargetingJobRoleFilter,
 
                     boundaryId:
                       boundaryFilter,
@@ -2686,13 +3103,20 @@ export default function AdminAnalytics() {
           const [
             currentData,
             previousResult,
+            catalogResult,
           ] =
             await Promise.all([
               currentPromise,
               previousPromise,
+              catalogPromise,
             ]);
 
           setData(
+            currentData
+          );
+
+          setRuntimeFilterCatalog(
+            catalogResult ||
             currentData
           );
 
@@ -2733,13 +3157,24 @@ export default function AdminAnalytics() {
         range.from,
         range.to,
         profileVersionFilter,
+        profileVariantFilter,
+        profileTargetingLocationFilter,
+        profileTargetingJobRoleFilter,
         boundaryFilter,
         comparePrevious,
+        runtimeFiltersActive,
         comparisonRange,
       ]
     );
 
   useEffect(() => {
+    if (
+      analyticsMode !==
+        "live"
+    ) {
+      return undefined;
+    }
+
     const controller =
       new AbortController();
 
@@ -2751,12 +3186,17 @@ export default function AdminAnalytics() {
       controller.abort();
     };
   }, [
+    analyticsMode,
     loadAnalyticsMetadata,
     refreshVersion,
   ]);
 
   useEffect(() => {
-    if (!metadataReady) {
+    if (
+      analyticsMode !==
+        "live" ||
+      !metadataReady
+    ) {
       return undefined;
     }
 
@@ -2771,6 +3211,7 @@ export default function AdminAnalytics() {
       controller.abort();
     };
   }, [
+    analyticsMode,
     loadAnalytics,
     refreshVersion,
     metadataReady,
@@ -2832,6 +3273,21 @@ export default function AdminAnalytics() {
       ? sessionIntelligence
           .topSectionPaths
       : [];
+
+  const clearRuntimeFilters =
+    useCallback(() => {
+      setProfileVariantFilter(
+        "all"
+      );
+
+      setProfileTargetingLocationFilter(
+        "all"
+      );
+
+      setProfileTargetingJobRoleFilter(
+        "all"
+      );
+    }, []);
 
   const applyCustomRange =
     useCallback(() => {
@@ -3073,6 +3529,15 @@ export default function AdminAnalytics() {
             profileVersionId:
               profileVersionFilter,
 
+            profileVariantId:
+              profileVariantFilter,
+
+            profileTargetingLocation:
+              profileTargetingLocationFilter,
+
+            profileTargetingJobRole:
+              profileTargetingJobRoleFilter,
+
             boundaryId:
               boundaryFilter,
           },
@@ -3089,6 +3554,9 @@ export default function AdminAnalytics() {
       previousData,
       period,
       profileVersionFilter,
+      profileVariantFilter,
+      profileTargetingLocationFilter,
+      profileTargetingJobRoleFilter,
       boundaryFilter,
       range,
     ]);
@@ -3101,843 +3569,1100 @@ export default function AdminAnalytics() {
       />
 
       <div className="px-2 sm:px-6 space-y-6">
-        <div className="mt-10 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-          <div className="max-w-3xl">
-            <p className="text-gray-600 dark:text-gray-400">
-              Owner-only analytics backed by exact session-fragment data.
-              Visitor and session counts are deduplicated across the selected UTC date range.
-            </p>
-
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300">
-                Range:{" "}
-                <span className="font-semibold text-gray-800 dark:text-gray-100">
-                  {formatRangeLabel(
-                    range
-                  )}
-                </span>
-              </span>
-
-              <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
-                From:{" "}
-                <span className="font-semibold text-gray-800 dark:text-gray-100 break-all">
-                  {selectedFromLabel}
-                </span>
-              </span>
-
-              <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300">
-                UTC
-              </span>
-
-              {data?.stage ? (
-                <span className="rounded-full border border-purple-200 dark:border-purple-400/20 bg-purple-50 dark:bg-purple-500/10 px-2.5 py-1 font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">
-                  {data.stage}
-                </span>
-              ) : null}
-
-              <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
-                Current build:{" "}
-                <span className="font-semibold text-gray-800 dark:text-gray-100 break-all">
-                  {profileVersion?.id ||
-                    "unknown"}
-                </span>
-              </span>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <SmallActionButton
+        <div className="mt-10">
+          <div className="inline-flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200/70 dark:border-white/10 bg-white/50 dark:bg-white/5 p-1.5">
+            <SegButton
+              active={
+                analyticsMode ===
+                "live"
+              }
               onClick={() =>
-                setRefreshVersion(
-                  (v) =>
-                    v + 1
+                setAnalyticsMode(
+                  "live"
                 )
               }
-              disabled={
-                loading ||
-                metaLoading ||
-                resetting
-              }
-              title="Reload exact analytics from the backend"
             >
-              {loading ||
-              metaLoading
-                ? "Refreshing…"
-                : "Refresh"}
-            </SmallActionButton>
+              Live analytics
+            </SegButton>
 
-            <SmallActionButton
-              onClick={
-                downloadCurrentJson
+            <SegButton
+              active={
+                analyticsMode ===
+                "archive"
               }
-              disabled={
-                loading ||
-                !data
+              onClick={() =>
+                setAnalyticsMode(
+                  "archive"
+                )
               }
-              title="Download the current backend analytics response"
             >
-              Download JSON
-            </SmallActionButton>
+              Historical archive
+            </SegButton>
+          </div>
+
+          <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 max-w-3xl">
+            {analyticsMode ===
+            "live"
+              ? "Queryable live Analytics with date, baseline, Profile and comparison filters."
+              : "Immutable Configuration Analytics Reports finalized automatically for completed Usage Epochs."}
           </div>
         </div>
 
-        <SectionCard
-          title="Analytics window"
-          subtitle="Period, baseline and release are independent filters. Comparison uses the immediately preceding period of equal length."
-        >
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {PERIODS.map(
-                (item) => (
-                  <SegButton
-                    key={
-                      item.id
-                    }
-                    active={
-                      period ===
-                      item.id
-                    }
-                    onClick={() => {
-                      setCustomError(
-                        ""
-                      );
 
-                      setPeriod(
-                        item.id
-                      );
-                    }}
-                    title={
-                      item.id ===
-                      "1y"
-                        ? "Maximum exact backend range: 366 days"
-                        : undefined
-                    }
-                  >
-                    {
-                      item.label
-                    }
-                  </SegButton>
-                )
-              )}
+        {analyticsMode ===
+        "archive" ? (
+          <ConfigurationAnalyticsArchivePanel />
+        ) : (
+          <>
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+              <div className="max-w-3xl">
+                <p className="text-gray-600 dark:text-gray-400">
+                  Owner-only analytics backed by exact session-fragment data.
+                  Visitor and session counts are deduplicated across the selected UTC date range.
+                </p>
 
-              <div className="mx-1 hidden sm:block h-6 w-px bg-gray-200 dark:bg-white/10" />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300">
+                    Range:{" "}
+                    <span className="font-semibold text-gray-800 dark:text-gray-100">
+                      {formatRangeLabel(
+                        range
+                      )}
+                    </span>
+                  </span>
 
-              <SegButton
-                active={
-                  comparePrevious
-                }
-                onClick={() =>
-                  setComparePrevious(
-                    (value) =>
-                      !value
-                  )
-                }
-              >
-                Compare previous
-              </SegButton>
-            </div>
+                  <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
+                    From:{" "}
+                    <span className="font-semibold text-gray-800 dark:text-gray-100 break-all">
+                      {selectedFromLabel}
+                    </span>
+                  </span>
 
-            {period ===
-            "custom" ? (
-              <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
-                <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-                  <label className="flex-1">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Start date
-                    </div>
+                  <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300">
+                    UTC
+                  </span>
 
-                    <input
-                      type="date"
-                      value={
-                        customFrom
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        setCustomFrom(
-                          e.target
-                            .value
-                        )
-                      }
-                      className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
-                    />
-                  </label>
+                  {data?.stage ? (
+                    <span className="rounded-full border border-purple-200 dark:border-purple-400/20 bg-purple-50 dark:bg-purple-500/10 px-2.5 py-1 font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">
+                      {data.stage}
+                    </span>
+                  ) : null}
 
-                  <label className="flex-1">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      End date
-                    </div>
+                  <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
+                    Current build release:{" "}
+                    <span className="font-semibold text-gray-800 dark:text-gray-100 break-all">
+                      {profileVersion?.id ||
+                        "unknown"}
+                    </span>
+                  </span>
 
-                    <input
-                      type="date"
-                      value={
-                        customTo
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        setCustomTo(
-                          e.target
-                            .value
-                        )
-                      }
-                      className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
-                    />
-                  </label>
+                  {profileVariantFilter !==
+                  "all" ? (
+                    <span className="rounded-full border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/70 dark:bg-purple-500/10 px-2.5 py-1 text-purple-700 dark:text-purple-300 max-w-full">
+                      Variant:{" "}
+                      <span className="font-mono font-semibold break-all">
+                        {
+                          profileVariantFilter
+                        }
+                      </span>
+                    </span>
+                  ) : null}
 
-                  <SmallActionButton
-                    onClick={
-                      applyCustomRange
-                    }
-                  >
-                    Apply
-                  </SmallActionButton>
-                </div>
+                  {profileTargetingLocationFilter !==
+                  "all" ? (
+                    <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
+                      Target:{" "}
+                      <span className="font-semibold break-all">
+                        {
+                          profileTargetingLocationFilter
+                        }
+                      </span>
+                    </span>
+                  ) : null}
 
-                {customError ? (
-                  <div className="mt-2 text-xs text-red-600 dark:text-red-400">
-                    {
-                      customError
-                    }
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+                  {profileTargetingJobRoleFilter !==
+                  "all" ? (
+                    <span className="rounded-full border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2.5 py-1 text-gray-600 dark:text-gray-300 max-w-full">
+                      Role:{" "}
+                      <span className="font-semibold break-all">
+                        {
+                          profileTargetingJobRoleFilter
+                        }
+                      </span>
+                    </span>
+                  ) : null}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
-                <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
-                  Selected range
-                </div>
-
-                <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  {formatRangeLabel(
-                    range
-                  )}
-                </div>
-
-                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {dayCount(
-                    range.from,
-                    range.to
-                  )}{" "}
-                  UTC day
-                  {dayCount(
-                    range.from,
-                    range.to
-                  ) === 1
-                    ? ""
-                    : "s"}
-
-                  {comparePrevious &&
-                  comparisonRange
-                    ? ` · Previous: ${formatRangeLabel(
-                        comparisonRange
-                      )}`
-                    : ""}
                 </div>
               </div>
 
-              <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
-                <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
-                  From
-                </div>
-
-                <select
-                  value={
-                    boundaryFilter
+              <div className="flex flex-wrap items-center gap-2">
+                <SmallActionButton
+                  onClick={() =>
+                    setRefreshVersion(
+                      (v) =>
+                        v + 1
+                    )
                   }
                   disabled={
+                    loading ||
                     metaLoading ||
                     resetting
                   }
-                  onChange={(
-                    e
-                  ) => {
-                    setBoundaryFilter(
-                      e.target.value
-                    );
-
-                    setResetArmed(
-                      false
-                    );
-
-                    setPendingResetRequest(
-                      null
-                    );
-
-                    setResetError(
-                      ""
-                    );
-                  }}
-                  className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                  title="Reload exact analytics from the backend"
                 >
-                  <option value="all">
-                    All history
-                  </option>
+                  {loading ||
+                  metaLoading
+                    ? "Refreshing…"
+                    : "Refresh"}
+                </SmallActionButton>
 
-                  {boundaryOptions.map(
-                    (boundary) => (
-                      <option
-                        key={
-                          boundary
-                            .boundaryId
-                        }
-                        value={
-                          boundary
-                            .boundaryId
-                        }
-                      >
-                        {boundaryOptionLabel(
-                          boundary
-                        )}
-                      </option>
-                    )
-                  )}
-                </select>
-
-                <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                  Baseline lower bound. The selected period still applies.
-                </div>
-              </label>
-
-              <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
-                <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
-                  Release
-                </div>
-
-                <select
-                  value={
-                    profileVersionFilter
+                <SmallActionButton
+                  onClick={
+                    downloadCurrentJson
                   }
                   disabled={
-                    metaLoading
+                    loading ||
+                    !data
                   }
-                  onChange={(
-                    e
-                  ) =>
-                    setProfileVersionFilter(
-                      e.target.value
-                    )
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                  title="Download the current backend analytics response"
                 >
-                  <option value="all">
-                    All releases
-                  </option>
+                  Download JSON
+                </SmallActionButton>
+              </div>
+            </div>
 
-                  {releaseOptions.map(
-                    (id) => (
-                      <option
-                        key={id}
-                        value={id}
+            <SectionCard
+              title="Analytics window"
+              subtitle="Time, baseline, Profile content and legacy release are independent filters. Comparison applies the same filters to the immediately preceding period."
+            >
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {PERIODS.map(
+                    (item) => (
+                      <SegButton
+                        key={
+                          item.id
+                        }
+                        active={
+                          period ===
+                          item.id
+                        }
+                        onClick={() => {
+                          setCustomError(
+                            ""
+                          );
+
+                          setPeriod(
+                            item.id
+                          );
+                        }}
+                        title={
+                          item.id ===
+                          "1y"
+                            ? "Maximum exact backend range: 366 days"
+                            : undefined
+                        }
                       >
-                        {id ===
-                        profileVersion
-                          ?.id
-                          ? `${id} (current)`
-                          : id}
-                      </option>
+                        {
+                          item.label
+                        }
+                      </SegButton>
                     )
                   )}
-                </select>
 
-                <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                  Global release catalogue, independent of the selected period.
-                </div>
-              </label>
-            </div>
+                  <div className="mx-1 hidden sm:block h-6 w-px bg-gray-200 dark:bg-white/10" />
 
-            <div className="rounded-xl border border-amber-200/80 dark:border-amber-400/20 bg-amber-50/60 dark:bg-amber-500/5 p-4">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    Analytics baseline
-                  </div>
-
-                  <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                    Resetting creates a new baseline boundary only.
-                    Historical aggregates and raw analytics are not deleted.
-                  </div>
-                </div>
-
-                {!resetArmed ? (
-                  <SmallActionButton
-                    onClick={
-                      armBaselineReset
+                  <SegButton
+                    active={
+                      comparePrevious
                     }
-                    disabled={
-                      resetting
+                    onClick={() =>
+                      setComparePrevious(
+                        (value) =>
+                          !value
+                      )
                     }
-                    title="Create a new analytics baseline without deleting history"
                   >
-                    Reset baseline
-                  </SmallActionButton>
-                ) : null}
-              </div>
+                    Compare previous
+                  </SegButton>
+                </div>
 
-              {resetArmed ? (
-                <div className="mt-4 rounded-lg border border-amber-300/70 dark:border-amber-400/25 bg-white/60 dark:bg-white/5 p-3">
-                  <div className="text-xs font-semibold text-amber-800 dark:text-amber-200">
-                    Confirm baseline reset
-                  </div>
+                {period ===
+                "custom" ? (
+                  <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
+                    <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                      <label className="flex-1">
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Start date
+                        </div>
 
-                  <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                    New analytics will use this boundary as the default
-                    "From" point. You can still select "All history"
-                    afterward to view older data.
-                  </div>
+                        <input
+                          type="date"
+                          value={
+                            customFrom
+                          }
+                          onChange={(
+                            e
+                          ) =>
+                            setCustomFrom(
+                              e.target
+                                .value
+                            )
+                          }
+                          className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                        />
+                      </label>
 
-                  {pendingResetRequest
-                    ?.effectiveAt ? (
-                    <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
-                      Effective:{" "}
-                      <span className="font-semibold text-gray-700 dark:text-gray-300">
-                        {formatTimestampUtc(
-                          pendingResetRequest
-                            .effectiveAt
-                        )}
-                      </span>
+                      <label className="flex-1">
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          End date
+                        </div>
+
+                        <input
+                          type="date"
+                          value={
+                            customTo
+                          }
+                          onChange={(
+                            e
+                          ) =>
+                            setCustomTo(
+                              e.target
+                                .value
+                            )
+                          }
+                          className="w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/70 dark:bg-white/10 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                        />
+                      </label>
+
+                      <SmallActionButton
+                        onClick={
+                          applyCustomRange
+                        }
+                      >
+                        Apply
+                      </SmallActionButton>
                     </div>
-                  ) : null}
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={
-                        confirmBaselineReset
-                      }
-                      disabled={
-                        resetting
-                      }
-                      className="inline-flex items-center justify-center rounded-lg border border-amber-500/40 bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {resetting
-                        ? "Resetting…"
-                        : "Confirm reset"}
-                    </button>
+                    {customError ? (
+                      <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {
+                          customError
+                        }
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
-                    <SmallActionButton
-                      onClick={
-                        cancelBaselineReset
-                      }
-                      disabled={
-                        resetting
-                      }
-                    >
-                      Cancel
-                    </SmallActionButton>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                      Selected range
+                    </div>
+
+                    <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {formatRangeLabel(
+                        range
+                      )}
+                    </div>
+
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {dayCount(
+                        range.from,
+                        range.to
+                      )}{" "}
+                      UTC day
+                      {dayCount(
+                        range.from,
+                        range.to
+                      ) === 1
+                        ? ""
+                        : "s"}
+
+                      {comparePrevious &&
+                      comparisonRange
+                        ? ` · Previous: ${formatRangeLabel(
+                            comparisonRange
+                          )}`
+                        : ""}
+                    </div>
                   </div>
 
-                  {resetError ? (
-                    <div className="mt-2 text-xs text-red-600 dark:text-red-400 break-words">
-                      {resetError}
+                  <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                      From
+                    </div>
+
+                    <select
+                      value={
+                        boundaryFilter
+                      }
+                      disabled={
+                        metaLoading ||
+                        resetting
+                      }
+                      onChange={(
+                        e
+                      ) => {
+                        setBoundaryFilter(
+                          e.target.value
+                        );
+
+                        setResetArmed(
+                          false
+                        );
+
+                        setPendingResetRequest(
+                          null
+                        );
+
+                        setResetError(
+                          ""
+                        );
+                      }}
+                      className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                    >
+                      <option value="all">
+                        All history
+                      </option>
+
+                      {boundaryOptions.map(
+                        (boundary) => (
+                          <option
+                            key={
+                              boundary
+                                .boundaryId
+                            }
+                            value={
+                              boundary
+                                .boundaryId
+                            }
+                          >
+                            {boundaryOptionLabel(
+                              boundary,
+                              releaseCatalog
+                            )}
+                          </option>
+                        )
+                      )}
+                    </select>
+
+                    <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                      Baseline lower bound. The selected period still applies.
+                    </div>
+                  </label>
+
+                  <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                      Legacy release
+                    </div>
+
+                    <select
+                      aria-label="Legacy release"
+                      value={
+                        profileVersionFilter
+                      }
+                      disabled={
+                        metaLoading
+                      }
+                      onChange={(
+                        e
+                      ) =>
+                        setProfileVersionFilter(
+                          e.target.value
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                    >
+                      <option value="all">
+                        All legacy releases
+                      </option>
+
+                      {releaseOptions.map(
+                        (id) => (
+                          <option
+                            key={id}
+                            value={id}
+                          >
+                            {id ===
+                            profileVersion
+                              ?.id
+                              ? `${id} (current)`
+                              : id}
+                          </option>
+                        )
+                      )}
+                    </select>
+
+                    <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                      Existing profileVersionId dimension. Independent of Profile Variant activation.
+                    </div>
+                  </label>
+                </div>
+
+                <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/40 dark:bg-purple-500/5 p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Profile content
+                      </div>
+
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Filter exact Analytics attribution by immutable Profile Variant
+                        and authored targeting. Target location is Profile targeting,
+                        not visitor geography.
+                      </div>
+                    </div>
+
+                    {runtimeFiltersActive ? (
+                      <SmallActionButton
+                        onClick={
+                          clearRuntimeFilters
+                        }
+                        disabled={
+                          loading
+                        }
+                        title="Clear Profile Variant and targeting filters"
+                      >
+                        Clear profile filters
+                      </SmallActionButton>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <label>
+                      <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                        Profile Variant
+                      </div>
+
+                      <select
+                        aria-label="Profile Variant"
+                        value={
+                          profileVariantFilter
+                        }
+                        disabled={
+                          loading
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setProfileVariantFilter(
+                            e.target.value
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                      >
+                        <option value="all">
+                          All Profile Variants
+                        </option>
+
+                        {profileVariantOptions.map(
+                          (id) => (
+                            <option
+                              key={id}
+                              value={id}
+                            >
+                              {id}
+                            </option>
+                          )
+                        )}
+                      </select>
+
+                      <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                        Immutable content identity active when the event occurred.
+                      </div>
+                    </label>
+
+
+                    <label>
+                      <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                        Target location
+                      </div>
+
+                      <select
+                        aria-label="Target location"
+                        value={
+                          profileTargetingLocationFilter
+                        }
+                        disabled={
+                          loading
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setProfileTargetingLocationFilter(
+                            e.target.value
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                      >
+                        <option value="all">
+                          All target locations
+                        </option>
+
+                        {profileTargetingLocationOptions.map(
+                          (value) => (
+                            <option
+                              key={
+                                value
+                              }
+                              value={
+                                value
+                              }
+                            >
+                              {value}
+                            </option>
+                          )
+                        )}
+                      </select>
+
+                      <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                        Authored Profile targeting, not visitor geo.
+                      </div>
+                    </label>
+
+
+                    <label>
+                      <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                        Target job role
+                      </div>
+
+                      <select
+                        aria-label="Target job role"
+                        value={
+                          profileTargetingJobRoleFilter
+                        }
+                        disabled={
+                          loading
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setProfileTargetingJobRoleFilter(
+                            e.target.value
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                      >
+                        <option value="all">
+                          All target job roles
+                        </option>
+
+                        {profileTargetingJobRoleOptions.map(
+                          (value) => (
+                            <option
+                              key={
+                                value
+                              }
+                              value={
+                                value
+                              }
+                            >
+                              {value}
+                            </option>
+                          )
+                        )}
+                      </select>
+
+                      <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                        Authored audience/job-role targeting for the Profile Variant.
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-amber-200/80 dark:border-amber-400/20 bg-amber-50/60 dark:bg-amber-500/5 p-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Analytics baseline
+                      </div>
+
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Resetting creates a new baseline boundary only.
+                        Historical aggregates and raw analytics are not deleted.
+                      </div>
+                    </div>
+
+                    {!resetArmed ? (
+                      <SmallActionButton
+                        onClick={
+                          armBaselineReset
+                        }
+                        disabled={
+                          resetting
+                        }
+                        title="Create a new analytics baseline without deleting history"
+                      >
+                        Reset baseline
+                      </SmallActionButton>
+                    ) : null}
+                  </div>
+
+                  {resetArmed ? (
+                    <div className="mt-4 rounded-lg border border-amber-300/70 dark:border-amber-400/25 bg-white/60 dark:bg-white/5 p-3">
+                      <div className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                        Confirm baseline reset
+                      </div>
+
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        New analytics will use this boundary as the default
+                        "From" point. You can still select "All history"
+                        afterward to view older data.
+                      </div>
+
+                      {pendingResetRequest
+                        ?.effectiveAt ? (
+                        <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                          Effective:{" "}
+                          <span className="font-semibold text-gray-700 dark:text-gray-300">
+                            {formatTimestampUtc(
+                              pendingResetRequest
+                                .effectiveAt
+                            )}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={
+                            confirmBaselineReset
+                          }
+                          disabled={
+                            resetting
+                          }
+                          className="inline-flex items-center justify-center rounded-lg border border-amber-500/40 bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {resetting
+                            ? "Resetting…"
+                            : "Confirm reset"}
+                        </button>
+
+                        <SmallActionButton
+                          onClick={
+                            cancelBaselineReset
+                          }
+                          disabled={
+                            resetting
+                          }
+                        >
+                          Cancel
+                        </SmallActionButton>
+                      </div>
+
+                      {resetError ? (
+                        <div className="mt-2 text-xs text-red-600 dark:text-red-400 break-words">
+                          {resetError}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-              ) : null}
-            </div>
-          </div>
-        </SectionCard>
-
-        {metaError ? (
-          <div className="rounded-xl border border-amber-300/60 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 whitespace-pre-wrap break-words">
-            Analytics metadata failed:{" "}
-            {metaError}
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className="rounded-xl border border-red-300/60 dark:border-red-500/40 bg-red-50/60 dark:bg-red-950/30 px-4 py-3 text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap break-words">
-            Analytics failed:{" "}
-            {error}
-          </div>
-        ) : null}
-
-        {loading &&
-        data ? (
-          <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/60 dark:bg-purple-950/20 px-4 py-2 text-xs text-purple-800 dark:text-purple-200">
-            Refreshing backend analytics…
-          </div>
-        ) : null}
-
-        {!data &&
-        loading ? (
-          <SectionCard
-            title="Loading analytics"
-            subtitle="Reading exact visitor and session fragments from the backend"
-          >
-            <div className="py-8 text-center text-sm text-gray-600 dark:text-gray-400">
-              Loading…
-            </div>
-          </SectionCard>
-        ) : null}
-
-        {data ? (
-          <>
-            <SectionCard
-              title="Overview"
-              subtitle={
-                comparePrevious &&
-                comparisonRange
-                  ? `Current period compared with ${formatRangeLabel(
-                      comparisonRange
-                    )}`
-                  : "Exact KPIs for the selected period"
-              }
-              action={
-                lastUpdated ? (
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                    Updated{" "}
-                    {new Date(
-                      lastUpdated
-                    ).toLocaleTimeString()}
-                  </div>
-                ) : null
-              }
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <KpiCard
-                  title="Unique visitors"
-                  value={formatNumber(
-                    overview.uniqueVisitors
-                  )}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.uniqueVisitors,
-                          previousOverview
-                            ?.uniqueVisitors
-                        )
-                      : null
-                  }
-                  sub="exact distinct visitor hashes"
-                />
-
-                <KpiCard
-                  title="New visitors"
-                  value={formatNumber(
-                    overview.newVisitors
-                  )}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.newVisitors,
-                          previousOverview
-                            ?.newVisitors
-                        )
-                      : null
-                  }
-                  sub="first seen during this period"
-                />
-
-                <KpiCard
-                  title="Returning visitors"
-                  value={formatNumber(
-                    overview.returningVisitors
-                  )}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.returningVisitors,
-                          previousOverview
-                            ?.returningVisitors
-                        )
-                      : null
-                  }
-                  sub={
-                    `${formatPercent(
-                      overview.returningVisitorPct
-                    )} of classified visitors${
-                      Number(
-                        overview.unclassifiedVisitors ||
-                          0
-                      ) > 0
-                        ? ` · ${formatNumber(
-                            overview.unclassifiedVisitors
-                          )} unclassified`
-                        : ""
-                    }`
-                  }
-                />
-
-                <KpiCard
-                  title="Sessions"
-                  value={formatNumber(
-                    overview.sessions
-                  )}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.sessions,
-                          previousOverview
-                            ?.sessions
-                        )
-                      : null
-                  }
-                  sub="exact logical sessions"
-                />
-
-                <KpiCard
-                  title="Avg active time"
-                  value={formatDuration(
-                    overview.avgActiveMsPerSession
-                  )}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.avgActiveMsPerSession,
-                          previousOverview
-                            ?.avgActiveMsPerSession
-                        )
-                      : null
-                  }
-                  sub="foreground engagement / session"
-                />
-
-                <KpiCard
-                  title="Avg sections"
-                  value={Number(
-                    overview.avgSectionsPerSession ||
-                      0
-                  ).toFixed(2)}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.avgSectionsPerSession,
-                          previousOverview
-                            ?.avgSectionsPerSession
-                        )
-                      : null
-                  }
-                  sub="unique sections / session"
-                />
-
-                <KpiCard
-                  title="Top section"
-                  value={overview.topSection || "—"}
-                  valueClassName="text-xl leading-tight break-words"
-                  sub={
-                    comparePrevious
-                      ? `Previous: ${previousOverview?.topSection || "—"}`
-                      : "ranked by section visits"
-                  }
-                />
-
-                <KpiCard
-                  title="Events"
-                  value={formatNumber(
-                    overview.eventCount
-                  )}
-                  delta={
-                    comparePrevious
-                      ? comparisonDelta(
-                          overview.eventCount,
-                          previousOverview
-                            ?.eventCount
-                        )
-                      : null
-                  }
-                  sub={`${formatNumber(
-                    overview.fragments
-                  )} session-day fragments`}
-                />
               </div>
             </SectionCard>
 
-            <SectionCard
-              title="Visitor & session trend"
-              subtitle="Daily exact distinct counts — daily values are not summed to calculate the period-level unique visitor KPI"
-            >
-              <TrendChart
-                points={daily}
-              />
-            </SectionCard>
+            {metaError ? (
+              <div className="rounded-xl border border-amber-300/60 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 whitespace-pre-wrap break-words">
+                Analytics metadata failed:{" "}
+                {metaError}
+              </div>
+            ) : null}
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-              <SectionCard
-                title="Section reach"
-                subtitle="Distinct visitors who reached each public section"
-              >
-                <SectionReach
-                  sections={
-                    sections
-                  }
-                />
-              </SectionCard>
+            {error ? (
+              <div className="rounded-xl border border-red-300/60 dark:border-red-500/40 bg-red-50/60 dark:bg-red-950/30 px-4 py-3 text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap break-words">
+                Analytics failed:{" "}
+                {error}
+              </div>
+            ) : null}
 
+            {loading &&
+            data ? (
+              <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/60 dark:bg-purple-950/20 px-4 py-2 text-xs text-purple-800 dark:text-purple-200">
+                Refreshing backend analytics…
+              </div>
+            ) : null}
+
+            {!data &&
+            loading ? (
               <SectionCard
-                title="Scroll depth"
-                subtitle="Distinct visitors reaching 25 / 50 / 75 / 100% milestones"
+                title="Loading analytics"
+                subtitle="Reading exact visitor and session fragments from the backend"
               >
-                <DepthMilestoneTable
-                  sections={
-                    sections
-                  }
-                  milestones={
-                    data.depthMilestones
-                  }
-                />
+                <div className="py-8 text-center text-sm text-gray-600 dark:text-gray-400">
+                  Loading…
+                </div>
               </SectionCard>
+            ) : null}
+
+            {data ? (
+              <>
+                <SectionCard
+                  title="Overview"
+                  subtitle={
+                    comparePrevious &&
+                    comparisonRange
+                      ? `Current period compared with ${formatRangeLabel(
+                          comparisonRange
+                        )}`
+                      : "Exact KPIs for the selected period"
+                  }
+                  action={
+                    lastUpdated ? (
+                      <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                        Updated{" "}
+                        {new Date(
+                          lastUpdated
+                        ).toLocaleTimeString()}
+                      </div>
+                    ) : null
+                  }
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <KpiCard
+                      title="Unique visitors"
+                      value={formatNumber(
+                        overview.uniqueVisitors
+                      )}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.uniqueVisitors,
+                              previousOverview
+                                ?.uniqueVisitors
+                            )
+                          : null
+                      }
+                      sub="exact distinct visitor hashes"
+                    />
+
+                    <KpiCard
+                      title="New visitors"
+                      value={formatNumber(
+                        overview.newVisitors
+                      )}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.newVisitors,
+                              previousOverview
+                                ?.newVisitors
+                            )
+                          : null
+                      }
+                      sub="first seen during this period"
+                    />
+
+                    <KpiCard
+                      title="Returning visitors"
+                      value={formatNumber(
+                        overview.returningVisitors
+                      )}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.returningVisitors,
+                              previousOverview
+                                ?.returningVisitors
+                            )
+                          : null
+                      }
+                      sub={
+                        `${formatPercent(
+                          overview.returningVisitorPct
+                        )} of classified visitors${
+                          Number(
+                            overview.unclassifiedVisitors ||
+                              0
+                          ) > 0
+                            ? ` · ${formatNumber(
+                                overview.unclassifiedVisitors
+                              )} unclassified`
+                            : ""
+                        }`
+                      }
+                    />
+
+                    <KpiCard
+                      title="Sessions"
+                      value={formatNumber(
+                        overview.sessions
+                      )}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.sessions,
+                              previousOverview
+                                ?.sessions
+                            )
+                          : null
+                      }
+                      sub="exact logical sessions"
+                    />
+
+                    <KpiCard
+                      title="Avg active time"
+                      value={formatDuration(
+                        overview.avgActiveMsPerSession
+                      )}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.avgActiveMsPerSession,
+                              previousOverview
+                                ?.avgActiveMsPerSession
+                            )
+                          : null
+                      }
+                      sub="foreground engagement / session"
+                    />
+
+                    <KpiCard
+                      title="Avg sections"
+                      value={Number(
+                        overview.avgSectionsPerSession ||
+                          0
+                      ).toFixed(2)}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.avgSectionsPerSession,
+                              previousOverview
+                                ?.avgSectionsPerSession
+                            )
+                          : null
+                      }
+                      sub="unique sections / session"
+                    />
+
+                    <KpiCard
+                      title="Top section"
+                      value={overview.topSection || "—"}
+                      valueClassName="text-xl leading-tight break-words"
+                      sub={
+                        comparePrevious
+                          ? `Previous: ${previousOverview?.topSection || "—"}`
+                          : "ranked by section visits"
+                      }
+                    />
+
+                    <KpiCard
+                      title="Events"
+                      value={formatNumber(
+                        overview.eventCount
+                      )}
+                      delta={
+                        comparePrevious
+                          ? comparisonDelta(
+                              overview.eventCount,
+                              previousOverview
+                                ?.eventCount
+                            )
+                          : null
+                      }
+                      sub={`${formatNumber(
+                        overview.fragments
+                      )} session-day fragments`}
+                    />
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  title="Visitor & session trend"
+                  subtitle="Daily exact distinct counts — daily values are not summed to calculate the period-level unique visitor KPI"
+                >
+                  <TrendChart
+                    points={daily}
+                  />
+                </SectionCard>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                  <SectionCard
+                    title="Section reach"
+                    subtitle="Distinct visitors who reached each public section"
+                  >
+                    <SectionReach
+                      sections={
+                        sections
+                      }
+                    />
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Scroll depth"
+                    subtitle="Distinct visitors reaching 25 / 50 / 75 / 100% milestones"
+                  >
+                    <DepthMilestoneTable
+                      sections={
+                        sections
+                      }
+                      milestones={
+                        data.depthMilestones
+                      }
+                    />
+                  </SectionCard>
+                </div>
+
+                <SectionCard
+                  title="Section engagement"
+                  subtitle="Reach, repeat visits and foreground active time"
+                >
+                  <SectionEngagementTable
+                    sections={
+                      sections
+                    }
+                  />
+                </SectionCard>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <SectionCard
+                    title="CTA engagement"
+                    subtitle="Canonical CTA interaction counts"
+                  >
+                    <InteractionTable
+                      rows={
+                        data.ctas
+                      }
+                      idKey="ctaId"
+                      emptyText="No canonical CTA interactions have been recorded yet."
+                    />
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Deep-link landings"
+                    subtitle="Direct entry paths and hashes"
+                  >
+                    <InteractionTable
+                      rows={
+                        data.deepLinks
+                      }
+                      idKey="path"
+                      emptyText="No deep-link landing events have been recorded yet."
+                    />
+                  </SectionCard>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                  <SectionCard
+                    title="Project popularity"
+                    subtitle="Project interactions with exact visitor/session reach"
+                  >
+                    <InteractionTable
+                      rows={
+                        data.projects
+                      }
+                      idKey="projectId"
+                      emptyText="No project interactions were recorded for this period."
+                    />
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Code snippet popularity"
+                    subtitle="Code Lab snippet interactions"
+                  >
+                    <InteractionTable
+                      rows={
+                        data.snippets
+                      }
+                      idKey="snippetId"
+                      emptyText="No code snippet interactions were recorded for this period."
+                    />
+                  </SectionCard>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                  <SectionCard
+                    title="Top countries"
+                    subtitle="Exact visitor and session reach by country"
+                  >
+                    <CountriesTable
+                      countries={
+                        data.countries
+                      }
+                    />
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Top cities"
+                    subtitle="Trusted edge-derived city and region enrichment"
+                  >
+                    <CitiesTable
+                      cities={
+                        data.cities
+                      }
+                    />
+                  </SectionCard>
+                </div>
+
+                <SectionCard
+                  title="Session intelligence"
+                  subtitle="Anonymous logical-session coverage reconstructed across day and release fragments"
+                >
+                  <SessionCoverageSummary
+                    coverage={
+                      sessionCoverage
+                    }
+                  />
+                </SectionCard>
+
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                  <SectionCard
+                    title="Top journey paths"
+                    subtitle="Most common ordered public-section paths for the selected period"
+                  >
+                    <TopSectionPaths
+                      paths={
+                        topSectionPaths
+                      }
+                    />
+                  </SectionCard>
+
+                  <SectionCard
+                    title="Top transitions"
+                    subtitle="Most frequent semantic steps between sections and interactions"
+                  >
+                    <TopTransitionsTable
+                      transitions={
+                        topTransitions
+                      }
+                    />
+                  </SectionCard>
+                </div>
+
+                <SectionCard
+                  title="Recent sessions"
+                  subtitle="Privacy-safe anonymous sessions ordered by most recent activity"
+                >
+                  <RecentSessions
+                    sessions={
+                      recentSessions
+                    }
+                  />
+                </SectionCard>
+
+                <SectionCard
+                  title="Legacy release breakdown"
+                  subtitle="Existing profileVersionId deployment/release dimension. Profile Variant is the immutable content identity used by the filters above."
+                >
+                  <ReleaseTable
+                    releases={
+                      data.profileVersions
+                    }
+                    currentProfileVersionId={
+                      profileVersion
+                        ?.id
+                    }
+                  />
+                </SectionCard>
+              </>
+            ) : null}
+
+            <div className="pb-4 text-[11px] text-gray-500 dark:text-gray-400">
+              Exact analytics queries currently support up to 366 UTC days per request.
             </div>
-
-            <SectionCard
-              title="Section engagement"
-              subtitle="Reach, repeat visits and foreground active time"
-            >
-              <SectionEngagementTable
-                sections={
-                  sections
-                }
-              />
-            </SectionCard>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <SectionCard
-                title="CTA engagement"
-                subtitle="Canonical CTA interaction counts"
-              >
-                <InteractionTable
-                  rows={
-                    data.ctas
-                  }
-                  idKey="ctaId"
-                  emptyText="No canonical CTA interactions have been recorded yet."
-                />
-              </SectionCard>
-
-              <SectionCard
-                title="Deep-link landings"
-                subtitle="Direct entry paths and hashes"
-              >
-                <InteractionTable
-                  rows={
-                    data.deepLinks
-                  }
-                  idKey="path"
-                  emptyText="No deep-link landing events have been recorded yet."
-                />
-              </SectionCard>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <SectionCard
-                title="Project popularity"
-                subtitle="Project interactions with exact visitor/session reach"
-              >
-                <InteractionTable
-                  rows={
-                    data.projects
-                  }
-                  idKey="projectId"
-                  emptyText="No project interactions were recorded for this period."
-                />
-              </SectionCard>
-
-              <SectionCard
-                title="Code snippet popularity"
-                subtitle="Code Lab snippet interactions"
-              >
-                <InteractionTable
-                  rows={
-                    data.snippets
-                  }
-                  idKey="snippetId"
-                  emptyText="No code snippet interactions were recorded for this period."
-                />
-              </SectionCard>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-              <SectionCard
-                title="Top countries"
-                subtitle="Exact visitor and session reach by country"
-              >
-                <CountriesTable
-                  countries={
-                    data.countries
-                  }
-                />
-              </SectionCard>
-
-              <SectionCard
-                title="Top cities"
-                subtitle="Trusted edge-derived city and region enrichment"
-              >
-                <CitiesTable
-                  cities={
-                    data.cities
-                  }
-                />
-              </SectionCard>
-            </div>
-
-            <SectionCard
-              title="Session intelligence"
-              subtitle="Anonymous logical-session coverage reconstructed across day and release fragments"
-            >
-              <SessionCoverageSummary
-                coverage={
-                  sessionCoverage
-                }
-              />
-            </SectionCard>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-              <SectionCard
-                title="Top journey paths"
-                subtitle="Most common ordered public-section paths for the selected period"
-              >
-                <TopSectionPaths
-                  paths={
-                    topSectionPaths
-                  }
-                />
-              </SectionCard>
-
-              <SectionCard
-                title="Top transitions"
-                subtitle="Most frequent semantic steps between sections and interactions"
-              >
-                <TopTransitionsTable
-                  transitions={
-                    topTransitions
-                  }
-                />
-              </SectionCard>
-            </div>
-
-            <SectionCard
-              title="Recent sessions"
-              subtitle="Privacy-safe anonymous sessions ordered by most recent activity"
-            >
-              <RecentSessions
-                sessions={
-                  recentSessions
-                }
-              />
-            </SectionCard>
-
-            <SectionCard
-              title="Release breakdown"
-              subtitle="Exact visitors, sessions and engagement by profile version"
-            >
-              <ReleaseTable
-                releases={
-                  data.profileVersions
-                }
-                currentProfileVersionId={
-                  profileVersion
-                    ?.id
-                }
-              />
-            </SectionCard>
           </>
-        ) : null}
-
-        <div className="pb-4 text-[11px] text-gray-500 dark:text-gray-400">
-          Exact analytics queries currently support up to 366 UTC days per request.
-        </div>
+        )}
       </div>
     </section>
   );

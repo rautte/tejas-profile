@@ -16,8 +16,6 @@ import { FiChevronsDown, FiChevronsUp } from "react-icons/fi";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-import { CODE_LAB_SNIPPETS } from "../data/codeLab";
-
 import {
   trackCodeSnippetView,
 } from "../utils/analytics";
@@ -244,9 +242,23 @@ function computeDropdownMetrics(btnRect) {
   };
 }
 
-export default function CodeLab({ darkMode }) {
+export default function CodeLab({
+  darkMode,
+  codeLab = [],
+}) {
   // Static-ish data source. Keeping this memo avoids hook lint churn.
-  const snippets = React.useMemo(() => CODE_LAB_SNIPPETS, []);
+  const snippets =
+    React.useMemo(
+      () =>
+        Array.isArray(
+          codeLab
+        )
+          ? codeLab
+          : [],
+      [
+        codeLab,
+      ]
+    );
 
   /* ---------------
    * Filters

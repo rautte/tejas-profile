@@ -1,16 +1,8 @@
 // components/Education.js
 
-/**
- * TODO FIX:
- * Move any data to ../data/funZone/index.js
- * Clean the code prod-like with modular, reliable, and scalable structure
- */
-
 import React from "react";
 import { FaGraduationCap } from "react-icons/fa";
 import { createPortal } from "react-dom";
-
-import { EDUCATION } from "../data/education";
 
 import SectionHeader from "./shared/SectionHeader";
 import Pill from "./shared/Pill";
@@ -18,7 +10,15 @@ import Pill from "./shared/Pill";
 import { cx } from "../utils/cx";
 import { CARD_SURFACE, CARD_ROUNDED_2XL } from "../utils/ui";
 
-export default function Education() {
+import {
+  MdVerified,
+} from "react-icons/md";
+
+
+export default function Education({
+  education = [],
+  resolveAsset,
+}) {
   const [openImage, setOpenImage] = React.useState(null);
 
   const scrollElRef = React.useRef(null);
@@ -63,7 +63,27 @@ export default function Education() {
 
       {/* Cards */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10 px-6 max-w-6xl mx-auto">
-        {EDUCATION.map((edu) => (
+        {education.map((edu) => {
+          const logoSrc =
+            typeof resolveAsset ===
+              "function"
+                ? resolveAsset(
+                    edu.logoAssetId
+                  )
+                : null;
+
+
+          const attachmentImage =
+            typeof resolveAsset ===
+              "function"
+                ? resolveAsset(
+                    edu
+                      .attachment
+                      ?.assetId
+                  )
+                : null;
+
+          return (
           <div
             key={`${edu.school}-${edu.degree}`}
             className={cx(CARD_SURFACE, CARD_ROUNDED_2XL, "p-5 text-left")}
@@ -71,9 +91,9 @@ export default function Education() {
             {/* Header row */}
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-100 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0">
-                {edu.logo ? (
+                {logoSrc ? (
                   <img
-                    src={edu.logo}
+                    src={logoSrc}
                     alt={`${edu.school} logo`}
                     className="w-full h-full object-contain p-2"
                     loading="lazy"
@@ -91,13 +111,21 @@ export default function Education() {
                     {edu.school}
                   </h3>
 
-                  {edu.badge && edu.attachment && (
+                  {edu.badge &&
+                    edu.attachment &&
+                    attachmentImage && (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        setOpenImage(edu.attachment);
+                        setOpenImage({
+                          title:
+                            edu.attachment.title,
+
+                          image:
+                            attachmentImage,
+                        });
                       }}
                       className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full
                                  bg-green-100 text-green-800
@@ -107,7 +135,7 @@ export default function Education() {
                                  transition-colors"
                       aria-label={`View ${edu.badge} certificate`}
                     >
-                      {edu.badgeIcon}
+                      <MdVerified className="text-green-500" />
                       <span>{edu.badge}</span>
                       <span className="opacity-0 group-hover:opacity-70 text-[10px] transition">
                         (view)
@@ -173,7 +201,8 @@ export default function Education() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Image Modal */}

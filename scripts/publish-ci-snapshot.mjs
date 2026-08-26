@@ -16,6 +16,12 @@ const CHECKPOINT_TAG = process.env.CHECKPOINT_TAG || "unknown";
 const REPO_ARTIFACT_KEY = process.env.REPO_ARTIFACT_KEY || "";
 const REPO_ARTIFACT_SHA256 = process.env.REPO_ARTIFACT_SHA256 || "";
 
+const PLATFORM_RELEASE_ID =
+  process.env.PLATFORM_RELEASE_ID || "";
+
+const PLATFORM_DEPLOYMENT_ID =
+  process.env.PLATFORM_DEPLOYMENT_ID || "";
+
 const TIMEZONE = process.env.TIMEZONE || "America/Los_Angeles";
 const CATEGORY = "Profile";
 
@@ -67,7 +73,25 @@ async function main() {
   must(REPO_ARTIFACT_KEY, "REPO_ARTIFACT_KEY");
   must(REPO_ARTIFACT_SHA256, "REPO_ARTIFACT_SHA256");
 
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  /**
+   * Historical-truth rule:
+   *
+   * A new CI Snapshot is published only after the formal deployment
+   * has completed. Persist the exact already-established identities.
+   *
+   * Never reconstruct either ID from GitHub run metadata.
+   */
+  must(
+    PLATFORM_RELEASE_ID,
+    "PLATFORM_RELEASE_ID"
+  );
+
+  must(
+    PLATFORM_DEPLOYMENT_ID,
+    "PLATFORM_DEPLOYMENT_ID"
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
   const createdAt = new Date().toISOString();
   const diffFiles = parseDiffFiles(DIFF_FILES_JSON);
   const diffTagValue = (String(DIFF_TAG_VALUE || "").trim() || "none");
@@ -117,7 +141,25 @@ async function main() {
     timezone: TIMEZONE,
     createdAt,
     note: "Auto-created after successful Build & Deploy (Pages).",
+
+    /**
+     * Historical-truth rule:
+     *
+     * Explicit links only.
+     *
+     * These identities came from the successful formal control-plane
+     * workflow. They are not derived from profileVersion/Git SHA.
+     */
+    formalLinks: {
+      platformReleaseId:
+        PLATFORM_RELEASE_ID,
+
+      platformDeploymentId:
+        PLATFORM_DEPLOYMENT_ID,
+    },
+
     diffFiles,
+
     profileVersion: {
       id: PROFILE_VERSION,
       sections: SECTION_ORDER, // ✅ single source of truth from src/data/App/index.js
@@ -174,6 +216,12 @@ async function main() {
 
         repoartifactkey: REPO_ARTIFACT_KEY,
         repoartifactsha256: REPO_ARTIFACT_SHA256,
+
+        platformReleaseId:
+          PLATFORM_RELEASE_ID,
+
+        platformDeploymentId:
+          PLATFORM_DEPLOYMENT_ID,
       },
     }),
   });

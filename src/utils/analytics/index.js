@@ -1,6 +1,13 @@
 // src/utils/analytics/index.js
 
-import { trackEvent } from "./tracker";
+import {
+  trackEvent,
+  trackEvents,
+} from "./tracker";
+
+import {
+  canonicalizeAnalyticsHash,
+} from "../hashRouting";
 
 
 // -----------------------------
@@ -8,7 +15,6 @@ import { trackEvent } from "./tracker";
 // -----------------------------
 
 export * from "./store";
-export * from "./aggregations";
 export * from "./ids";
 
 export {
@@ -25,9 +31,11 @@ export {
   analyticsStart,
   analyticsStart as analyticsInit,
   trackEvent,
+  trackEvents,
   trackSectionEnter,
   trackScrollDepth,
   flushAndClose,
+  flushForNavigation,
 } from "./tracker";
 
 
@@ -51,6 +59,7 @@ export function trackClick({
   });
 }
 
+
 export function trackProjectOpen({
   projectId,
 } = {}) {
@@ -64,6 +73,50 @@ export function trackProjectOpen({
     projectId: id,
   });
 }
+
+
+/**
+ * One project action represents two independent Analytics dimensions:
+ *
+ * 1. which action class was used?
+ *    project_live_demo / project_readme / project_github
+ *
+ * 2. which project was interacted with?
+ *    battleship-web-game / portfolio-website / ...
+ *
+ * Queue both before starting the important-event flush.
+ */
+export function trackProjectAction({
+  ctaId,
+  projectId,
+  href,
+} = {}) {
+  const normalizedCtaId =
+    String(ctaId || "").trim();
+
+  const normalizedProjectId =
+    String(projectId || "").trim();
+
+  if (
+    !normalizedCtaId ||
+    !normalizedProjectId
+  ) {
+    return;
+  }
+
+  trackEvents([
+    {
+      type: "cta_click",
+      ctaId: normalizedCtaId,
+      path: href || null,
+    },
+    {
+      type: "project_open",
+      projectId: normalizedProjectId,
+    },
+  ]);
+}
+
 
 export function trackCodeSnippetView({
   snippetId,
@@ -79,6 +132,7 @@ export function trackCodeSnippetView({
   });
 }
 
+
 export function trackDeepLinkLanding({
   path,
   hash,
@@ -87,7 +141,9 @@ export function trackDeepLinkLanding({
     String(path || "").trim();
 
   const normalizedHash =
-    String(hash || "").trim();
+    canonicalizeAnalyticsHash(
+      hash
+    );
 
   if (
     !normalizedPath &&

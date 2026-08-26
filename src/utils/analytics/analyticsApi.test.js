@@ -38,8 +38,9 @@ function loadAnalyticsApi({
     "https://edge.example.test/";
 
   const {
+    OWNER_SESSION_EXPIRES_AT_KEY,
     OWNER_SESSION_KEY,
-    OWNER_TOKEN_KEY,
+    OWNER_SESSION_TOKEN_KEY,
   } =
     require(
       "../../config/owner"
@@ -60,9 +61,19 @@ function loadAnalyticsApi({
     window
       .sessionStorage
       .setItem(
-        OWNER_TOKEN_KEY,
+        OWNER_SESSION_TOKEN_KEY,
         "test-owner-token"
-      );
+    );
+
+    window
+      .sessionStorage
+      .setItem(
+        OWNER_SESSION_EXPIRES_AT_KEY,
+        String(
+        Date.now() +
+          60 * 60 * 1000
+        )
+    );
   }
 
   return require(
@@ -174,6 +185,30 @@ describe(
         ).toBe(false);
 
         expect(
+          parsed
+            .searchParams
+            .has(
+              "profileVariantId"
+            )
+        ).toBe(false);
+
+        expect(
+          parsed
+            .searchParams
+            .has(
+              "profileTargetingLocation"
+            )
+        ).toBe(false);
+
+        expect(
+          parsed
+            .searchParams
+            .has(
+              "profileTargetingJobRole"
+            )
+        ).toBe(false);
+
+        expect(
           options.method
         ).toBe("GET");
 
@@ -185,6 +220,111 @@ describe(
         ).toBe(
           "test-owner-token"
         );
+      }
+    );
+
+    test(
+      "queryAnalyticsAgg sends exact runtime Profile filters",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok: true,
+              overview: {},
+            })
+          );
+
+        const {
+          queryAnalyticsAgg,
+        } =
+          loadAnalyticsApi();
+
+        await queryAnalyticsAgg({
+          profileVersionId:
+            "pv_test",
+
+          profileVariantId:
+            "prv_A",
+
+          profileTargetingLocation:
+            "Austin, TX",
+
+          profileTargetingJobRole:
+            "Backend Software Engineer",
+
+          boundaryId:
+            "all",
+
+          from:
+            "2026-08-01",
+
+          to:
+            "2026-08-20",
+        });
+
+        expect(
+          global.fetch
+        ).toHaveBeenCalledTimes(
+          1
+        );
+
+        const [
+          url,
+        ] =
+          global.fetch
+            .mock
+            .calls[0];
+
+        const parsed =
+          new URL(url);
+
+        expect(
+          parsed
+            .searchParams
+            .get(
+              "profileVersionId"
+            )
+        ).toBe(
+          "pv_test"
+        );
+
+        expect(
+          parsed
+            .searchParams
+            .get(
+              "profileVariantId"
+            )
+        ).toBe(
+          "prv_A"
+        );
+
+        expect(
+          parsed
+            .searchParams
+            .get(
+              "profileTargetingLocation"
+            )
+        ).toBe(
+          "Austin, TX"
+        );
+
+        expect(
+          parsed
+            .searchParams
+            .get(
+              "profileTargetingJobRole"
+            )
+        ).toBe(
+          "Backend Software Engineer"
+        );
+
+        expect(
+          parsed
+            .searchParams
+            .has(
+              "boundaryId"
+            )
+        ).toBe(false);
       }
     );
 
@@ -429,6 +569,260 @@ describe(
             "x-owner-token"
           ]
         ).toBeUndefined();
+      }
+    );
+
+
+    test(
+      "lists CLOSED Usage Epochs through the owner archive API",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok:
+                true,
+
+              epochs:
+                [],
+
+              nextToken:
+                "next-epoch",
+            })
+          );
+
+
+        const {
+          listUsageEpochs,
+        } =
+          loadAnalyticsApi();
+
+
+        await listUsageEpochs({
+          state:
+            "CLOSED",
+
+          limit:
+            25,
+
+          nextToken:
+            "epoch-token",
+        });
+
+
+        const [
+          url,
+          options,
+        ] =
+          global.fetch
+            .mock
+            .calls[0];
+
+
+        expect(url).toBe(
+          "https://snapshots.example.test/usage-epochs/list?state=CLOSED&limit=25&nextToken=epoch-token"
+        );
+
+
+        expect(
+          options.method
+        ).toBe("GET");
+
+        expect(
+          options.cache
+        ).toBe(
+          "no-store"
+        );
+
+        expect(
+          options
+            .headers[
+              "x-owner-token"
+            ]
+        ).toBe(
+          "test-owner-token"
+        );
+      }
+    );
+
+
+    test(
+      "configuration-scoped Usage Epoch history does not send a state selector",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok:
+                true,
+
+              epochs:
+                [],
+            })
+          );
+
+
+        const {
+          listUsageEpochs,
+        } =
+          loadAnalyticsApi();
+
+
+        await listUsageEpochs({
+          deploymentConfigurationId:
+            "cfg_archive",
+
+          state:
+            "CLOSED",
+
+          limit:
+            50,
+        });
+
+
+        const [
+          url,
+        ] =
+          global.fetch
+            .mock
+            .calls[0];
+
+        const parsed =
+          new URL(
+            url
+          );
+
+
+        expect(
+          parsed.pathname
+        ).toBe(
+          "/usage-epochs/list"
+        );
+
+        expect(
+          parsed.searchParams.get(
+            "deploymentConfigurationId"
+          )
+        ).toBe(
+          "cfg_archive"
+        );
+
+        expect(
+          parsed.searchParams.has(
+            "state"
+          )
+        ).toBe(false);
+      }
+    );
+
+
+    test(
+      "reads an immutable Configuration Analytics Report and verifies its Usage Epoch binding",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok:
+                true,
+
+              usageEpoch: {
+                usageEpochId:
+                  "uep_archive",
+
+                report: {
+                  reportId:
+                    "car_archive",
+
+                  reportSha256:
+                    "abc123",
+                },
+              },
+
+              reportSha256:
+                "abc123",
+
+              report: {
+                reportId:
+                  "car_archive",
+
+                usageEpochId:
+                  "uep_archive",
+              },
+            })
+          );
+
+
+        const {
+          getConfigurationAnalyticsReport,
+        } =
+          loadAnalyticsApi();
+
+
+        await getConfigurationAnalyticsReport({
+          usageEpochId:
+            "uep_archive",
+        });
+
+
+        expect(
+          global.fetch
+            .mock
+            .calls[0][0]
+        ).toBe(
+          "https://snapshots.example.test/configuration-analytics-reports/get?usageEpochId=uep_archive"
+        );
+      }
+    );
+
+
+    test(
+      "fails closed when immutable report response identity disagrees with its Usage Epoch",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok:
+                true,
+
+              usageEpoch: {
+                usageEpochId:
+                  "uep_expected",
+
+                report: {
+                  reportId:
+                    "car_expected",
+
+                  reportSha256:
+                    "sha_expected",
+                },
+              },
+
+              reportSha256:
+                "sha_expected",
+
+              report: {
+                reportId:
+                  "car_other",
+
+                usageEpochId:
+                  "uep_expected",
+              },
+            })
+          );
+
+
+        const {
+          getConfigurationAnalyticsReport,
+        } =
+          loadAnalyticsApi();
+
+
+        await expect(
+          getConfigurationAnalyticsReport({
+            usageEpochId:
+              "uep_expected",
+          })
+        ).rejects.toThrow(
+          "response identity does not match"
+        );
       }
     );
 

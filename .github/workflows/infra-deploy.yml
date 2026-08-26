@@ -192,7 +192,6 @@ jobs:
           )
         working-directory: infra/cdk
         env:
-          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
           GITHUB_DEPLOYER_ROLE_ARN: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: >
@@ -202,7 +201,7 @@ jobs:
           --require-approval never
 
 
-      - name: Resolve DEV Analytics endpoints
+      - name: Resolve DEV runtime + Analytics endpoints
         id: dev-analytics
         if: >
           github.event_name == 'workflow_run' ||
@@ -214,41 +213,101 @@ jobs:
         run: |
           set -euo pipefail
 
+          STACK_NAME="TejasProfileSnapshotsStackDev"
+
           echo "Resolving DEV stack outputs..."
           echo ""
 
+
           API_URL="$(
             aws cloudformation describe-stacks \
-              --stack-name TejasProfileSnapshotsStackDev \
+              --stack-name "${STACK_NAME}" \
               --query "Stacks[0].Outputs[?OutputKey=='SnapshotsApiUrl'].OutputValue | [0]" \
               --output text
           )"
 
+
           EDGE_URL="$(
             aws cloudformation describe-stacks \
-              --stack-name TejasProfileSnapshotsStackDev \
+              --stack-name "${STACK_NAME}" \
               --query "Stacks[0].Outputs[?OutputKey=='AnalyticsEdgeUrl'].OutputValue | [0]" \
               --output text
           )"
 
 
-          if [[ -z "${API_URL}" || "${API_URL}" == "None" ]]; then
+          ACTIVE_PROFILE_URL="$(
+            aws cloudformation describe-stacks \
+              --stack-name "${STACK_NAME}" \
+              --query "Stacks[0].Outputs[?OutputKey=='ActiveProfileApiUrl'].OutputValue | [0]" \
+              --output text
+          )"
+
+
+          if [[ -z "${API_URL}" ||
+                "${API_URL}" == "None" ]]; then
+
             echo "ERROR: SnapshotsApiUrl was not found in DEV stack outputs."
             exit 1
           fi
 
 
-          if [[ -z "${EDGE_URL}" || "${EDGE_URL}" == "None" ]]; then
+          if [[ -z "${EDGE_URL}" ||
+                "${EDGE_URL}" == "None" ]]; then
+
             echo "ERROR: AnalyticsEdgeUrl was not found in DEV stack outputs."
             exit 1
           fi
 
 
-          echo "API URL resolved."
-          echo "Analytics edge URL resolved."
+          if [[ -z "${ACTIVE_PROFILE_URL}" ||
+                "${ACTIVE_PROFILE_URL}" == "None" ]]; then
+
+            echo "ERROR: ActiveProfileApiUrl was not found in DEV stack outputs."
+            exit 1
+          fi
+
+
+          case "${API_URL}" in
+            https://*)
+              ;;
+
+            *)
+              echo "ERROR: Invalid DEV SnapshotsApiUrl."
+              exit 1
+              ;;
+          esac
+
+
+          case "${EDGE_URL}" in
+            https://*.cloudfront.net)
+              ;;
+
+            *)
+              echo "ERROR: Invalid DEV AnalyticsEdgeUrl."
+              exit 1
+              ;;
+          esac
+
+
+          case "${ACTIVE_PROFILE_URL}" in
+            https://*/profile/active)
+              ;;
+
+            *)
+              echo "ERROR: Invalid DEV ActiveProfileApiUrl."
+              exit 1
+              ;;
+          esac
+
+
+          echo "DEV Snapshots API resolved."
+          echo "DEV Analytics edge URL resolved."
+          echo "DEV Active Profile API resolved."
+
 
           echo "api_url=${API_URL}" >> "${GITHUB_OUTPUT}"
           echo "edge_url=${EDGE_URL}" >> "${GITHUB_OUTPUT}"
+          echo "active_profile_url=${ACTIVE_PROFILE_URL}" >> "${GITHUB_OUTPUT}"
 
 
       - name: Configure DEV asset publisher credentials
@@ -303,6 +362,125 @@ jobs:
         run: node infra/cdk/scripts/smoke-analytics.mjs
 
 
+      - name: Smoke test DEV Active Profile API
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        env:
+          ACTIVE_PROFILE_API_URL: ${{ steps.dev-analytics.outputs.active_profile_url }}
+        run: |
+          set -euo pipefail
+
+          test -n "${ACTIVE_PROFILE_API_URL}" || {
+            echo "ERROR: ACTIVE_PROFILE_API_URL is empty."
+            exit 1
+          }
+
+
+          node - "${ACTIVE_PROFILE_API_URL}" <<'NODE'
+          const url =
+            process.argv[2];
+
+
+          async function main() {
+            const response =
+              await fetch(
+                url,
+                {
+                  method:
+                    "GET",
+
+                  headers: {
+                    accept:
+                      "application/json",
+                  },
+                }
+              );
+
+
+            const text =
+              await response.text();
+
+
+            if (!response.ok) {
+              throw new Error(
+                `Active Profile API returned HTTP ${response.status}: ${text}`
+              );
+            }
+
+
+            let body;
+
+            try {
+              body =
+                JSON.parse(
+                  text
+                );
+            } catch {
+              throw new Error(
+                "Active Profile API returned invalid JSON."
+              );
+            }
+
+
+            if (
+              body?.ok !==
+                true
+            ) {
+              throw new Error(
+                "Active Profile API response did not contain ok=true."
+              );
+            }
+
+
+            if (
+              !Object.prototype
+                .hasOwnProperty
+                .call(
+                  body,
+                  "active"
+                ) ||
+              !Object.prototype
+                .hasOwnProperty
+                .call(
+                  body,
+                  "variant"
+                )
+            ) {
+              throw new Error(
+                "Active Profile API response is missing active/variant fields."
+              );
+            }
+
+
+            console.log(
+              "DEV Active Profile API smoke passed."
+            );
+
+            console.log(
+              `Activation present: ${Boolean(body.active)}`
+            );
+          }
+
+
+          main().catch(
+            (error) => {
+              console.error(
+                error
+              );
+
+              process.exit(
+                1
+              );
+            }
+          );
+          NODE
+
+
       # ------------------------------------------------------------
       # PROD
       # ------------------------------------------------------------
@@ -314,7 +492,6 @@ jobs:
           github.ref == 'refs/heads/main'
         working-directory: infra/cdk
         env:
-          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
           GITHUB_DEPLOYER_ROLE_ARN: arn:aws:iam::978416150779:role/tejas-profile-github-deployer
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: >

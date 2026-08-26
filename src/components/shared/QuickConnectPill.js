@@ -1,23 +1,23 @@
 import React from "react";
-import { FaGithub, FaLinkedin, FaGlobe, FaEnvelope } from "react-icons/fa";
-import { FOOTER_LINKS } from "../../data/footer";
+
+import {
+  getQuickConnectPresentation,
+} from "./quickConnectPresentation";
+
 import {
   quickConnectCtaId,
 } from "../../utils/analytics/ids";
 
-const ICONS = {
-  linkedin: FaLinkedin,
-  github: FaGithub,
-  portfolio: FaGlobe,
-  email: FaEnvelope,
-};
 
 /**
  * Shared visual pill used by Footer + MobileQuickConnectFab.
  * - No drag logic here (Footer can wrap it if needed).
  * - Visual specs identical to Footer.
  */
-export default function QuickConnectPill({ className = "" }) {
+export default function QuickConnectPill({
+  links = [],
+  className = "",
+}) {
   return (
     <div
       className={`
@@ -34,15 +34,21 @@ export default function QuickConnectPill({ className = "" }) {
       role="group"
       aria-label="Quick connect links"
     >
-      {FOOTER_LINKS.map((l) => {
-        const Icon = ICONS[l.key];
+      {links.map((l) => {
+        const {
+          Icon,
+          colorClass,
+        } =
+          getQuickConnectPresentation(
+            l.key
+          );
         return (
           <a
             key={l.key}
             href={l.href}
             target={l.href.startsWith("mailto:") ? undefined : "_blank"}
             rel={l.href.startsWith("mailto:") ? undefined : "noopener noreferrer"}
-            className={`${l.colorClass} transition`}
+            className={`${colorClass} transition`}
             aria-label={l.label}
             data-analytics={quickConnectCtaId(l.key)}
           >

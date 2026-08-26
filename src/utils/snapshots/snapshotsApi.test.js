@@ -1,0 +1,466 @@
+// src/utils/snapshots/snapshotsApi.test.js
+
+import {
+  OWNER_SESSION_KEY,
+  OWNER_SESSION_EXPIRES_AT_KEY,
+  OWNER_SESSION_TOKEN_KEY,
+} from "../../config/owner";
+
+
+const ORIGINAL_ENV =
+  process.env;
+
+
+function response(
+  {
+    status = 200,
+    body = {},
+    text,
+  } = {}
+) {
+  return {
+    ok:
+      status >= 200 &&
+      status < 300,
+
+    status,
+
+    json:
+      jest.fn(
+        async () =>
+          body
+      ),
+
+    text:
+      jest.fn(
+        async () =>
+          text ??
+          JSON.stringify(
+            body
+          )
+      ),
+  };
+}
+
+
+describe(
+  "Snapshots API Profile Variant transport primitives",
+  () => {
+    beforeEach(
+      () => {
+        jest
+          .resetModules();
+
+        process.env = {
+          ...ORIGINAL_ENV,
+
+          REACT_APP_SNAPSHOTS_API:
+            "https://api.example.test/",
+        };
+
+        sessionStorage.clear();
+
+        sessionStorage.setItem(
+          OWNER_SESSION_KEY,
+          "1"
+        );
+
+        sessionStorage.setItem(
+          OWNER_SESSION_TOKEN_KEY,
+          "owner-test-token"
+        );
+
+        sessionStorage.setItem(
+          OWNER_SESSION_EXPIRES_AT_KEY,
+          String(
+            Date.now() +
+            60 * 60 * 1000
+          )
+        );
+
+        global.fetch =
+          jest.fn();
+      }
+    );
+
+
+    afterAll(
+      () => {
+        process.env =
+          ORIGINAL_ENV;
+      }
+    );
+
+
+    test(
+      "presign request uses owner auth and immutable asset identity",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response({
+            body: {
+              ok:
+                true,
+
+              key:
+                "assets/sha256/test/image_jpeg",
+
+              alreadyExists:
+                true,
+            },
+          })
+        );
+
+
+        const {
+          presignProfileVariantAssetPut,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        await presignProfileVariantAssetPut({
+          sha256:
+            "a".repeat(
+              64
+            ),
+
+          contentType:
+            "image/jpeg",
+        });
+
+
+        expect(
+          global.fetch
+        ).toHaveBeenCalledTimes(
+          1
+        );
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+
+        expect(url).toBe(
+          "https://api.example.test/profile-variants/assets/presign-put"
+        );
+
+
+        expect(
+          options.method
+        ).toBe(
+          "POST"
+        );
+
+
+        expect(
+          options
+            .headers[
+              "x-owner-token"
+            ]
+        ).toBe(
+          "owner-test-token"
+        );
+
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual({
+          sha256:
+            "a".repeat(
+              64
+            ),
+
+          contentType:
+            "image/jpeg",
+        });
+      }
+    );
+
+
+    test(
+      "S3 upload forwards only backend-required presigned headers",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response({
+            status:
+              200,
+          })
+        );
+
+
+        const {
+          uploadProfileVariantAssetToS3,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        const bytes =
+          new Uint8Array([
+            1,
+            2,
+            3,
+          ]);
+
+
+        await uploadProfileVariantAssetToS3({
+          url:
+            "https://s3.example.test/object",
+
+          body:
+            bytes,
+
+          requiredHeaders: {
+            "content-type":
+              "image/jpeg",
+
+            "x-amz-checksum-sha256":
+              "checksum",
+
+            "if-none-match":
+              "*",
+          },
+        });
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+
+        expect(url).toBe(
+          "https://s3.example.test/object"
+        );
+
+
+        expect(
+          options.method
+        ).toBe(
+          "PUT"
+        );
+
+
+        expect(
+          options.body
+        ).toBe(
+          bytes
+        );
+
+
+        expect(
+          options.headers
+        ).toEqual({
+          "content-type":
+            "image/jpeg",
+
+          "x-amz-checksum-sha256":
+            "checksum",
+
+          "if-none-match":
+            "*",
+        });
+
+
+        expect(
+          options.headers[
+            "x-owner-token"
+          ]
+        ).toBeUndefined();
+      }
+    );
+
+
+    test(
+      "publish request sends immutable variant through owner API",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response({
+            body: {
+              ok:
+                true,
+
+              profileVariantId:
+                "prv_test",
+            },
+          })
+        );
+
+
+        const {
+          publishProfileVariant,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        const variant = {
+          profileVariantId:
+            "prv_test",
+        };
+
+
+        await publishProfileVariant(
+          variant
+        );
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+
+        expect(url).toBe(
+          "https://api.example.test/profile-variants/publish"
+        );
+
+
+        expect(
+          options.method
+        ).toBe(
+          "POST"
+        );
+
+
+        expect(
+          options
+            .headers[
+              "x-owner-token"
+            ]
+        ).toBe(
+          "owner-test-token"
+        );
+
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual({
+          variant,
+        });
+      }
+    );
+
+
+    test(
+      "owner read encodes profileVariantId and disables caching",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response({
+            body: {
+              ok:
+                true,
+
+              variant: {
+                profileVariantId:
+                  "prv:one",
+              },
+            },
+          })
+        );
+
+
+        const {
+          getProfileVariant,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        await getProfileVariant(
+          "prv:one"
+        );
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+
+        expect(url).toBe(
+          "https://api.example.test/profile-variants/get?profileVariantId=prv%3Aone"
+        );
+
+
+        expect(
+          options.method
+        ).toBe(
+          "GET"
+        );
+
+
+        expect(
+          options.cache
+        ).toBe(
+          "no-store"
+        );
+      }
+    );
+
+
+    test(
+      "Profile Variant API failures surface backend error messages",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response({
+            status:
+              409,
+
+            body: {
+              ok:
+                false,
+
+              error:
+                "immutable conflict",
+            },
+          })
+        );
+
+
+        const {
+          publishProfileVariant,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        await expect(
+          publishProfileVariant({
+            profileVariantId:
+              "prv_test",
+          })
+        ).rejects.toThrow(
+          "immutable conflict"
+        );
+      }
+    );
+  }
+);

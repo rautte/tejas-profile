@@ -2,6 +2,9 @@
 // Single source of truth for resume content used by <Resume />
 
 export const RESUME_DATA = {
+  pdfAssetId:
+    "resume.primary",
+
   header: {
     name: "Tejas Rajendra Raut",
     location: "Pune, India",

@@ -1,37 +1,48 @@
 // src/data/footer/index.js
-// keep this as "edit-only" stuff (links + labels)
+// Recruiter-facing contact destinations only.
 
 export const FOOTER_LINKS = [
   {
-    key: "linkedin",
-    href: "https://www.linkedin.com/in/tejas-raut/",
-    label: "LinkedIn",
-    colorClass: "text-blue-400 hover:text-[#0A66C2]",
+    key:
+      "linkedin",
+
+    href:
+      "https://www.linkedin.com/in/tejas-raut/",
+
+    label:
+      "LinkedIn",
   },
+
   {
-    key: "github",
-    href: "https://github.com/rautte/rautte.github.io",
-    label: "GitHub",
-    colorClass:
-      "text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white",
+    key:
+      "github",
+
+    href:
+      "https://github.com/rautte/rautte.github.io",
+
+    label:
+      "GitHub",
   },
+
   {
-    key: "portfolio",
-    href: "https://rautte.github.io/tejas-profile",
-    label: "Portfolio",
-    colorClass: "text-green-500 hover:text-green-600",
+    key:
+      "portfolio",
+
+    href:
+      "https://rautte.github.io/tejas-profile",
+
+    label:
+      "Portfolio",
   },
+
   {
-    key: "email",
-    href: "mailto:raut.tejas@outlook.com",
-    label: "Email",
-    colorClass: "text-red-400 hover:text-red-500",
+    key:
+      "email",
+
+    href:
+      "mailto:raut.tejas@outlook.com",
+
+    label:
+      "Email",
   },
 ];
-
-// small layout knobs (safe to tweak later)
-export const FOOTER_DRAG = {
-  marginPx: 14,
-  fallbackPillWidthPx: 320,
-  defaultOffsetPx: 0,
-};

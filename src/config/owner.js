@@ -1,7 +1,13 @@
 // src/config/owner.js
 
-export const OWNER_SESSION_KEY = "tp_owner_mode";
-export const OWNER_TOKEN_KEY = "tp_owner_token";
+export const OWNER_SESSION_KEY =
+  "tp_owner_mode";
+
+export const OWNER_SESSION_TOKEN_KEY =
+  "tp_owner_session_token_v1";
+
+export const OWNER_SESSION_EXPIRES_AT_KEY =
+  "tp_owner_session_expires_at_v1";
 
 /**
  * Persistent browser-level analytics exclusion.
