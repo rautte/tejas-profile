@@ -39,6 +39,15 @@ const {
   );
 
 
+const {
+  createProfileOwnerCompositionApi,
+  requireExpectedRevision,
+} =
+  require(
+    "./lib/profile-owner-composition-api.cjs"
+  );
+
+
 const SHA40_RE =
   /^[a-f0-9]{40}$/i;
 
@@ -374,6 +383,100 @@ async function publishFormalProfilePublication({
 }
 
 
+/**
+ * Creates or reuses the immutable Deployment Configuration for one
+ * exact Platform Release + Profile Variant composition.
+ *
+ * Configuration remains explicitly separate from publication and
+ * activation.
+ */
+async function configureFormalProfileComposition({
+  platformReleaseId,
+  profileVariantId,
+  api,
+} = {}) {
+  const releaseId =
+    requireValue(
+      platformReleaseId,
+      "PLATFORM_RELEASE_ID"
+    );
+
+  const variantId =
+    requireValue(
+      profileVariantId,
+      "PROFILE_VARIANT_ID"
+    );
+
+
+  if (
+    !api ||
+    typeof api
+      .createDeploymentConfiguration !==
+      "function"
+  ) {
+    throw new Error(
+      "A Profile composition API with createDeploymentConfiguration is required."
+    );
+  }
+
+
+  return api
+    .createDeploymentConfiguration({
+      platformReleaseId:
+        releaseId,
+
+      profileVariantId:
+        variantId,
+    });
+}
+
+
+/**
+ * Explicitly activates an already-published Profile Variant.
+ *
+ * The formal control path always requires optimistic concurrency.
+ * It never silently omits expectedRevision.
+ */
+async function activateFormalProfileComposition({
+  profileVariantId,
+  expectedRevision,
+  api,
+} = {}) {
+  const variantId =
+    requireValue(
+      profileVariantId,
+      "PROFILE_VARIANT_ID"
+    );
+
+  const revision =
+    requireExpectedRevision(
+      expectedRevision
+    );
+
+
+  if (
+    !api ||
+    typeof api
+      .activateProfileVariant !==
+      "function"
+  ) {
+    throw new Error(
+      "A Profile composition API with activateProfileVariant is required."
+    );
+  }
+
+
+  return api
+    .activateProfileVariant({
+      profileVariantId:
+        variantId,
+
+      expectedRevision:
+        revision,
+    });
+}
+
+
 function publicationSummary(
   publication
 ) {
@@ -492,47 +595,135 @@ async function main() {
     );
 
 
+  const validCommands =
+    new Set([
+      "build",
+      "publish",
+      "configure",
+      "activate",
+    ]);
+
+
   if (
-    command !==
-      "build" &&
-    command !==
-      "publish"
+    !validCommands.has(
+      command
+    )
   ) {
     throw new Error(
-      "Usage: node scripts/formal-profile-control.cjs <build|publish>"
+      "Usage: node scripts/formal-profile-control.cjs <build|publish|configure|activate>"
     );
   }
 
 
-  const build =
-    await buildFromEnvironment();
-
-
-  console.log(
-    JSON.stringify(
-      publicationSummary(
-        build.publication
-      ),
-      null,
-      2
-    )
-  );
-
-
+  /**
+   * Repository-domain operations.
+   *
+   * Only build/publish need current repository Profile content,
+   * targeting, provenance and asset materialization.
+   */
   if (
     command ===
-      "build"
+      "build" ||
+    command ===
+      "publish"
   ) {
+    const build =
+      await buildFromEnvironment();
+
+
     console.log(
-      "Formal Profile publication package built. No publication or activation performed."
+      JSON.stringify(
+        publicationSummary(
+          build.publication
+        ),
+        null,
+        2
+      )
+    );
+
+
+    if (
+      command ===
+        "build"
+    ) {
+      console.log(
+        "Formal Profile publication package built. No publication or activation performed."
+      );
+
+      return;
+    }
+
+
+    const publicationApi =
+      createProfileOwnerPublicationApi({
+        snapshotsApiUrl:
+          process.env
+            .SNAPSHOTS_API_URL,
+
+        ownerToken:
+          process.env
+            .OWNER_TOKEN,
+      });
+
+
+    const result =
+      await publishFormalProfilePublication({
+        build,
+
+        api:
+          publicationApi,
+      });
+
+
+    console.log(
+      JSON.stringify(
+        {
+          ok:
+            result
+              .ok,
+
+          profileVariantId:
+            result
+              .profileVariantId,
+
+          contentHash:
+            result
+              .contentHash,
+
+          manifestSha256:
+            result
+              .manifestSha256,
+
+          manifestObjectKey:
+            result
+              .manifestObjectKey,
+
+          uploadedAssets:
+            result
+              .uploadedAssets,
+        },
+        null,
+        2
+      )
+    );
+
+
+    console.log(
+      "Formal Profile Variant publication complete. No Deployment Configuration or Profile activation performed."
     );
 
     return;
   }
 
 
-  const api =
-    createProfileOwnerPublicationApi({
+  /**
+   * Control-plane composition operations.
+   *
+   * These commands deliberately do NOT rebuild repository Profile
+   * content and do NOT republish an immutable Profile Variant.
+   */
+  const compositionApi =
+    createProfileOwnerCompositionApi({
       snapshotsApiUrl:
         process.env
           .SNAPSHOTS_API_URL,
@@ -543,10 +734,80 @@ async function main() {
     });
 
 
+  if (
+    command ===
+      "configure"
+  ) {
+    const result =
+      await configureFormalProfileComposition({
+        platformReleaseId:
+          process.env
+            .PLATFORM_RELEASE_ID,
+
+        profileVariantId:
+          process.env
+            .PROFILE_VARIANT_ID,
+
+        api:
+          compositionApi,
+      });
+
+
+    console.log(
+      JSON.stringify(
+        {
+          ok:
+            result
+              .ok,
+
+          alreadyCreated:
+            result
+              .alreadyCreated,
+
+          deploymentConfigurationId:
+            result
+              .deploymentConfigurationId,
+
+          platformReleaseId:
+            result
+              .configuration
+              ?.platformReleaseId,
+
+          profileVariantId:
+            result
+              .configuration
+              ?.profileVariantId,
+
+          configurationSha256:
+            result
+              .configurationSha256,
+        },
+        null,
+        2
+      )
+    );
+
+
+    console.log(
+      "Formal Deployment Configuration ready. No Profile activation performed."
+    );
+
+    return;
+  }
+
+
   const result =
-    await publishFormalProfilePublication({
-      build,
-      api,
+    await activateFormalProfileComposition({
+      profileVariantId:
+        process.env
+          .PROFILE_VARIANT_ID,
+
+      expectedRevision:
+        process.env
+          .PROFILE_EXPECTED_REVISION,
+
+      api:
+        compositionApi,
     });
 
 
@@ -557,25 +818,14 @@ async function main() {
           result
             .ok,
 
-        profileVariantId:
+        active:
           result
-            .profileVariantId,
+            .active,
 
-        contentHash:
+        deploymentConfigurationId:
           result
-            .contentHash,
-
-        manifestSha256:
-          result
-            .manifestSha256,
-
-        manifestObjectKey:
-          result
-            .manifestObjectKey,
-
-        uploadedAssets:
-          result
-            .uploadedAssets,
+            .deploymentConfigurationId ||
+          null,
       },
       null,
       2
@@ -584,7 +834,7 @@ async function main() {
 
 
   console.log(
-    "Formal Profile Variant publication complete. No Profile activation performed."
+    "Formal Profile activation complete."
   );
 }
 
@@ -613,8 +863,10 @@ if (
 
 
 module.exports = {
+  activateFormalProfileComposition,
   buildFormalProfilePublication,
   buildFromEnvironment,
+  configureFormalProfileComposition,
   createRepoAssetReader,
   publicationSummary,
   publishFormalProfilePublication,

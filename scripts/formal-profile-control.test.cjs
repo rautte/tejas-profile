@@ -11,11 +11,21 @@ const assert =
   );
 
 const {
+  activateFormalProfileComposition,
   buildFormalProfilePublication,
+  configureFormalProfileComposition,
   publishFormalProfilePublication,
 } =
   require(
     "./formal-profile-control.cjs"
+  );
+
+
+const {
+  createProfileOwnerCompositionApi,
+} =
+  require(
+    "./lib/profile-owner-composition-api.cjs"
   );
 
 
@@ -344,6 +354,396 @@ test(
         "publish",
         "get",
       ]
+    );
+  }
+);
+
+test(
+  "configures an exact composition without publishing or activating",
+  async () => {
+    const calls = [];
+
+
+    const api = {
+      async createDeploymentConfiguration({
+        platformReleaseId,
+        profileVariantId,
+      }) {
+        calls.push({
+          platformReleaseId,
+          profileVariantId,
+        });
+
+
+        return {
+          ok:
+            true,
+
+          alreadyCreated:
+            false,
+
+          deploymentConfigurationId:
+            "cfg_test_composition",
+
+          configuration: {
+            platformReleaseId,
+            profileVariantId,
+          },
+        };
+      },
+    };
+
+
+    assert.equal(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          api,
+          "publishProfileVariant"
+        ),
+      false
+    );
+
+
+    assert.equal(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          api,
+          "activateProfileVariant"
+        ),
+      false
+    );
+
+
+    const result =
+      await configureFormalProfileComposition({
+        platformReleaseId:
+          "plr_test_composition",
+
+        profileVariantId:
+          "prv_test_composition",
+
+        api,
+      });
+
+
+    assert.equal(
+      result
+        .deploymentConfigurationId,
+      "cfg_test_composition"
+    );
+
+
+    assert.deepEqual(
+      calls,
+      [
+        {
+          platformReleaseId:
+            "plr_test_composition",
+
+          profileVariantId:
+            "prv_test_composition",
+        },
+      ]
+    );
+  }
+);
+
+
+test(
+  "formal activation requires explicit optimistic concurrency and preserves revision zero",
+  async () => {
+    const calls = [];
+
+
+    const api = {
+      async activateProfileVariant({
+        profileVariantId,
+        expectedRevision,
+      }) {
+        calls.push({
+          profileVariantId,
+          expectedRevision,
+        });
+
+
+        return {
+          ok:
+            true,
+
+          active: {
+            profileVariantId,
+            revision:
+              1,
+          },
+        };
+      },
+    };
+
+
+    await assert.rejects(
+      () =>
+        activateFormalProfileComposition({
+          profileVariantId:
+            "prv_first_formal",
+
+          api,
+        }),
+      /PROFILE_EXPECTED_REVISION is required/
+    );
+
+
+    assert.equal(
+      calls.length,
+      0
+    );
+
+
+    const result =
+      await activateFormalProfileComposition({
+        profileVariantId:
+          "prv_first_formal",
+
+        expectedRevision:
+          0,
+
+        api,
+      });
+
+
+    assert.deepEqual(
+      calls,
+      [
+        {
+          profileVariantId:
+            "prv_first_formal",
+
+          expectedRevision:
+            0,
+        },
+      ]
+    );
+
+
+    assert.equal(
+      result
+        .active
+        .revision,
+      1
+    );
+  }
+);
+
+
+test(
+  "composition owner API sends identities only and has no publication surface",
+  async () => {
+    const calls = [];
+
+
+    const fetchImpl =
+      async (
+        url,
+        options
+      ) => {
+        calls.push({
+          url,
+          options,
+        });
+
+
+        return {
+          ok:
+            true,
+
+          status:
+            201,
+
+          json:
+            async () => ({
+              ok:
+                true,
+
+              alreadyCreated:
+                false,
+
+              deploymentConfigurationId:
+                "cfg_transport_test",
+
+              configuration: {
+                platformReleaseId:
+                  "plr_transport_test",
+
+                profileVariantId:
+                  "prv_transport_test",
+              },
+            }),
+        };
+      };
+
+
+    const api =
+      createProfileOwnerCompositionApi({
+        snapshotsApiUrl:
+          "https://api.example.test/",
+
+        ownerToken:
+          "owner-test-token",
+
+        fetchImpl,
+      });
+
+
+    assert.equal(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          api,
+          "publishProfileVariant"
+        ),
+      false
+    );
+
+
+    assert.equal(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          api,
+          "presignProfileVariantAssetPut"
+        ),
+      false
+    );
+
+
+    const result =
+      await api
+        .createDeploymentConfiguration({
+          platformReleaseId:
+            "plr_transport_test",
+
+          profileVariantId:
+            "prv_transport_test",
+        });
+
+
+    assert.equal(
+      result
+        .deploymentConfigurationId,
+      "cfg_transport_test"
+    );
+
+
+    assert.equal(
+      calls.length,
+      1
+    );
+
+
+    assert.equal(
+      calls[0]
+        .url,
+      "https://api.example.test/deployment-configurations/create"
+    );
+
+
+    assert.deepEqual(
+      JSON.parse(
+        calls[0]
+          .options
+          .body
+      ),
+      {
+        platformReleaseId:
+          "plr_transport_test",
+
+        profileVariantId:
+          "prv_transport_test",
+      }
+    );
+  }
+);
+
+
+test(
+  "composition owner API surfaces activation 409 as an optimistic-concurrency conflict",
+  async () => {
+    const fetchImpl =
+      async () => ({
+        ok:
+          false,
+
+        status:
+          409,
+
+        json:
+          async () => ({
+            ok:
+              false,
+
+            error:
+              "Activation revision conflict.",
+          }),
+      });
+
+
+    const api =
+      createProfileOwnerCompositionApi({
+        snapshotsApiUrl:
+          "https://api.example.test",
+
+        ownerToken:
+          "owner-test-token",
+
+        fetchImpl,
+      });
+
+
+    let caught =
+      null;
+
+
+    try {
+      await api
+        .activateProfileVariant({
+          profileVariantId:
+            "prv_conflict_test",
+
+          expectedRevision:
+            0,
+        });
+    } catch (
+      error
+    ) {
+      caught =
+        error;
+    }
+
+
+    assert.ok(
+      caught
+    );
+
+
+    assert.equal(
+      caught
+        .status,
+      409
+    );
+
+
+    assert.equal(
+      caught
+        .code,
+      "PROFILE_ACTIVATION_CONFLICT"
+    );
+
+
+    assert.match(
+      caught
+        .message,
+      /Activation revision conflict/
     );
   }
 );
