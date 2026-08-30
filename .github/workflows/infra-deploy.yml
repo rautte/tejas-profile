@@ -164,6 +164,13 @@ jobs:
         working-directory: infra/cdk
         run: npm ci
 
+
+      - name: Install frontend dependencies
+        env:
+          HUSKY: 0
+        run: npm ci
+
+
       - name: Verify manually dispatched infrastructure source
         if: github.event_name == 'workflow_dispatch'
         working-directory: infra/cdk
@@ -197,6 +204,7 @@ jobs:
         run: >
           npx cdk deploy
           AssetsCdnStackDev
+          FrontendCdnStackDev
           TejasProfileSnapshotsStackDev
           --require-approval never
 
@@ -310,6 +318,335 @@ jobs:
           echo "active_profile_url=${ACTIVE_PROFILE_URL}" >> "${GITHUB_OUTPUT}"
 
 
+      - name: Resolve DEV asset + frontend hosting
+        id: dev-hosting
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ASSET_STACK="AssetsCdnStackDev"
+          FRONTEND_STACK="FrontendCdnStackDev"
+
+
+          resolve_output() {
+            local stack="$1"
+            local key="$2"
+
+            aws cloudformation describe-stacks \
+              --stack-name "${stack}" \
+              --query "Stacks[0].Outputs[?OutputKey=='${key}'].OutputValue | [0]" \
+              --output text
+          }
+
+
+          ASSET_CDN_URL="$(
+            resolve_output \
+              "${ASSET_STACK}" \
+              "CdnUrl"
+          )"
+
+          GEO_DATASET_URL="$(
+            resolve_output \
+              "${ASSET_STACK}" \
+              "GeoDatasetUrl"
+          )"
+
+          FRONTEND_BUCKET="$(
+            resolve_output \
+              "${FRONTEND_STACK}" \
+              "BucketName"
+          )"
+
+          FRONTEND_DISTRIBUTION_ID="$(
+            resolve_output \
+              "${FRONTEND_STACK}" \
+              "DistributionId"
+          )"
+
+          FRONTEND_URL="$(
+            resolve_output \
+              "${FRONTEND_STACK}" \
+              "FrontendUrl"
+          )"
+
+          FRONTEND_ROLE_ARN="$(
+            resolve_output \
+              "${FRONTEND_STACK}" \
+              "GithubRoleArn"
+          )"
+
+
+          for value in \
+            "${ASSET_CDN_URL}" \
+            "${FRONTEND_BUCKET}" \
+            "${FRONTEND_DISTRIBUTION_ID}" \
+            "${FRONTEND_URL}" \
+            "${FRONTEND_ROLE_ARN}"
+          do
+            if [[ -z "${value}" ||
+                  "${value}" == "None" ]]; then
+              echo "ERROR: required DEV hosting output is missing."
+              exit 1
+            fi
+          done
+
+
+          [[ "${ASSET_CDN_URL}" == https://* ]] || {
+            echo "ERROR: invalid DEV asset CDN URL."
+            exit 1
+          }
+
+          [[ "${FRONTEND_URL}" == https://*.cloudfront.net ]] || {
+            echo "ERROR: invalid DEV frontend URL."
+            exit 1
+          }
+
+          [[ "${FRONTEND_ROLE_ARN}" == arn:aws:iam::*:role/tejas-profile-github-frontend-dev ]] || {
+            echo "ERROR: unexpected DEV frontend publisher role."
+            exit 1
+          }
+
+
+          echo "asset_cdn_url=${ASSET_CDN_URL}" >> "${GITHUB_OUTPUT}"
+          echo "geo_dataset_url=${GEO_DATASET_URL}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_bucket=${FRONTEND_BUCKET}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_distribution_id=${FRONTEND_DISTRIBUTION_ID}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_url=${FRONTEND_URL}" >> "${GITHUB_OUTPUT}"
+          echo "frontend_role_arn=${FRONTEND_ROLE_ARN}" >> "${GITHUB_OUTPUT}"
+
+          echo ""
+          echo "DEV frontend hosting resolved."
+          echo "Frontend URL: ${FRONTEND_URL}"
+
+
+      - name: Compute DEV frontend metadata
+        id: dev-meta
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          GIT_SHA="$(
+            git rev-parse HEAD
+          )"
+
+          GIT_SHA_SHORT="$(
+            git rev-parse --short HEAD
+          )"
+
+          BUILD_TIME="$(
+            date -u +%Y-%m-%dT%H:%M:%S.%3NZ
+          )"
+
+          PROFILE_VERSION="pv_${GIT_SHA_SHORT}"
+          CHECKPOINT_TAG="gha_${GITHUB_RUN_ID}"
+
+          PLATFORM_RELEASE_ID="plr_gha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          PLATFORM_DEPLOYMENT_ID="pdep_gha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            GIT_REF="refs/heads/${{ github.event.workflow_run.head_branch }}"
+          else
+            GIT_REF="${GITHUB_REF}"
+          fi
+
+
+          echo "git_sha=${GIT_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "git_ref=${GIT_REF}" >> "${GITHUB_OUTPUT}"
+          echo "build_time=${BUILD_TIME}" >> "${GITHUB_OUTPUT}"
+          echo "profile_version=${PROFILE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "checkpoint_tag=${CHECKPOINT_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "platform_release_id=${PLATFORM_RELEASE_ID}" >> "${GITHUB_OUTPUT}"
+          echo "platform_deployment_id=${PLATFORM_DEPLOYMENT_ID}" >> "${GITHUB_OUTPUT}"
+          echo "Platform Release: ${PLATFORM_RELEASE_ID}"
+          echo "Platform Deployment: ${PLATFORM_DEPLOYMENT_ID}"
+
+          echo ""
+          echo "DEV frontend build identity:"
+          echo "Git SHA: ${GIT_SHA}"
+          echo "Git ref: ${GIT_REF}"
+
+
+      - name: Write DEV frontend build environment
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > .env.production.local <<EOF
+          PUBLIC_URL=/
+          REACT_APP_ACTIVE_PROFILE_API=${{ steps.dev-analytics.outputs.active_profile_url }}
+          REACT_APP_SNAPSHOTS_API=${{ steps.dev-analytics.outputs.api_url }}
+          REACT_APP_ANALYTICS_INGEST_API=${{ steps.dev-analytics.outputs.edge_url }}
+          REACT_APP_CHECKPOINT_TAG=${{ steps.dev-meta.outputs.checkpoint_tag }}
+          REACT_APP_PROFILE_VERSION=${{ steps.dev-meta.outputs.profile_version }}
+          REACT_APP_GIT_SHA=${{ steps.dev-meta.outputs.git_sha }}
+          REACT_APP_BUILD_TIME=${{ steps.dev-meta.outputs.build_time }}
+          REACT_APP_REPO=https://github.com/${GITHUB_REPOSITORY}
+          REACT_APP_GIT_REF=${{ steps.dev-meta.outputs.git_ref }}
+          REACT_APP_GH_RUN_ID=${GITHUB_RUN_ID}
+          REACT_APP_CDN_BASE=${{ steps.dev-hosting.outputs.asset_cdn_url }}
+          REACT_APP_GEO_DATASET_URL=${{ steps.dev-hosting.outputs.geo_dataset_url }}
+          EOF
+
+          echo "DEV frontend environment written."
+
+
+      - name: Build DEV frontend
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        env:
+          CI: true
+        run: npm run build
+
+
+      - name: Add DEV deployment evidence
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p \
+            build/.well-known
+
+          jq -n \
+            --arg gitSha "${{ steps.dev-meta.outputs.git_sha }}" \
+            --arg gitRef "${{ steps.dev-meta.outputs.git_ref }}" \
+            --arg buildTime "${{ steps.dev-meta.outputs.build_time }}" \
+            --arg githubRunId "${GITHUB_RUN_ID}" \
+            --arg githubRunAttempt "${GITHUB_RUN_ATTEMPT}" \
+            '{
+              schema:
+                "tejas-profile.dev-frontend-deployment.v1",
+
+              gitSha:
+                $gitSha,
+
+              gitRef:
+                $gitRef,
+
+              buildTime:
+                $buildTime,
+
+              githubRunId:
+                $githubRunId,
+
+              githubRunAttempt:
+                $githubRunAttempt
+            }' \
+            > build/.well-known/tejas-profile-deployment.json
+
+
+      - name: Compute DEV frontend artifact identity
+        id: dev-frontend-artifact
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -d build || {
+            echo "ERROR: DEV frontend build directory does not exist."
+            exit 1
+          }
+
+
+          ARTIFACT_PATH="/tmp/dev_frontend_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}.tar"
+
+          tar \
+            --sort=name \
+            --mtime='UTC 1970-01-01' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --format=ustar \
+            -cf "${ARTIFACT_PATH}" \
+            -C build \
+            .
+
+
+          SHA256="$(
+            sha256sum "${ARTIFACT_PATH}" |
+              awk '{print $1}'
+          )"
+
+
+          [[ "${SHA256}" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "ERROR: invalid DEV frontend artifact SHA-256."
+            exit 1
+          }
+
+
+          echo "sha256=${SHA256}" >> "${GITHUB_OUTPUT}"
+
+          echo ""
+          echo "DEV frontend artifact SHA-256:"
+          echo "${SHA256}"
+
+
+      - name: Register immutable DEV Platform Release
+        id: dev-platform-release
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        env:
+          STAGE: dev
+
+          SNAPSHOTS_API_URL: ${{ steps.dev-analytics.outputs.api_url }}
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+
+          PLATFORM_RELEASE_ID: ${{ steps.dev-meta.outputs.platform_release_id }}
+
+          GIT_SHA: ${{ steps.dev-meta.outputs.git_sha }}
+          GIT_REF: ${{ steps.dev-meta.outputs.git_ref }}
+          BUILD_TIME: ${{ steps.dev-meta.outputs.build_time }}
+          CHECKPOINT_TAG: ${{ steps.dev-meta.outputs.checkpoint_tag }}
+
+          FRONTEND_ARTIFACT_SHA256: ${{ steps.dev-frontend-artifact.outputs.sha256 }}
+
+          LEGACY_PROFILE_VERSION: ${{ steps.dev-meta.outputs.profile_version }}
+
+          REPOSITORY: ${{ github.repository }}
+
+        run: >
+          node
+          scripts/formal-platform-control.mjs
+          register
+
+
       - name: Configure DEV asset publisher credentials
         if: >
           github.event_name == 'workflow_run' ||
@@ -345,6 +682,153 @@ jobs:
         env:
           ASSET_STAGE: dev
         run: npm run cdn:invalidate
+
+
+      - name: Configure DEV frontend publisher credentials
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.dev-hosting.outputs.frontend_role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Deploy DEV frontend
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        env:
+          FRONTEND_BUCKET: ${{ steps.dev-hosting.outputs.frontend_bucket }}
+          FRONTEND_DISTRIBUTION_ID: ${{ steps.dev-hosting.outputs.frontend_distribution_id }}
+        run: |
+          set -euo pipefail
+
+          test -d build || {
+            echo "ERROR: build directory is missing."
+            exit 1
+          }
+
+          test -n "${FRONTEND_BUCKET}" || {
+            echo "ERROR: DEV frontend bucket is missing."
+            exit 1
+          }
+
+          test -n "${FRONTEND_DISTRIBUTION_ID}" || {
+            echo "ERROR: DEV frontend distribution is missing."
+            exit 1
+          }
+
+
+          aws s3 sync \
+            build/ \
+            "s3://${FRONTEND_BUCKET}/" \
+            --delete \
+            --cache-control "public,max-age=0,must-revalidate" \
+            --only-show-errors
+
+
+          aws cloudfront create-invalidation \
+            --distribution-id "${FRONTEND_DISTRIBUTION_ID}" \
+            --paths "/*" \
+            >/dev/null
+
+          echo ""
+          echo "DEV frontend uploaded."
+          echo "CloudFront invalidation submitted."
+
+
+      - name: Smoke test DEV frontend deployment
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        shell: bash
+        env:
+          FRONTEND_URL: ${{ steps.dev-hosting.outputs.frontend_url }}
+          EXPECTED_GIT_SHA: ${{ steps.dev-meta.outputs.git_sha }}
+        run: |
+          set -euo pipefail
+
+          test -n "${FRONTEND_URL}" || {
+            echo "ERROR: FRONTEND_URL is empty."
+            exit 1
+          }
+
+
+          VERIFIED="false"
+
+
+          for ATTEMPT in $(
+            seq 1 24
+          ); do
+            echo "DEV frontend verification ${ATTEMPT}/24"
+
+
+            RESPONSE="$(
+              curl \
+                --silent \
+                --show-error \
+                --fail \
+                "${FRONTEND_URL}/.well-known/tejas-profile-deployment.json" \
+                2>/dev/null ||
+              true
+            )"
+
+
+            ACTUAL_GIT_SHA="$(
+              jq -r \
+                '.gitSha // empty' \
+                <<< "${RESPONSE}" \
+                2>/dev/null ||
+              true
+            )"
+
+
+            if [[ "${ACTUAL_GIT_SHA}" == "${EXPECTED_GIT_SHA}" ]]; then
+              VERIFIED="true"
+              break
+            fi
+
+
+            sleep 5
+          done
+
+
+          if [[ "${VERIFIED}" != "true" ]]; then
+            echo "ERROR: DEV CloudFront did not converge to expected deployment."
+            exit 1
+          fi
+
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            "${FRONTEND_URL}/" \
+            >/dev/null
+
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            "${FRONTEND_URL}/p11b2-spa-route-check" \
+            >/dev/null
+
+
+          echo ""
+          echo "DEV frontend deployment verified."
+          echo "Git SHA: ${EXPECTED_GIT_SHA}"
 
 
       - name: Smoke test DEV Analytics
@@ -479,6 +963,32 @@ jobs:
             }
           );
           NODE
+
+
+      - name: Commit formal DEV Platform Deployment
+        id: dev-platform-deployment
+        if: >
+          github.event_name == 'workflow_run' ||
+          (
+            github.event_name == 'workflow_dispatch' &&
+            inputs.target == 'dev'
+          )
+        env:
+          SNAPSHOTS_API_URL: ${{ steps.dev-analytics.outputs.api_url }}
+          ACTIVE_PROFILE_API_URL: ${{ steps.dev-analytics.outputs.active_profile_url }}
+
+          OWNER_TOKEN: ${{ secrets.OWNER_TOKEN }}
+
+          PLATFORM_RELEASE_ID: ${{ steps.dev-meta.outputs.platform_release_id }}
+
+          PLATFORM_RELEASE_SHA256: ${{ steps.dev-platform-release.outputs.release_sha256 }}
+
+          PLATFORM_DEPLOYMENT_ID: ${{ steps.dev-meta.outputs.platform_deployment_id }}
+
+        run: >
+          node
+          scripts/formal-platform-control.mjs
+          commit
 
 
       # ------------------------------------------------------------

@@ -4,6 +4,7 @@ import "dotenv/config";
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
 import { AssetsCdnStack } from "../lib/assets-cdn-stack";
+import { FrontendCdnStack } from "../lib/frontend-cdn-stack";
 import { SnapshotsStack } from "../lib/snapshots-stack";
 
 const app = new cdk.App();
@@ -43,6 +44,26 @@ new AssetsCdnStack(
       "dev",
   }
 );
+
+
+// Dedicated DEV application hosting.
+//
+// This is intentionally separate from AssetsCdnStackDev.
+// Heavy/media assets and the built React application have
+// different publication and lifecycle boundaries.
+const devFrontendStack =
+  new FrontendCdnStack(
+    app,
+    "FrontendCdnStackDev",
+    {
+      env:
+        assetEnv,
+
+      stage:
+        "dev",
+    }
+  );
+
 
 const githubDeployerRoleArn =
   process.env.GITHUB_DEPLOYER_ROLE_ARN || "";
@@ -96,6 +117,7 @@ new SnapshotsStack(
 
     allowedOrigins: [
       "http://localhost:3000",
+      devFrontendStack.frontendOrigin,
     ],
   }
 );
