@@ -1538,7 +1538,7 @@ export class SnapshotsStack extends cdk.Stack {
     // Intentionally NO:
     // - DeleteObject
     // - DeleteObjectVersion
-    // - ListBucket
+    // - broad/unscoped ListBucket
     // - tagging
     // - retention/legal-hold mutation
     // - wildcard read/write grants
@@ -1567,9 +1567,7 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     // Profile Variant catalog enumeration
     //
-    // Owner-only exact-prefix ListBucket.
-    //
-    // This cannot enumerate assets/sha256/* or any other prefix.
+    // Owner-only exact-prefix catalog listing.
     // Public runtime receives no ListBucket authority.
     // -----------------------------
     fn.addToRolePolicy(
@@ -1587,6 +1585,42 @@ export class SnapshotsStack extends cdk.Stack {
           StringEquals: {
             "s3:prefix":
               "variants/",
+          },
+        },
+      })
+    );
+
+
+    // -----------------------------
+    // Profile Variant asset existence probe
+    //
+    // The owner publisher performs ListObjectsV2 with Prefix
+    // equal to the exact immutable content-addressed object key.
+    //
+    // Restrict ListBucket to assets/sha256/* so the publisher
+    // can distinguish an absent immutable asset without gaining
+    // broad bucket enumeration authority.
+    //
+    // Existing assets are subsequently verified with HeadObject.
+    // Public runtime receives no ListBucket authority.
+    // -----------------------------
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "s3:ListBucket",
+        ],
+
+        resources: [
+          profileVariantsBucket
+            .bucketArn,
+        ],
+
+        conditions: {
+          StringLike: {
+            "s3:prefix": [
+              "assets/sha256/",
+              "assets/sha256/*",
+            ],
           },
         },
       })

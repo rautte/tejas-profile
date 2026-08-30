@@ -2377,7 +2377,7 @@ describe(
     );
 
     test(
-      "Snapshots Lambda can read/write Profile Variant objects and list only the variants catalog prefix without delete authority",
+      "Snapshots Lambda can inspect/publish Profile Variant objects with prefix-scoped ListBucket and no delete authority",
       () => {
         const {
           template,
@@ -2513,19 +2513,73 @@ describe(
         expect(
           listStatements
         ).toHaveLength(
-          1
+          2
+        );
+
+
+        const listPrefixes =
+          listStatements
+            .flatMap(
+              (
+                statement:
+                  any
+              ) => {
+                const condition =
+                  statement
+                    ?.Condition ||
+                  {};
+
+
+                const prefix =
+                  condition
+                    ?.StringEquals
+                    ?.["s3:prefix"] ??
+                  condition
+                    ?.StringLike
+                    ?.["s3:prefix"];
+
+
+                if (
+                  Array.isArray(
+                    prefix
+                  )
+                ) {
+                  return prefix;
+                }
+
+
+                return prefix
+                  ? [
+                      prefix,
+                    ]
+                  : [];
+              }
+            );
+
+
+        expect(
+          listPrefixes
+        ).toHaveLength(
+          3
         );
 
 
         expect(
-          listStatements[0]
-            ?.Condition
-        ).toMatchObject({
-          StringEquals: {
-            "s3:prefix":
-              "variants/",
-          },
-        });
+          listPrefixes
+        ).toEqual(
+          expect.arrayContaining([
+            "variants/",
+            "assets/sha256/",
+            "assets/sha256/*",
+          ])
+        );
+
+
+        expect(
+          listPrefixes
+        ).not.toContain(
+          "*"
+        );
 
       }
     );

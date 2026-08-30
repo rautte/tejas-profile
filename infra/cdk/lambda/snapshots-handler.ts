@@ -3245,23 +3245,128 @@ export async function handler(event: Event) {
 
 
     /**
-     * Content-addressed object already present:
-     * skip upload only if S3 confirms exact bytes + type.
+     * Exact-key existence probe.
+     *
+     * ListObjectsV2 deliberately supplies the complete immutable
+     * object key as Prefix. IAM therefore remains restricted to
+     * assets/sha256/* rather than granting broad ListBucket.
+     *
+     * If the exact object exists, HeadObject verifies its checksum
+     * and content type before upload is skipped.
      */
+    let assetAlreadyExists =
+      false;
+
+
     try {
-      const existing =
+      const listing =
         await s3.send(
-          new HeadObjectCommand({
+          new ListObjectsV2Command({
             Bucket:
               PROFILE_VARIANTS_BUCKET,
 
-            Key:
+            Prefix:
               key,
 
-            ChecksumMode:
-              "ENABLED",
+            MaxKeys:
+              1,
           })
         );
+
+
+      assetAlreadyExists =
+        (
+          listing.Contents ||
+          []
+        ).some(
+          (
+            item
+          ) =>
+            String(
+              item.Key ||
+              ""
+            ) ===
+            key
+        );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Profile asset existence probe failed",
+        {
+          key,
+
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok: false,
+
+          error:
+            "Failed to inspect Profile Variant asset.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      assetAlreadyExists
+    ) {
+      let existing:
+        any;
+
+
+      try {
+        existing =
+          await s3.send(
+            new HeadObjectCommand({
+              Bucket:
+                PROFILE_VARIANTS_BUCKET,
+
+              Key:
+                key,
+
+              ChecksumMode:
+                "ENABLED",
+            })
+          );
+      } catch (
+        error: any
+      ) {
+        console.error(
+          "Existing Profile asset HEAD failed",
+          {
+            key,
+
+            error:
+              String(
+                error?.message ||
+                error
+              ),
+          }
+        );
+
+
+        return json(
+          500,
+          {
+            ok: false,
+
+            error:
+              "Failed to inspect existing Profile Variant asset.",
+          },
+          corsOrigin
+        );
+      }
 
 
       const existingHash =
@@ -3286,8 +3391,10 @@ export async function handler(event: Event) {
           409,
           {
             ok: false,
+
             error:
               "Content-addressed asset key already exists with incompatible metadata.",
+
             key,
           },
           corsOrigin
@@ -3308,37 +3415,6 @@ export async function handler(event: Event) {
         },
         corsOrigin
       );
-    } catch (
-      error: any
-    ) {
-      if (
-        !isS3NotFound(
-          error
-        )
-      ) {
-        console.error(
-          "Profile asset HEAD failed",
-          {
-            key,
-            error:
-              String(
-                error?.message ||
-                error
-              ),
-          }
-        );
-
-
-        return json(
-          500,
-          {
-            ok: false,
-            error:
-              "Failed to inspect Profile Variant asset.",
-          },
-          corsOrigin
-        );
-      }
     }
 
 
