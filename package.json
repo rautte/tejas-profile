@@ -30,14 +30,16 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:ci": "react-scripts test --watchAll=false",
+    "test:ci": "react-scripts test --watchAll=false && npm run profile:formal:test",
     "eject": "react-scripts eject",
     "assets:sync": "npm run sync:assets",
     "assets:publish": "npm run sync:assets && npm run cdn:invalidate",
     "prepare": "husky",
     "sync:assets": "bash scripts/sync-assets.sh",
     "cdn:invalidate": "bash scripts/cdn-invalidate.sh",
-    "assets:push": "npm run assets:publish"
+    "assets:push": "npm run assets:publish",
+    "profile:formal": "node scripts/formal-profile-control.cjs",
+    "profile:formal:test": "node --test scripts/formal-profile-control.test.cjs"
   },
   "eslintConfig": {
     "extends": [
@@ -58,6 +60,10 @@
     ]
   },
   "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/plugin-transform-modules-commonjs": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1",
+    "@babel/register": "^7.29.7",
     "autoprefixer": "^10.4.23",
     "chokidar-cli": "^3.0.0",
     "husky": "^9.1.7",
