@@ -354,15 +354,6 @@ describe(
 
 
         mockS3Send
-          .mockRejectedValueOnce({
-            name:
-              "NoSuchKey",
-
-            $metadata: {
-              httpStatusCode:
-                404,
-            },
-          })
           .mockResolvedValueOnce(
             {}
           );
@@ -413,14 +404,14 @@ describe(
         expect(
           mockS3Send
         ).toHaveBeenCalledTimes(
-          2
+          1
         );
 
 
         const putCommand =
           mockS3Send
             .mock
-            .calls[1][0];
+            .calls[0][0];
 
 
         expect(
@@ -468,15 +459,6 @@ describe(
 
 
         mockS3Send
-          .mockRejectedValueOnce({
-            name:
-              "NoSuchKey",
-
-            $metadata: {
-              httpStatusCode:
-                404,
-            },
-          })
           .mockResolvedValueOnce(
             {}
           );
@@ -508,7 +490,7 @@ describe(
         const putCommand =
           mockS3Send
             .mock
-            .calls[1][0];
+            .calls[0][0];
 
 
         const storedRelease =
@@ -549,142 +531,6 @@ describe(
 
 
         mockS3Send
-          .mockResolvedValueOnce(
-            storedResponse(
-              release
-            )
-          );
-
-
-        const response =
-          await handler(
-            ownerEvent({
-              method:
-                "POST",
-
-              path:
-                "/platform-releases/register",
-
-              body: {
-                release,
-              },
-            })
-          );
-
-
-        expect(
-          response.statusCode
-        ).toBe(
-          200
-        );
-
-
-        expect(
-          parsedBody(
-            response
-          )
-            .alreadyRegistered
-        ).toBe(
-          true
-        );
-
-
-        expect(
-          mockS3Send
-        ).toHaveBeenCalledTimes(
-          1
-        );
-      }
-    );
-
-
-    test(
-      "the same Platform Release ID cannot be reused for different immutable content",
-      async () => {
-        const existing =
-          validRelease(
-            "plr_conflict",
-            "prod",
-            "2026-08-23T02:00:00.000Z"
-          );
-
-        const incoming =
-          validRelease(
-            "plr_conflict",
-            "prod",
-            "2026-08-23T03:00:00.000Z"
-          );
-
-
-        mockS3Send
-          .mockResolvedValueOnce(
-            storedResponse(
-              existing
-            )
-          );
-
-
-        const response =
-          await handler(
-            ownerEvent({
-              method:
-                "POST",
-
-              path:
-                "/platform-releases/register",
-
-              body: {
-                release:
-                  incoming,
-              },
-            })
-          );
-
-
-        expect(
-          response.statusCode
-        ).toBe(
-          409
-        );
-
-
-        expect(
-          parsedBody(
-            response
-          ).error
-        ).toMatch(
-          /different immutable content/
-        );
-
-
-        expect(
-          mockS3Send
-        ).toHaveBeenCalledTimes(
-          1
-        );
-      }
-    );
-
-
-    test(
-      "a concurrent identical registration resolves idempotently",
-      async () => {
-        const release =
-          validRelease(
-            "plr_race"
-          );
-
-
-        mockS3Send
-          .mockRejectedValueOnce({
-            name:
-              "NoSuchKey",
-
-            $metadata: {
-              httpStatusCode:
-                404,
-            },
-          })
           .mockRejectedValueOnce({
             name:
               "PreconditionFailed",
@@ -737,7 +583,152 @@ describe(
         expect(
           mockS3Send
         ).toHaveBeenCalledTimes(
-          3
+          2
+        );
+      }
+    );
+
+
+    test(
+      "the same Platform Release ID cannot be reused for different immutable content",
+      async () => {
+        const existing =
+          validRelease(
+            "plr_conflict",
+            "prod",
+            "2026-08-23T02:00:00.000Z"
+          );
+
+        const incoming =
+          validRelease(
+            "plr_conflict",
+            "prod",
+            "2026-08-23T03:00:00.000Z"
+          );
+
+
+        mockS3Send
+          .mockRejectedValueOnce({
+            name:
+              "PreconditionFailed",
+
+            $metadata: {
+              httpStatusCode:
+                412,
+            },
+          })
+          .mockResolvedValueOnce(
+            storedResponse(
+              existing
+            )
+          );
+
+
+        const response =
+          await handler(
+            ownerEvent({
+              method:
+                "POST",
+
+              path:
+                "/platform-releases/register",
+
+              body: {
+                release:
+                  incoming,
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(
+          409
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          ).error
+        ).toMatch(
+          /different immutable content/
+        );
+
+
+        expect(
+          mockS3Send
+        ).toHaveBeenCalledTimes(
+          2
+        );
+      }
+    );
+
+
+    test(
+      "a concurrent identical registration resolves idempotently",
+      async () => {
+        const release =
+          validRelease(
+            "plr_race"
+          );
+
+
+        mockS3Send
+          .mockRejectedValueOnce({
+            name:
+              "PreconditionFailed",
+
+            $metadata: {
+              httpStatusCode:
+                412,
+            },
+          })
+          .mockResolvedValueOnce(
+            storedResponse(
+              release
+            )
+          );
+
+
+        const response =
+          await handler(
+            ownerEvent({
+              method:
+                "POST",
+
+              path:
+                "/platform-releases/register",
+
+              body: {
+                release,
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(
+          200
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          )
+            .alreadyRegistered
+        ).toBe(
+          true
+        );
+
+
+        expect(
+          mockS3Send
+        ).toHaveBeenCalledTimes(
+          2
         );
       }
     );

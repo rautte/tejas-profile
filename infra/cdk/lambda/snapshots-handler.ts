@@ -3653,98 +3653,11 @@ export async function handler(event: Event) {
 
 
     /**
-     * Idempotency:
+     * First-write-only immutable Profile Variant manifest commit.
      *
-     * If this exact Profile Variant was already published,
-     * return success.
-     *
-     * If the ID already points at different immutable bytes,
-     * reject permanently.
+     * The conditional PUT is the authoritative existence/race gate.
+     * We deliberately do not pre-read the manifest.
      */
-    try {
-      const existing =
-        await readPublishedProfileVariant(
-          manifestKey
-        );
-
-
-      if (
-        existing.body ===
-          manifestBody
-      ) {
-        return json(
-          200,
-          {
-            ok:
-              true,
-
-            alreadyPublished:
-              true,
-
-            profileVariantId:
-              variant
-                .profileVariantId,
-
-            contentHash:
-              variant
-                .contentHash,
-
-            key:
-              manifestKey,
-
-            manifestSha256,
-          },
-          corsOrigin
-        );
-      }
-
-
-      return json(
-        409,
-        {
-          ok: false,
-          error:
-            "profileVariantId already exists with different immutable content.",
-          profileVariantId:
-            variant
-              .profileVariantId,
-        },
-        corsOrigin
-      );
-    } catch (
-      error: any
-    ) {
-      if (
-        !isS3NotFound(
-          error
-        )
-      ) {
-        console.error(
-          "Profile Variant manifest read failed",
-          {
-            manifestKey,
-            error:
-              String(
-                error?.message ||
-                error
-              ),
-          }
-        );
-
-
-        return json(
-          500,
-          {
-            ok: false,
-            error:
-              "Failed to inspect existing Profile Variant.",
-          },
-          corsOrigin
-        );
-      }
-    }
-
-
     try {
       await s3.send(
         new PutObjectCommand({
@@ -3771,7 +3684,10 @@ export async function handler(event: Event) {
       error: any
     ) {
       /**
-       * Another publish may have won the race after our GET.
+       * Existing immutable content or a concurrent first writer
+       * produces a conditional failure.
+       *
+       * Read the winner only after that authoritative S3 signal.
        */
       if (
         isS3PreconditionFailed(
@@ -3814,20 +3730,53 @@ export async function handler(event: Event) {
               corsOrigin
             );
           }
-        } catch {
-          // fall through to conflict
+
+
+          return json(
+            409,
+            {
+              ok:
+                false,
+
+              error:
+                "profileVariantId already exists with different immutable content.",
+
+              profileVariantId:
+                variant
+                  .profileVariantId,
+            },
+            corsOrigin
+          );
+        } catch (
+          winnerError: any
+        ) {
+          console.error(
+            "Profile Variant conflict inspection failed",
+            {
+              manifestKey,
+
+              error:
+                String(
+                  winnerError
+                    ?.message ||
+                  winnerError
+                ),
+            }
+          );
+
+
+          return json(
+            500,
+            {
+              ok:
+                false,
+
+              error:
+                "Failed to inspect existing Profile Variant after conditional conflict.",
+            },
+            corsOrigin
+          );
         }
-
-
-        return json(
-          409,
-          {
-            ok: false,
-            error:
-              "Profile Variant publication conflict.",
-          },
-          corsOrigin
-        );
       }
 
 
@@ -3848,7 +3797,9 @@ export async function handler(event: Event) {
       return json(
         500,
         {
-          ok: false,
+          ok:
+            false,
+
           error:
             "Failed to publish Profile Variant.",
         },
@@ -4542,93 +4493,19 @@ export async function handler(event: Event) {
 
 
     /**
-     * Fast idempotency/conflict path.
+     * First-write-only immutable Platform Release commit.
+     *
+     * IMPORTANT:
+     *
+     * Do not GET the would-be object before creating it.
+     *
+     * A missing S3 object may surface as AccessDenied rather than
+     * NoSuchKey when the caller intentionally does not have broad
+     * ListBucket authority.
+     *
+     * IfNoneMatch:"*" is therefore the authoritative existence and
+     * concurrency gate for immutable creation.
      */
-    try {
-      const existing =
-        await readStoredPlatformRelease(
-          key
-        );
-
-
-      if (
-        existing.body ===
-          releaseBody
-      ) {
-        return json(
-          200,
-          {
-            ok:
-              true,
-
-            alreadyRegistered:
-              true,
-
-            platformReleaseId:
-              release
-                .platformReleaseId,
-
-            key,
-
-            releaseSha256,
-          },
-          corsOrigin
-        );
-      }
-
-
-      return json(
-        409,
-        {
-          ok:
-            false,
-
-          error:
-            "platformReleaseId already exists with different immutable content.",
-
-          platformReleaseId:
-            release
-              .platformReleaseId,
-        },
-        corsOrigin
-      );
-    } catch (
-      error: any
-    ) {
-      if (
-        !isS3NotFound(
-          error
-        )
-      ) {
-        console.error(
-          "Platform Release inspection failed",
-          {
-            key,
-
-            error:
-              String(
-                error?.message ||
-                error
-              ),
-          }
-        );
-
-
-        return json(
-          500,
-          {
-            ok:
-              false,
-
-            error:
-              "Failed to inspect existing Platform Release.",
-          },
-          corsOrigin
-        );
-      }
-    }
-
-
     try {
       await s3.send(
         new PutObjectCommand({
@@ -4655,8 +4532,10 @@ export async function handler(event: Event) {
       error: any
     ) {
       /**
-       * Another writer may have registered the same release
-       * after our initial GET.
+       * 412 means the immutable key already exists, including the
+       * case where another writer won a concurrent first-write race.
+       *
+       * Only now do we read the winner and compare canonical bytes.
        */
       if (
         isS3PreconditionFailed(
@@ -4694,22 +4573,53 @@ export async function handler(event: Event) {
               corsOrigin
             );
           }
-        } catch {
-          // Fall through to immutable-content conflict.
+
+
+          return json(
+            409,
+            {
+              ok:
+                false,
+
+              error:
+                "platformReleaseId already exists with different immutable content.",
+
+              platformReleaseId:
+                release
+                  .platformReleaseId,
+            },
+            corsOrigin
+          );
+        } catch (
+          winnerError: any
+        ) {
+          console.error(
+            "Platform Release conflict inspection failed",
+            {
+              key,
+
+              error:
+                String(
+                  winnerError
+                    ?.message ||
+                  winnerError
+                ),
+            }
+          );
+
+
+          return json(
+            500,
+            {
+              ok:
+                false,
+
+              error:
+                "Failed to inspect existing Platform Release after conditional conflict.",
+            },
+            corsOrigin
+          );
         }
-
-
-        return json(
-          409,
-          {
-            ok:
-              false,
-
-            error:
-              "Platform Release registration conflict.",
-          },
-          corsOrigin
-        );
       }
 
 
@@ -5509,68 +5419,6 @@ export async function handler(event: Event) {
       );
 
 
-    /**
-     * First inspect the authoritative immutable object.
-     *
-     * Do NOT return it yet.
-     *
-     * Existing immutable composition does not imply current
-     * operational eligibility. P6 PPS policy must still validate the
-     * authoritative Platform Release before this configuration can be
-     * reused.
-     */
-    let existingConfiguration:
-      Awaited<
-        ReturnType<
-          typeof loadStoredDeploymentConfiguration
-        >
-      > |
-      null =
-        null;
-
-
-    try {
-      existingConfiguration =
-        await loadStoredDeploymentConfiguration(
-          deploymentConfigurationId
-        );
-    } catch (
-      error: any
-    ) {
-      if (
-        !isS3NotFound(
-          error
-        )
-      ) {
-        console.error(
-          "Existing Deployment Configuration inspection failed",
-          {
-            deploymentConfigurationId,
-
-            error:
-              String(
-                error?.message ||
-                error
-              ),
-          }
-        );
-
-
-        return json(
-          500,
-          {
-            ok:
-              false,
-
-            error:
-              "Failed to inspect existing Deployment Configuration.",
-          },
-          corsOrigin
-        );
-      }
-    }
-
-
     let platformRelease:
       any;
 
@@ -5629,148 +5477,73 @@ export async function handler(event: Event) {
       );
     }
 
-    /**
-     * Existing immutable configurations must pass current operational
-     * PPS policy before they can be reused.
+     /**
+     * A new Deployment Configuration may only be composed from a
+     * Platform Release that explicitly declares a PPS understood by
+     * this control plane.
      *
-     * This prevents historical Platform Release v1 configurations
-     * from bypassing the P6 gate merely because the immutable
-     * configuration already exists.
+     * Fail here before reading the Profile Variant. This keeps an
+     * unqualified or unsupported Platform Release from progressing
+     * further into composition resolution.
+     *
+     * Full Platform/Profile compatibility is still evaluated later,
+     * after the authoritative Profile Variant has been loaded and the
+     * candidate Deployment Configuration has been constructed.
      */
-    if (
-      existingConfiguration
+    try {
+      requireDeclaredProfilePlatformSpecification(
+        platformRelease
+      );
+    } catch (
+      error: any
     ) {
-      try {
-        assertDeclaredProfilePlatformCompatible({
-          platformRelease,
-
-          deploymentConfiguration:
-            existingConfiguration
-              .configuration,
-        });
-      } catch (
-        error: any
+      if (
+        isProfilePlatformCompatibilityGateError(
+          error
+        )
       ) {
-        if (
-          isProfilePlatformCompatibilityGateError(
-            error
-          )
-        ) {
-          return json(
-            409,
-            profilePlatformGateFailureBody({
-              error,
-
-              platformReleaseId,
-
-              profileVariantId,
-
-              deploymentConfigurationId,
-            }),
-            corsOrigin
-          );
-        }
-
-
-        console.error(
-          "Existing Deployment Configuration PPS verification failed",
-          {
-            deploymentConfigurationId,
+        return json(
+          409,
+          profilePlatformGateFailureBody({
+            error,
 
             platformReleaseId,
 
             profileVariantId,
 
-            error:
-              String(
-                error?.message ||
-                error
-              ),
-          }
-        );
-
-
-        return json(
-          500,
-          {
-            ok:
-              false,
-
-            error:
-              "Failed to verify existing Deployment Configuration compatibility.",
-          },
-          corsOrigin
-        );
-      }
-
-
-      try {
-        await ensureDeploymentConfigurationCatalogEntry({
-          configuration:
-            existingConfiguration
-              .configuration,
-
-          key:
-            existingConfiguration
-              .key,
-
-          configurationSha256:
-            existingConfiguration
-              .configurationSha256,
-        });
-      } catch (
-        error: any
-      ) {
-        console.error(
-          "Existing Deployment Configuration catalog repair failed",
-          {
             deploymentConfigurationId,
-
-            error:
-              String(
-                error?.message ||
-                error
-              ),
-          }
-        );
-
-
-        return json(
-          500,
-          {
-            ok:
-              false,
-
-            error:
-              "Failed to repair existing Deployment Configuration catalog.",
-          },
+          }),
           corsOrigin
         );
       }
 
 
-      return json(
-        200,
+      console.error(
+        "Deployment Configuration Platform Release PPS declaration verification failed",
         {
-          ok:
-            true,
+          platformReleaseId,
 
-          alreadyCreated:
-            true,
+          profileVariantId,
 
           deploymentConfigurationId,
 
-          key:
-            existingConfiguration
-              .key,
+          error:
+            String(
+              error?.message ||
+              error
+            ),
+        }
+      );
 
-          configurationSha256:
-            existingConfiguration
-              .configurationSha256,
 
-          configuration:
-            existingConfiguration
-              .configuration,
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Failed to verify Platform Release PPS declaration.",
         },
         corsOrigin
       );

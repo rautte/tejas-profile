@@ -494,9 +494,6 @@ describe(
 
 
         mockS3Send
-          .mockRejectedValueOnce(
-            notFound()
-          )
           .mockResolvedValueOnce(
             storedResponse(
               release
@@ -603,7 +600,7 @@ describe(
         const put =
           mockS3Send
             .mock
-            .calls[3][0];
+            .calls[2][0];
 
 
         expect(
@@ -660,12 +657,26 @@ describe(
         mockS3Send
           .mockResolvedValueOnce(
             storedResponse(
-              existing
+              validRelease()
             )
           )
           .mockResolvedValueOnce(
             storedResponse(
-              release
+              validVariant()
+            )
+          )
+          .mockRejectedValueOnce({
+            name:
+              "PreconditionFailed",
+
+            $metadata: {
+              httpStatusCode:
+                412,
+            },
+          })
+          .mockResolvedValueOnce(
+            storedResponse(
+              existing
             )
           );
 
@@ -728,7 +739,7 @@ describe(
         expect(
           mockS3Send
         ).toHaveBeenCalledTimes(
-          2
+          4
         );
 
 
@@ -750,21 +761,11 @@ describe(
 
 
         mockS3Send
-          .mockRejectedValueOnce(
-            notFound()
-          )
-          .mockResolvedValueOnce(
-            storedResponse(
-              release
-            )
-          )
-          .mockResolvedValueOnce(
-            storedResponse(
-              validVariant(
-                "prv_api_001"
-              )
-            )
-          );
+            .mockResolvedValueOnce(
+                storedResponse(
+                release
+                )
+            );
 
 
         const response =
@@ -846,19 +847,11 @@ describe(
 
 
         mockS3Send
-          .mockRejectedValueOnce(
-            notFound()
-          )
-          .mockResolvedValueOnce(
-            storedResponse(
-              release
-            )
-          )
-          .mockResolvedValueOnce(
-            storedResponse(
-              variant
-            )
-          );
+            .mockResolvedValueOnce(
+                storedResponse(
+                release
+                )
+            );
 
 
         const response =
@@ -934,16 +927,11 @@ describe(
 
 
         mockS3Send
-          .mockResolvedValueOnce(
-            storedResponse(
-              existing
-            )
-          )
-          .mockResolvedValueOnce(
-            storedResponse(
-              release
-            )
-          );
+            .mockResolvedValueOnce(
+                storedResponse(
+                release
+                )
+            );
 
 
         const response =
@@ -980,6 +968,13 @@ describe(
             .code
         ).toBe(
           "PPS_DECLARATION_REQUIRED"
+        );
+
+
+        expect(
+            mockS3Send
+        ).toHaveBeenCalledTimes(
+            1
         );
 
 
@@ -1049,9 +1044,6 @@ describe(
         mockS3Send
           .mockRejectedValueOnce(
             notFound()
-          )
-          .mockRejectedValueOnce(
-            notFound()
           );
 
 
@@ -1110,9 +1102,6 @@ describe(
 
 
         mockS3Send
-          .mockRejectedValueOnce(
-            notFound()
-          )
           .mockResolvedValueOnce(
             storedResponse(
               release
