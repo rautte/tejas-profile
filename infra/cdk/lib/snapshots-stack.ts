@@ -1264,23 +1264,34 @@ export class SnapshotsStack extends cdk.Stack {
     //
     // Profile activation, Platform deployment, and Usage Epoch lifecycle require:
     //
-    // - strongly consistent GetItem
-    // - atomic TransactWriteItems
+    // - strongly consistent GetItem for authoritative pointer/lifecycle reads
+    // - ConditionCheckItem inside TransactWriteItems for atomic cross-pointer
+    //   and lifecycle guards
+    // - PutItem inside TransactWriteItems for immutable ledger/pointer/lifecycle
+    //   writes
     //
-    // Cross-pointer guards intentionally allow one transaction
-    // to condition-check the opposite CONTROL / ACTIVE pointer.
+    // DynamoDB transaction IAM is authorized through the underlying item
+    // operations. Transaction-only mutation authority is therefore restricted
+    // with dynamodb:EnclosingOperation = TransactWriteItems.
     //
-    // Intentionally NO direct:
+    // Intentionally NO unconditional/direct:
     // - PutItem
+    // - ConditionCheckItem
     // - UpdateItem
     // - DeleteItem
     // - Scan
     // -----------------------------
+
+    /**
+     * Authoritative control-plane reads.
+     *
+     * These reads occur before transaction construction and therefore must
+     * remain available outside TransactWriteItems.
+     */
     fn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
           "dynamodb:GetItem",
-          "dynamodb:TransactWriteItems",
         ],
 
         resources: [
@@ -1293,6 +1304,42 @@ export class SnapshotsStack extends cdk.Stack {
           usageEpochsTable
             .tableArn,
         ],
+      })
+    );
+
+
+    /**
+     * Transaction-only control-plane mutation/check authority.
+     *
+     * The underlying DynamoDB actions are intentionally unusable as normal
+     * direct APIs because they are allowed only when DynamoDB reports that
+     * they are enclosed by TransactWriteItems.
+     */
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "dynamodb:ConditionCheckItem",
+          "dynamodb:PutItem",
+        ],
+
+        resources: [
+          profileActivationTable
+            .tableArn,
+
+          platformDeploymentTable
+            .tableArn,
+
+          usageEpochsTable
+            .tableArn,
+        ],
+
+        conditions: {
+          "ForAnyValue:StringEquals": {
+            "dynamodb:EnclosingOperation": [
+              "TransactWriteItems",
+            ],
+          },
+        },
       })
     );
 

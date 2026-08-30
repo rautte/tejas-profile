@@ -1731,7 +1731,7 @@ describe(
     );
 
     test(
-      "Snapshots Lambda can query Profile/Platform history without gaining direct mutation or scan authority",
+      "Snapshots Lambda can query Profile/Platform history without gaining unconditional mutation or scan authority",
       () => {
         const {
           template,
@@ -1747,7 +1747,6 @@ describe(
         } =
           findTableByName(
             template,
-
             "tejas-profile-dev-profile-activations-978416150779"
           );
 
@@ -1758,7 +1757,6 @@ describe(
         } =
           findTableByName(
             template,
-
             "tejas-profile-dev-platform-deployments-978416150779"
           );
 
@@ -1820,97 +1818,142 @@ describe(
         );
 
 
-        const actions =
-          relevantStatements
-            .flatMap(
-              (
-                statement:
-                  any
-              ) =>
-                Array.isArray(
-                  statement.Action
-                )
-                  ? statement.Action
-                  : [
-                      statement.Action,
-                    ]
-            )
-            .filter(
+        const actionsFor =
+          (
+            statement:
+              any
+          ) =>
+            (
+              Array.isArray(
+                statement.Action
+              )
+                ? statement.Action
+                : [
+                    statement.Action,
+                  ]
+            ).filter(
               Boolean
             );
 
 
+        /**
+         * Historical read APIs must retain GetItem + Query authority.
+         */
+        const readActions =
+          relevantStatements
+            .filter(
+              (
+                statement:
+                  any
+              ) =>
+                !statement.Condition
+            )
+            .flatMap(
+              actionsFor
+            );
+
+
         expect(
-          actions
+          readActions
         ).toEqual(
           expect.arrayContaining([
             "dynamodb:GetItem",
-
             "dynamodb:Query",
-
-            "dynamodb:TransactWriteItems",
           ])
         );
 
 
-        const serializedResources =
-          JSON.stringify(
-            relevantStatements
-              .map(
-                (
-                  statement:
-                    any
-                ) =>
-                  statement.Resource
-              )
+        /**
+         * Transaction-only ConditionCheckItem / PutItem authority is
+         * valid, but it must never appear as unconditional direct
+         * mutation authority.
+         */
+        const transactionStatement =
+          relevantStatements.find(
+            (
+              statement:
+                any
+            ) => {
+              const actions =
+                actionsFor(
+                  statement
+                );
+
+
+              return (
+                actions.includes(
+                  "dynamodb:ConditionCheckItem"
+                ) &&
+                actions.includes(
+                  "dynamodb:PutItem"
+                )
+              );
+            }
           );
 
 
         expect(
-          serializedResources
-        ).toContain(
-          profileTableLogicalId
-        );
+          transactionStatement
+        ).toBeDefined();
 
 
         expect(
-          serializedResources
-        ).toContain(
-          platformTableLogicalId
-        );
+          transactionStatement
+            .Condition
+        ).toEqual({
+          "ForAnyValue:StringEquals": {
+            "dynamodb:EnclosingOperation": [
+              "TransactWriteItems",
+            ],
+          },
+        });
 
 
         /**
-         * P7B entity-specific history requires the existing GSIs.
+         * Inspect only UNCONDITIONAL statements when enforcing the
+         * "no direct mutation" boundary.
          */
         expect(
-          serializedResources
-        ).toContain(
-          "index/*"
+          readActions
+        ).not.toContain(
+          "dynamodb:ConditionCheckItem"
         );
 
+        expect(
+          readActions
+        ).not.toContain(
+          "dynamodb:PutItem"
+        );
 
-        /**
-         * History is strictly query-only.
-         *
-         * ACTIVE state still moves exclusively through the existing
-         * transactional control-plane APIs.
-         */
-        for (
-          const forbidden of [
-            "dynamodb:DeleteItem",
-            "dynamodb:PutItem",
-            "dynamodb:UpdateItem",
-            "dynamodb:BatchWriteItem",
-            "dynamodb:Scan",
-          ]
-        ) {
-          expect(
-            actions
-          ).not.toContain(
-            forbidden
-          );
-        }
+        expect(
+          readActions
+        ).not.toContain(
+          "dynamodb:TransactWriteItems"
+        );
+
+        expect(
+          readActions
+        ).not.toContain(
+          "dynamodb:UpdateItem"
+        );
+
+        expect(
+          readActions
+        ).not.toContain(
+          "dynamodb:DeleteItem"
+        );
+
+        expect(
+          readActions
+        ).not.toContain(
+          "dynamodb:BatchWriteItem"
+        );
+
+        expect(
+          readActions
+        ).not.toContain(
+          "dynamodb:Scan"
+        );
       }
     );
 
@@ -2035,7 +2078,7 @@ describe(
     );
 
     test(
-      "owner control-plane Lambda has atomic Profile, Platform, and Usage Epoch authority without direct mutation APIs",
+      "owner control-plane Lambda has transaction-only Profile, Platform, and Usage Epoch mutation authority",
       () => {
         const {
           template,
@@ -2135,42 +2178,178 @@ describe(
         );
 
 
-        const actions =
-          relevantStatements
-            .flatMap(
-              (
-                statement:
-                  any
-              ) =>
-                Array.isArray(
-                  statement.Action
-                )
-                  ? statement.Action
-                  : [
-                      statement.Action,
-                    ]
-            )
-            .filter(
+        const actionsFor =
+          (
+            statement:
+              any
+          ) =>
+            (
+              Array.isArray(
+                statement.Action
+              )
+                ? statement.Action
+                : [
+                    statement.Action,
+                  ]
+            ).filter(
               Boolean
             );
 
 
+        /**
+         * Authoritative reads must remain available outside a
+         * transaction because pointer/lifecycle state is read before
+         * transaction construction.
+         */
+        const readStatement =
+          relevantStatements.find(
+            (
+              statement:
+                any
+            ) =>
+              actionsFor(
+                statement
+              ).includes(
+                "dynamodb:GetItem"
+              )
+          );
+
+
         expect(
-          actions
+          readStatement
+        ).toBeDefined();
+
+
+        expect(
+          actionsFor(
+            readStatement
+          )
+        ).toContain(
+          "dynamodb:GetItem"
+        );
+
+
+        /**
+         * DynamoDB authorizes TransactWriteItems through its
+         * underlying item operations.
+         *
+         * Mutation/check authority must therefore exist only when the
+         * operation is enclosed by TransactWriteItems.
+         */
+        const transactionStatement =
+          relevantStatements.find(
+            (
+              statement:
+                any
+            ) => {
+              const actions =
+                actionsFor(
+                  statement
+                );
+
+
+              return (
+                actions.includes(
+                  "dynamodb:ConditionCheckItem"
+                ) &&
+                actions.includes(
+                  "dynamodb:PutItem"
+                )
+              );
+            }
+          );
+
+
+        expect(
+          transactionStatement
+        ).toBeDefined();
+
+
+        expect(
+          actionsFor(
+            transactionStatement
+          )
         ).toEqual(
           expect.arrayContaining([
-            "dynamodb:GetItem",
-            "dynamodb:TransactWriteItems",
+            "dynamodb:ConditionCheckItem",
+            "dynamodb:PutItem",
           ])
         );
 
 
         expect(
-          actions
-        ).not.toContain(
-          "dynamodb:PutItem"
+          transactionStatement
+            .Condition
+        ).toEqual({
+          "ForAnyValue:StringEquals": {
+            "dynamodb:EnclosingOperation": [
+              "TransactWriteItems",
+            ],
+          },
+        });
+
+
+        /**
+         * There must be no unconditional control-plane PutItem or
+         * ConditionCheckItem permission.
+         */
+        const unconditionalMutationStatements =
+          relevantStatements.filter(
+            (
+              statement:
+                any
+            ) => {
+              const actions =
+                actionsFor(
+                  statement
+                );
+
+              const hasMutation =
+                actions.includes(
+                  "dynamodb:ConditionCheckItem"
+                ) ||
+                actions.includes(
+                  "dynamodb:PutItem"
+                );
+
+
+              return (
+                hasMutation &&
+                !statement.Condition
+              );
+            }
+          );
+
+
+        expect(
+          unconditionalMutationStatements
+        ).toHaveLength(
+          0
         );
 
+
+        const actions =
+          relevantStatements
+            .flatMap(
+              actionsFor
+            );
+
+
+        /**
+         * TransactWriteItems itself is not the item-level IAM action
+         * used to authorize the transaction.
+         */
+        expect(
+          actions
+        ).not.toContain(
+          "dynamodb:TransactWriteItems"
+        );
+
+
+        /**
+         * Transition authority remains deliberately narrower than
+         * general DynamoDB mutation authority.
+         */
         expect(
           actions
         ).not.toContain(
