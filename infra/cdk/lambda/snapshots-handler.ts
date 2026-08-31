@@ -3444,6 +3444,28 @@ export async function handler(event: Event) {
         {
           expiresIn:
             600,
+
+          /**
+           * AWS SDK v3 may otherwise treat x-amz-* headers as
+           * hoistable presign inputs. The upload client sends
+           * these values as actual HTTP headers, so explicitly
+           * require them to participate in the signed request.
+           */
+          unhoistableHeaders:
+            new Set([
+              "x-amz-checksum-sha256",
+            ]),
+
+          /**
+           * These non-x-amz headers are also part of the immutable
+           * upload contract and must match the values issued by
+           * the owner control plane.
+           */
+          signableHeaders:
+            new Set([
+              "content-type",
+              "if-none-match",
+            ]),
         }
       );
 

@@ -284,6 +284,41 @@ describe(
         );
 
 
+        const presignOptions =
+          mockGetSignedUrl
+            .mock
+            .calls[0][2];
+
+
+        expect(
+          presignOptions
+            .expiresIn
+        ).toBe(
+          600
+        );
+
+
+        expect(
+          presignOptions
+            .unhoistableHeaders
+        ).toEqual(
+          new Set([
+            "x-amz-checksum-sha256",
+          ])
+        );
+
+
+        expect(
+          presignOptions
+            .signableHeaders
+        ).toEqual(
+          new Set([
+            "content-type",
+            "if-none-match",
+          ])
+        );
+
+
         const putCommand =
           mockGetSignedUrl
             .mock
