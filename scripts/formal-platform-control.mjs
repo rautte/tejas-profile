@@ -805,9 +805,28 @@ async function prepareConfiguration({
     );
 
 
-  if (
+  const configuration =
     response
-      ?.platformReleaseId !==
+      ?.configuration;
+
+
+  if (
+    !configuration ||
+    typeof configuration !==
+      "object" ||
+    Array.isArray(
+      configuration
+    )
+  ) {
+    fail(
+      "Deployment Configuration document is missing."
+    );
+  }
+
+
+  if (
+    configuration
+      .platformReleaseId !==
       platformReleaseId
   ) {
     fail(
@@ -817,8 +836,8 @@ async function prepareConfiguration({
 
 
   if (
-    response
-      ?.profileVariantId !==
+    configuration
+      .profileVariantId !==
       profileVariantId
   ) {
     fail(
@@ -827,7 +846,7 @@ async function prepareConfiguration({
   }
 
 
-  const configurationId =
+  const responseConfigurationId =
     String(
       response
         ?.deploymentConfigurationId ||
@@ -835,13 +854,36 @@ async function prepareConfiguration({
     ).trim();
 
 
+  const documentConfigurationId =
+    String(
+      configuration
+        ?.deploymentConfigurationId ||
+      ""
+    ).trim();
+
+
   if (
-    !configurationId
+    !responseConfigurationId ||
+    !documentConfigurationId
   ) {
     fail(
       "Deployment Configuration ID is missing."
     );
   }
+
+
+  if (
+    responseConfigurationId !==
+      documentConfigurationId
+  ) {
+    fail(
+      "Deployment Configuration identity mismatch."
+    );
+  }
+
+
+  const configurationId =
+    responseConfigurationId;
 
 
   console.log(

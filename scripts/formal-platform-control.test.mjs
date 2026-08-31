@@ -180,7 +180,7 @@ function runControl(
 
 
 test(
-  "formal Platform commit accepts the canonical top-level Deployment Configuration create response",
+  "formal Platform commit accepts the canonical nested Deployment Configuration create response",
   async () => {
     const platformReleaseId =
       "plr_test_runtime_boundary";
@@ -268,14 +268,19 @@ test(
                   deploymentConfigurationId:
                     "cfg_test_runtime_boundary",
 
-                  platformReleaseId,
-
-                  profileVariantId,
-
                   configurationSha256:
                     "b".repeat(
                       64
                     ),
+
+                  configuration: {
+                    deploymentConfigurationId:
+                      "cfg_test_runtime_boundary",
+
+                    platformReleaseId,
+
+                    profileVariantId,
+                  },
                 }
               );
 
