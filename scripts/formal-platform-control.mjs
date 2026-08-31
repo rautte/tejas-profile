@@ -807,7 +807,6 @@ async function prepareConfiguration({
 
   if (
     response
-      ?.configuration
       ?.platformReleaseId !==
       platformReleaseId
   ) {
@@ -819,7 +818,6 @@ async function prepareConfiguration({
 
   if (
     response
-      ?.configuration
       ?.profileVariantId !==
       profileVariantId
   ) {

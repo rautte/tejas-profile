@@ -5,10 +5,6 @@ import {
 } from "@aws-sdk/client-s3";
 
 import {
-  validateActiveProfilePointer,
-} from "./profile-activation-contract";
-
-import {
   readActivePlatformReleasePointer,
 } from "./platform-deployment-store";
 
@@ -96,6 +92,203 @@ function requireStorageName(
 
 
   return normalized;
+}
+
+
+const RUNTIME_PROFILE_ID_RE =
+  /^[A-Za-z0-9._:-]+$/;
+
+const RUNTIME_PROFILE_SHA256_RE =
+  /^[a-f0-9]{64}$/;
+
+
+function requireRuntimeProfileId(
+  value:
+    unknown,
+
+  field:
+    string
+) {
+  if (
+    typeof value !==
+      "string" ||
+    value !==
+      value.trim() ||
+    !value ||
+    value.length >
+      160 ||
+    !RUNTIME_PROFILE_ID_RE.test(
+      value
+    )
+  ) {
+    throw new Error(
+      `Active Profile runtime identity ${field} is invalid.`
+    );
+  }
+
+
+  return value;
+}
+
+
+function requireRuntimeProfilePositiveInteger(
+  value:
+    unknown,
+
+  field:
+    string
+) {
+  if (
+    typeof value !==
+      "number" ||
+    !Number.isInteger(
+      value
+    ) ||
+    value <=
+      0
+  ) {
+    throw new Error(
+      `Active Profile runtime identity ${field} must be a positive integer.`
+    );
+  }
+
+
+  return value;
+}
+
+
+function requireRuntimeProfileTimestamp(
+  value:
+    unknown,
+
+  field:
+    string
+) {
+  if (
+    typeof value !==
+      "string" ||
+    value !==
+      value.trim() ||
+    !value
+  ) {
+    throw new Error(
+      `Active Profile runtime identity ${field} is invalid.`
+    );
+  }
+
+
+  const parsed =
+    new Date(
+      value
+    );
+
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    ) ||
+    parsed.toISOString() !==
+      value
+  ) {
+    throw new Error(
+      `Active Profile runtime identity ${field} must be a canonical UTC ISO timestamp.`
+    );
+  }
+
+
+  return value;
+}
+
+
+function requireRuntimeProfileSha256(
+  value:
+    unknown,
+
+  field:
+    string
+) {
+  if (
+    typeof value !==
+      "string" ||
+    value !==
+      value.trim() ||
+    !RUNTIME_PROFILE_SHA256_RE.test(
+      value
+    )
+  ) {
+    throw new Error(
+      `Active Profile runtime identity ${field} must be a 64-character lowercase SHA-256 digest.`
+    );
+  }
+
+
+  return value;
+}
+
+
+/**
+ * Validate the runtime-safe Active Profile identity produced by
+ * readPublicActiveProfile().
+ *
+ * This is deliberately NOT the DynamoDB storage document.
+ *
+ * pk / sk / schema / pointerSchemaVersion remain internal
+ * control-plane metadata and must not be required by this public
+ * runtime boundary.
+ *
+ * The identity still fails closed on every field needed to bind the
+ * effective immutable composition.
+ */
+function validateRuntimeActiveProfileIdentity(
+  identity:
+    any
+) {
+  if (
+    !identity ||
+    typeof identity !==
+      "object" ||
+    Array.isArray(
+      identity
+    )
+  ) {
+    throw new Error(
+      "Active Profile runtime identity must be an object."
+    );
+  }
+
+
+  requireRuntimeProfilePositiveInteger(
+    identity.revision,
+    "revision"
+  );
+
+  requireRuntimeProfileId(
+    identity.activationId,
+    "activationId"
+  );
+
+  requireRuntimeProfileId(
+    identity.profileVariantId,
+    "profileVariantId"
+  );
+
+  requireRuntimeProfileTimestamp(
+    identity.activatedAt,
+    "activatedAt"
+  );
+
+  requireRuntimeProfilePositiveInteger(
+    identity.contentSchemaVersion,
+    "contentSchemaVersion"
+  );
+
+  requireRuntimeProfileSha256(
+    identity.contentHash,
+    "contentHash"
+  );
+
+
+  return true;
 }
 
 
@@ -401,10 +594,14 @@ export async function readEffectiveDeploymentConfiguration({
 
   /**
    * The Profile side has already been selected by the public runtime
-   * request. Validate the exact pointer instead of performing a second
-   * Profile pointer read that could observe another revision.
+   * request from one strongly-consistent control-plane read.
+   *
+   * readPublicActiveProfile() deliberately projects that validated
+   * pointer into a runtime-safe identity before returning it. Do not
+   * require DynamoDB storage keys here and do not independently
+   * re-read Profile activation state.
    */
-  validateActiveProfilePointer(
+  validateRuntimeActiveProfileIdentity(
     activeProfilePointer
   );
 

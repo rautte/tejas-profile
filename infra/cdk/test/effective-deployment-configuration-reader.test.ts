@@ -343,6 +343,43 @@ function activeProfilePointer(
 }
 
 
+function publicActiveProfileIdentity(
+  variant =
+    validVariant()
+) {
+  const pointer =
+    activeProfilePointer(
+      variant
+    );
+
+
+  /**
+   * Exact runtime-safe shape returned by readPublicActiveProfile().
+   *
+   * DynamoDB storage keys deliberately do not cross this boundary.
+   */
+  return {
+    revision:
+      pointer.revision,
+
+    activationId:
+      pointer.activationId,
+
+    profileVariantId:
+      pointer.profileVariantId,
+
+    activatedAt:
+      pointer.activatedAt,
+
+    contentSchemaVersion:
+      pointer.contentSchemaVersion,
+
+    contentHash:
+      pointer.contentHash,
+  };
+}
+
+
 function activePlatformPointer(
   release:
     | ReturnType<
@@ -476,6 +513,164 @@ describe(
           })
         ).resolves.toBeNull();
 
+
+        expect(
+          s3Send
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+
+    test(
+      "accepts the runtime-safe Active Profile identity returned by the public Profile reader",
+      async () => {
+        const variant =
+          validVariant();
+
+        const release =
+          validRelease();
+
+        const platformPointer =
+          activePlatformPointer(
+            release
+          );
+
+        const config =
+          configuration({
+            release,
+            variant,
+          });
+
+
+        const platformSend =
+          jest.fn()
+            .mockResolvedValueOnce({
+              Item:
+                marshall(
+                  platformPointer
+                ),
+            });
+
+        const s3Send =
+          jest.fn()
+            .mockResolvedValueOnce(
+              storedResponse(
+                release
+              )
+            )
+            .mockResolvedValueOnce(
+              storedResponse(
+                config
+              )
+            );
+
+
+        const result =
+          await readEffectiveDeploymentConfiguration({
+            platformDeploymentClient: {
+              send:
+                platformSend,
+            },
+
+            s3Client: {
+              send:
+                s3Send,
+            },
+
+            platformDeploymentTableName:
+              "platform-deployments",
+
+            platformReleasesBucket:
+              "platform-releases",
+
+            deploymentConfigurationsBucket:
+              "deployment-configurations",
+
+            stage:
+              "prod",
+
+            activeProfilePointer:
+              publicActiveProfileIdentity(
+                variant
+              ),
+          });
+
+
+        expect(
+          result
+            ?.deploymentConfigurationId
+        ).toBe(
+          computeDeploymentConfigurationId({
+            stage:
+              "prod",
+
+            platformReleaseId:
+              release
+                .platformReleaseId,
+
+            profileVariantId:
+              variant
+                .profileVariantId,
+          })
+        );
+      }
+    );
+
+
+    test(
+      "fails closed on malformed runtime-safe Active Profile identity before reading Platform state",
+      async () => {
+        const variant =
+          validVariant();
+
+        const platformSend =
+          jest.fn();
+
+        const s3Send =
+          jest.fn();
+
+
+        await expect(
+          readEffectiveDeploymentConfiguration({
+            platformDeploymentClient: {
+              send:
+                platformSend,
+            },
+
+            s3Client: {
+              send:
+                s3Send,
+            },
+
+            platformDeploymentTableName:
+              "platform-deployments",
+
+            platformReleasesBucket:
+              "platform-releases",
+
+            deploymentConfigurationsBucket:
+              "deployment-configurations",
+
+            stage:
+              "prod",
+
+            activeProfilePointer: {
+              ...publicActiveProfileIdentity(
+                variant
+              ),
+
+              profileVariantId:
+                "",
+            },
+          })
+        ).rejects.toThrow(
+          "Active Profile runtime identity profileVariantId is invalid."
+        );
+
+
+        expect(
+          platformSend
+        ).not.toHaveBeenCalled();
 
         expect(
           s3Send
