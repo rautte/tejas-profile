@@ -24,12 +24,19 @@ import {
   readUsageEpochRecord,
 } from "./usage-epoch-store";
 
+import {
+  normalizeTrafficEvidence,
+} from "./traffic-classification";
+
 
 export const USAGE_EPOCH_ANALYTICS_EVENT_DOCUMENT_SCHEMA =
   "tejas-profile.usage-epoch-analytics-event";
 
 export const USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1 =
   "tejas-profile.usage-epoch-analytics-event.v1";
+
+export const USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V2 =
+  "tejas-profile.usage-epoch-analytics-event.v2";
 
 export const USAGE_EPOCH_CONFIGURATION_INDEX_NAME =
   "ByDeploymentConfiguration";
@@ -775,8 +782,16 @@ export function createUsageEpochAnalyticsEventRecord({
     schema:
       USAGE_EPOCH_ANALYTICS_EVENT_DOCUMENT_SCHEMA,
 
+    /**
+     * V2 adds only privacy-safe traffic-classification evidence.
+     *
+     * Existing V1 records remain immutable and valid. Event identity
+     * and the DynamoDB EVENT# sort key are unchanged, so retries of
+     * events originally projected as V1 remain idempotent rather than
+     * mutating historical rows into V2.
+     */
     schemaId:
-      USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1,
+      USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V2,
 
     usageEpochId:
       attribution
@@ -817,6 +832,18 @@ export function createUsageEpochAnalyticsEventRecord({
     sessionHash,
 
     type,
+
+    /**
+     * Coarse, bounded evidence only.
+     *
+     * No raw User-Agent, IP address, pointer coordinates,
+     * keyboard contents, or browser fingerprint material.
+     */
+    trafficEvidence:
+      normalizeTrafficEvidence(
+        event
+          ?.trafficEvidence
+      ),
 
     countryCode:
       optionalString(

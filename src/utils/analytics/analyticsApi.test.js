@@ -330,6 +330,133 @@ describe(
 
 
     test(
+      "queryAnalyticsAgg sends canonical traffic classification",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok: true,
+              overview: {},
+            })
+          );
+
+
+        const {
+          queryAnalyticsAgg,
+        } =
+          loadAnalyticsApi();
+
+
+        await queryAnalyticsAgg({
+          profileVersionId:
+            "pv_test",
+
+          trafficClassification:
+            "likely_automated",
+
+          from:
+            "2026-08-01",
+
+          to:
+            "2026-08-20",
+        });
+
+
+        const [
+          url,
+        ] =
+          global.fetch
+            .mock
+            .calls[0];
+
+
+        const parsed =
+          new URL(url);
+
+
+        expect(
+          parsed.searchParams.get(
+            "trafficClassification"
+          )
+        ).toBe(
+          "likely_automated"
+        );
+      }
+    );
+
+
+    test(
+      "queryAnalyticsAgg defaults Traffic to all and rejects unknown values before fetch",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok: true,
+              overview: {},
+            })
+          );
+
+
+        const {
+          queryAnalyticsAgg,
+        } =
+          loadAnalyticsApi();
+
+
+        await queryAnalyticsAgg({
+          from:
+            "2026-08-01",
+
+          to:
+            "2026-08-20",
+        });
+
+
+        const parsed =
+          new URL(
+            global.fetch
+              .mock
+              .calls[0][0]
+          );
+
+
+        expect(
+          parsed.searchParams.get(
+            "trafficClassification"
+          )
+        ).toBe(
+          "all"
+        );
+
+
+        global.fetch
+          .mockClear();
+
+
+        await expect(
+          queryAnalyticsAgg({
+            trafficClassification:
+              "definitely_a_robot",
+
+            from:
+              "2026-08-01",
+
+            to:
+              "2026-08-20",
+          })
+        ).rejects.toThrow(
+          "trafficClassification must be"
+        );
+
+
+        expect(
+          global.fetch
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+
+    test(
       "queryAnalyticsAgg sends a specific boundary",
       async () => {
         global.fetch

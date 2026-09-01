@@ -13,12 +13,28 @@ import {
   normalizeAndValidateUsageEpochDocument,
 } from "./usage-epoch-contract";
 
+import {
+  TRAFFIC_CLASSIFIER_VERSION,
+} from "./traffic-classification";
+
 
 export const CONFIGURATION_ANALYTICS_REPORT_DOCUMENT_SCHEMA =
   "tejas-profile.configuration-analytics-report";
 
 export const CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1 =
   "tejas-profile.configuration-analytics-report.v1";
+
+export const CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2 =
+  "tejas-profile.configuration-analytics-report.v2";
+
+
+const TRAFFIC_REPORT_KEYS =
+  [
+    "all",
+    "likely_human",
+    "likely_automated",
+    "uncertain",
+  ] as const;
 
 
 const ID_RE =
@@ -206,6 +222,32 @@ function requireReportId(
   ) {
     throw new Error(
       "reportId is invalid."
+    );
+  }
+
+
+  return normalized;
+}
+
+
+function requireReportSchemaId(
+  value:
+    unknown
+) {
+  const normalized =
+    cleanString(
+      value
+    );
+
+
+  if (
+    normalized !==
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1 &&
+    normalized !==
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2
+  ) {
+    throw new Error(
+      `schemaId must be "${CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1}" or "${CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2}".`
     );
   }
 
@@ -579,6 +621,439 @@ function normalizeAnalytics(
 }
 
 
+function requireNonNegativeInteger(
+  value:
+    unknown,
+
+  field:
+    string
+) {
+  const normalized =
+    Number(
+      value
+    );
+
+
+  if (
+    !Number.isInteger(
+      normalized
+    ) ||
+    normalized <
+      0
+  ) {
+    throw new Error(
+      `${field} must be a non-negative integer.`
+    );
+  }
+
+
+  return normalized;
+}
+
+
+function normalizeTrafficSummaryBucket(
+  input:
+    unknown,
+
+  field:
+    string
+) {
+  if (
+    !isPlainObject(
+      input
+    )
+  ) {
+    throw new Error(
+      `${field} must be an object.`
+    );
+  }
+
+
+  assertAllowedKeys(
+    input,
+    new Set([
+      "uniqueVisitors",
+      "sessions",
+      "eventCount",
+      "activeMs",
+    ]),
+    field
+  );
+
+
+  return {
+    uniqueVisitors:
+      requireNonNegativeInteger(
+        input.uniqueVisitors,
+        `${field}.uniqueVisitors`
+      ),
+
+    sessions:
+      requireNonNegativeInteger(
+        input.sessions,
+        `${field}.sessions`
+      ),
+
+    eventCount:
+      requireNonNegativeInteger(
+        input.eventCount,
+        `${field}.eventCount`
+      ),
+
+    activeMs:
+      requireNonNegativeInteger(
+        input.activeMs,
+        `${field}.activeMs`
+      ),
+  };
+}
+
+
+function normalizeTrafficReport(
+  input:
+    unknown
+) {
+  if (
+    !isPlainObject(
+      input
+    )
+  ) {
+    throw new Error(
+      "traffic must be an object."
+    );
+  }
+
+
+  assertAllowedKeys(
+    input,
+    new Set([
+      "classifierVersion",
+      "summary",
+    ]),
+    "traffic"
+  );
+
+
+  const classifierVersion =
+    requireString(
+      input.classifierVersion,
+      "traffic.classifierVersion",
+      120
+    );
+
+
+  /**
+   * Report V2 is deliberately bound to classifier.v1.
+   *
+   * A future classifier algorithm must advance the immutable report
+   * schema instead of silently rebuilding identical report IDs with
+   * different classification semantics.
+   */
+  if (
+    classifierVersion !==
+      TRAFFIC_CLASSIFIER_VERSION
+  ) {
+    throw new Error(
+      `traffic.classifierVersion must be "${TRAFFIC_CLASSIFIER_VERSION}" for report V2.`
+    );
+  }
+
+
+  if (
+    !isPlainObject(
+      input.summary
+    )
+  ) {
+    throw new Error(
+      "traffic.summary must be an object."
+    );
+  }
+
+
+  assertAllowedKeys(
+    input.summary,
+    new Set<string>(
+      TRAFFIC_REPORT_KEYS
+    ),
+    "traffic.summary"
+  );
+
+
+  for (
+    const key of
+      TRAFFIC_REPORT_KEYS
+  ) {
+    if (
+      !Object.prototype
+        .hasOwnProperty
+        .call(
+          input.summary,
+          key
+        )
+    ) {
+      throw new Error(
+        `traffic.summary.${key} is required.`
+      );
+    }
+  }
+
+
+  return {
+    classifierVersion,
+
+    summary: {
+      all:
+        normalizeTrafficSummaryBucket(
+          input.summary.all,
+          "traffic.summary.all"
+        ),
+
+      likely_human:
+        normalizeTrafficSummaryBucket(
+          input.summary
+            .likely_human,
+          "traffic.summary.likely_human"
+        ),
+
+      likely_automated:
+        normalizeTrafficSummaryBucket(
+          input.summary
+            .likely_automated,
+          "traffic.summary.likely_automated"
+        ),
+
+      uncertain:
+        normalizeTrafficSummaryBucket(
+          input.summary.uncertain,
+          "traffic.summary.uncertain"
+        ),
+    },
+  };
+}
+
+
+function normalizeAnalyticsByTraffic(
+  input:
+    unknown
+) {
+  if (
+    !isPlainObject(
+      input
+    )
+  ) {
+    throw new Error(
+      "analyticsByTraffic must be an object."
+    );
+  }
+
+
+  assertAllowedKeys(
+    input,
+    new Set<string>(
+      TRAFFIC_REPORT_KEYS
+    ),
+    "analyticsByTraffic"
+  );
+
+
+  for (
+    const key of
+      TRAFFIC_REPORT_KEYS
+  ) {
+    if (
+      !Object.prototype
+        .hasOwnProperty
+        .call(
+          input,
+          key
+        )
+    ) {
+      throw new Error(
+        `analyticsByTraffic.${key} is required.`
+      );
+    }
+  }
+
+
+  return {
+    all:
+      normalizeAnalytics(
+        input.all
+      ),
+
+    likely_human:
+      normalizeAnalytics(
+        input
+          .likely_human
+      ),
+
+    likely_automated:
+      normalizeAnalytics(
+        input
+          .likely_automated
+      ),
+
+    uncertain:
+      normalizeAnalytics(
+        input.uncertain
+      ),
+  };
+}
+
+
+function assertTrafficReportConsistency(
+  traffic:
+    ReturnType<
+      typeof normalizeTrafficReport
+    >,
+
+  analyticsByTraffic:
+    ReturnType<
+      typeof normalizeAnalyticsByTraffic
+    >
+) {
+  const fields = [
+    "uniqueVisitors",
+    "sessions",
+    "eventCount",
+    "activeMs",
+  ] as const;
+
+
+  for (
+    const key of
+      TRAFFIC_REPORT_KEYS
+  ) {
+    const summary =
+      traffic
+        .summary[key];
+
+    const overview =
+      analyticsByTraffic[
+        key
+      ].overview;
+
+
+    for (
+      const field of
+        fields
+    ) {
+      const actual =
+        requireNonNegativeInteger(
+          overview?.[field],
+          `analyticsByTraffic.${key}.overview.${field}`
+        );
+
+
+      if (
+        actual !==
+          summary[field]
+      ) {
+        throw new Error(
+          `traffic.summary.${key}.${field} does not match analyticsByTraffic.${key}.overview.${field}.`
+        );
+      }
+    }
+  }
+
+
+  /**
+   * Sessions are assigned to exactly one classification.
+   *
+   * Events and active time therefore partition exactly as well.
+   * Unique visitors intentionally do NOT have additive semantics:
+   * one visitor can own sessions in multiple traffic classes.
+   */
+  for (
+    const field of [
+      "sessions",
+      "eventCount",
+      "activeMs",
+    ] as const
+  ) {
+    const expected =
+      traffic
+        .summary
+        .likely_human[
+          field
+        ] +
+      traffic
+        .summary
+        .likely_automated[
+          field
+        ] +
+      traffic
+        .summary
+        .uncertain[
+          field
+        ];
+
+
+    if (
+      traffic
+        .summary
+        .all[field] !==
+      expected
+    ) {
+      throw new Error(
+        `traffic.summary.${field} classes must partition All traffic exactly.`
+      );
+    }
+  }
+
+
+  const classifiedUniqueSum =
+    traffic
+      .summary
+      .likely_human
+      .uniqueVisitors +
+    traffic
+      .summary
+      .likely_automated
+      .uniqueVisitors +
+    traffic
+      .summary
+      .uncertain
+      .uniqueVisitors;
+
+  const largestClassUnique =
+    Math.max(
+      traffic
+        .summary
+        .likely_human
+        .uniqueVisitors,
+
+      traffic
+        .summary
+        .likely_automated
+        .uniqueVisitors,
+
+      traffic
+        .summary
+        .uncertain
+        .uniqueVisitors
+    );
+
+
+  if (
+    traffic
+      .summary
+      .all
+      .uniqueVisitors <
+        largestClassUnique ||
+    traffic
+      .summary
+      .all
+      .uniqueVisitors >
+        classifiedUniqueSum
+  ) {
+    throw new Error(
+      "traffic.summary unique visitor overlap semantics are invalid."
+    );
+  }
+}
+
+
 function normalizeInterval(
   input:
     unknown
@@ -638,16 +1113,96 @@ function normalizeInterval(
 }
 
 
+type ConfigurationAnalyticsReportCommon = {
+  schema:
+    typeof CONFIGURATION_ANALYTICS_REPORT_DOCUMENT_SCHEMA;
+
+  reportId:
+    string;
+
+  stage:
+    | "dev"
+    | "prod";
+
+  usageEpochId:
+    string;
+
+  deploymentConfigurationId:
+    string;
+
+  platformReleaseId:
+    string;
+
+  profileVariantId:
+    string;
+
+  interval:
+    ReturnType<
+      typeof normalizeInterval
+    >;
+
+  openedBy:
+    ReturnType<
+      typeof normalizeTransition
+    >;
+
+  closedBy:
+    ReturnType<
+      typeof normalizeTransition
+    >;
+};
+
+
+export type ConfigurationAnalyticsReportV1Document =
+  ConfigurationAnalyticsReportCommon & {
+    schemaId:
+      typeof CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1;
+
+    analytics:
+      ReturnType<
+        typeof normalizeAnalytics
+      >;
+  };
+
+
+export type ConfigurationAnalyticsReportV2Document =
+  ConfigurationAnalyticsReportCommon & {
+    schemaId:
+      typeof CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2;
+
+    traffic:
+      ReturnType<
+        typeof normalizeTrafficReport
+      >;
+
+    analyticsByTraffic:
+      ReturnType<
+        typeof normalizeAnalyticsByTraffic
+      >;
+  };
+
+
+export type ConfigurationAnalyticsReportDocument =
+  | ConfigurationAnalyticsReportV1Document
+  | ConfigurationAnalyticsReportV2Document;
+
+
 export function computeConfigurationAnalyticsReportId({
   stage,
 
   usageEpochId,
+
+  schemaId =
+    CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1,
 }: {
   stage:
     | "dev"
     | "prod";
 
   usageEpochId:
+    string;
+
+  schemaId?:
     string;
 }) {
   const normalizedStage =
@@ -661,10 +1216,15 @@ export function computeConfigurationAnalyticsReportId({
       "usageEpochId"
     );
 
+  const normalizedSchemaId =
+    requireReportSchemaId(
+      schemaId
+    );
+
 
   const identityMaterial =
     [
-      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1,
+      normalizedSchemaId,
 
       normalizedStage,
 
@@ -711,7 +1271,7 @@ export function createConfigurationAnalyticsReportObjectKey(
 export function normalizeAndValidateConfigurationAnalyticsReportDocument(
   input:
     unknown
-) {
+): ConfigurationAnalyticsReportDocument {
   if (
     !isPlainObject(
       input
@@ -721,26 +1281,6 @@ export function normalizeAndValidateConfigurationAnalyticsReportDocument(
       "Configuration Analytics Report must be an object."
     );
   }
-
-
-  assertAllowedKeys(
-    input,
-    new Set([
-      "schema",
-      "schemaId",
-      "reportId",
-      "stage",
-      "usageEpochId",
-      "deploymentConfigurationId",
-      "platformReleaseId",
-      "profileVariantId",
-      "interval",
-      "openedBy",
-      "closedBy",
-      "analytics",
-    ]),
-    "Configuration Analytics Report"
-  );
 
 
   if (
@@ -753,14 +1293,52 @@ export function normalizeAndValidateConfigurationAnalyticsReportDocument(
   }
 
 
-  if (
-    input.schemaId !==
-      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1
-  ) {
-    throw new Error(
-      `schemaId must be "${CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1}".`
+  const schemaId =
+    requireReportSchemaId(
+      input.schemaId
     );
-  }
+
+  const isV2 =
+    schemaId ===
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2;
+
+
+  assertAllowedKeys(
+    input,
+    new Set(
+      isV2
+        ? [
+            "schema",
+            "schemaId",
+            "reportId",
+            "stage",
+            "usageEpochId",
+            "deploymentConfigurationId",
+            "platformReleaseId",
+            "profileVariantId",
+            "interval",
+            "openedBy",
+            "closedBy",
+            "traffic",
+            "analyticsByTraffic",
+          ]
+        : [
+            "schema",
+            "schemaId",
+            "reportId",
+            "stage",
+            "usageEpochId",
+            "deploymentConfigurationId",
+            "platformReleaseId",
+            "profileVariantId",
+            "interval",
+            "openedBy",
+            "closedBy",
+            "analytics",
+          ]
+    ),
+    "Configuration Analytics Report"
+  );
 
 
   const stage =
@@ -810,9 +1388,38 @@ export function normalizeAndValidateConfigurationAnalyticsReportDocument(
     );
 
   const analytics =
-    normalizeAnalytics(
-      input.analytics
+    isV2
+      ? null
+      : normalizeAnalytics(
+          input.analytics
+        );
+
+  const traffic =
+    isV2
+      ? normalizeTrafficReport(
+          input.traffic
+        )
+      : null;
+
+  const analyticsByTraffic =
+    isV2
+      ? normalizeAnalyticsByTraffic(
+          input
+            .analyticsByTraffic
+        )
+      : null;
+
+
+  if (
+    isV2 &&
+    traffic &&
+    analyticsByTraffic
+  ) {
+    assertTrafficReportConsistency(
+      traffic,
+      analyticsByTraffic
     );
+  }
 
 
   const expectedConfigurationId =
@@ -865,6 +1472,8 @@ export function normalizeAndValidateConfigurationAnalyticsReportDocument(
       stage,
 
       usageEpochId,
+
+      schemaId,
     });
 
 
@@ -878,12 +1487,10 @@ export function normalizeAndValidateConfigurationAnalyticsReportDocument(
   }
 
 
-  return {
+  const common:
+    ConfigurationAnalyticsReportCommon = {
     schema:
       CONFIGURATION_ANALYTICS_REPORT_DOCUMENT_SCHEMA,
-
-    schemaId:
-      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1,
 
     reportId,
 
@@ -902,9 +1509,84 @@ export function normalizeAndValidateConfigurationAnalyticsReportDocument(
     openedBy,
 
     closedBy,
-
-    analytics,
   };
+
+
+  if (
+    isV2
+  ) {
+    return {
+      ...common,
+
+      schemaId:
+        CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2,
+
+      traffic:
+        traffic!,
+
+      analyticsByTraffic:
+        analyticsByTraffic!,
+    };
+  }
+
+
+  return {
+    ...common,
+
+    schemaId:
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1,
+
+    analytics:
+      analytics!,
+  };
+}
+
+
+function normalizeAndRequireConfigurationAnalyticsReportV1(
+  input:
+    unknown
+): ConfigurationAnalyticsReportV1Document {
+  const report =
+    normalizeAndValidateConfigurationAnalyticsReportDocument(
+      input
+    );
+
+
+  if (
+    report.schemaId !==
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1
+  ) {
+    throw new Error(
+      "Configuration Analytics Report V1 creator produced an unexpected schema."
+    );
+  }
+
+
+  return report;
+}
+
+
+function normalizeAndRequireConfigurationAnalyticsReportV2(
+  input:
+    unknown
+): ConfigurationAnalyticsReportV2Document {
+  const report =
+    normalizeAndValidateConfigurationAnalyticsReportDocument(
+      input
+    );
+
+
+  if (
+    report.schemaId !==
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2
+  ) {
+    throw new Error(
+      "Configuration Analytics Report V2 creator produced an unexpected schema."
+    );
+  }
+
+
+  return report;
 }
 
 
@@ -918,7 +1600,7 @@ export function createConfigurationAnalyticsReportDocument({
 
   analytics:
     unknown;
-}) {
+}): ConfigurationAnalyticsReportV1Document {
   const normalizedEpoch =
     normalizeAndValidateUsageEpochDocument(
       epoch
@@ -954,10 +1636,13 @@ export function createConfigurationAnalyticsReportDocument({
       usageEpochId:
         normalizedEpoch
           .usageEpochId,
+
+      schemaId:
+        CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V1,
     });
 
 
-  return normalizeAndValidateConfigurationAnalyticsReportDocument({
+  return normalizeAndRequireConfigurationAnalyticsReportV1({
     schema:
       CONFIGURATION_ANALYTICS_REPORT_DOCUMENT_SCHEMA,
 
@@ -1004,5 +1689,115 @@ export function createConfigurationAnalyticsReportDocument({
         .closedBy,
 
     analytics,
+  });
+}
+
+
+export function createConfigurationAnalyticsReportV2Document({
+  epoch,
+
+  traffic,
+
+  analyticsByTraffic,
+}: {
+  epoch:
+    unknown;
+
+  traffic:
+    unknown;
+
+  analyticsByTraffic:
+    unknown;
+}): ConfigurationAnalyticsReportV2Document {
+  const normalizedEpoch =
+    normalizeAndValidateUsageEpochDocument(
+      epoch
+    );
+
+
+  if (
+    normalizedEpoch.state !==
+      USAGE_EPOCH_STATE
+        .CLOSING
+  ) {
+    throw new Error(
+      "Configuration Analytics Report can only be created from a CLOSING Usage Epoch."
+    );
+  }
+
+
+  if (
+    !normalizedEpoch.endedAt ||
+    !normalizedEpoch.closedBy
+  ) {
+    throw new Error(
+      "CLOSING Usage Epoch is missing report boundaries."
+    );
+  }
+
+
+  const reportId =
+    computeConfigurationAnalyticsReportId({
+      stage:
+        normalizedEpoch.stage,
+
+      usageEpochId:
+        normalizedEpoch
+          .usageEpochId,
+
+      schemaId:
+        CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2,
+    });
+
+
+  return normalizeAndRequireConfigurationAnalyticsReportV2({
+    schema:
+      CONFIGURATION_ANALYTICS_REPORT_DOCUMENT_SCHEMA,
+
+    schemaId:
+      CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2,
+
+    reportId,
+
+    stage:
+      normalizedEpoch.stage,
+
+    usageEpochId:
+      normalizedEpoch
+        .usageEpochId,
+
+    deploymentConfigurationId:
+      normalizedEpoch
+        .deploymentConfigurationId,
+
+    platformReleaseId:
+      normalizedEpoch
+        .platformReleaseId,
+
+    profileVariantId:
+      normalizedEpoch
+        .profileVariantId,
+
+    interval: {
+      startedAt:
+        normalizedEpoch
+          .startedAt,
+
+      endedAt:
+        normalizedEpoch
+          .endedAt,
+    },
+
+    openedBy:
+      normalizedEpoch
+        .openedBy,
+
+    closedBy:
+      normalizedEpoch
+        .closedBy,
+
+    traffic,
+
+    analyticsByTraffic,
   });
 }

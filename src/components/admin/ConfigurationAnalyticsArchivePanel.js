@@ -12,8 +12,11 @@ import {
 } from "../../utils/analytics/analyticsApi";
 
 import {
+  CONFIGURATION_ANALYTICS_TRAFFIC_OPTIONS,
+  DEFAULT_CONFIGURATION_ANALYTICS_TRAFFIC,
   buildConfigurationAnalyticsArchiveDetail,
   buildUsageEpochArchiveRows,
+  selectConfigurationAnalyticsArchiveTraffic,
 } from "../../utils/analytics/configurationAnalyticsArchiveViewModel";
 
 import {
@@ -599,6 +602,15 @@ export default function ConfigurationAnalyticsArchivePanel() {
     );
 
 
+  const [
+    archiveTrafficClassification,
+    setArchiveTrafficClassification,
+  ] =
+    useState(
+      DEFAULT_CONFIGURATION_ANALYTICS_TRAFFIC
+    );
+
+
   const detailRequestRef =
     useRef(
       0
@@ -657,6 +669,10 @@ export default function ConfigurationAnalyticsArchivePanel() {
 
         setDetail(
           null
+        );
+
+        setArchiveTrafficClassification(
+          DEFAULT_CONFIGURATION_ANALYTICS_TRAFFIC
         );
 
         setDetailError(
@@ -880,6 +896,10 @@ export default function ConfigurationAnalyticsArchivePanel() {
           null
         );
 
+        setArchiveTrafficClassification(
+          DEFAULT_CONFIGURATION_ANALYTICS_TRAFFIC
+        );
+
         setDetailError(
           ""
         );
@@ -918,10 +938,32 @@ export default function ConfigurationAnalyticsArchivePanel() {
           }
 
 
-          setDetail(
+          const nextDetail =
             buildConfigurationAnalyticsArchiveDetail(
               response
-            )
+            );
+
+
+          const initialTraffic =
+            nextDetail
+              ?.traffic
+              ?.selectedClassification ||
+            (
+              nextDetail
+                ?.traffic
+                ?.supported
+                ? DEFAULT_CONFIGURATION_ANALYTICS_TRAFFIC
+                : "all"
+            );
+
+
+          setArchiveTrafficClassification(
+            initialTraffic
+          );
+
+
+          setDetail(
+            nextDetail
           );
         } catch (
           exception
@@ -953,6 +995,46 @@ export default function ConfigurationAnalyticsArchivePanel() {
       },
       []
     );
+
+
+  const changeArchiveTrafficClassification =
+    (
+      event
+    ) => {
+      const next =
+        String(
+          event
+            ?.target
+            ?.value ||
+            ""
+        ).trim();
+
+
+      if (
+        !detail
+      ) {
+        return;
+      }
+
+
+      const selected =
+        selectConfigurationAnalyticsArchiveTraffic(
+          detail,
+          next
+        );
+
+
+      setArchiveTrafficClassification(
+        selected
+          .traffic
+          .selectedClassification
+      );
+
+
+      setDetail(
+        selected
+      );
+    };
 
 
   const applyConfigurationFilter =
@@ -1455,14 +1537,176 @@ export default function ConfigurationAnalyticsArchivePanel() {
             ) : detail ? (
               <div className="space-y-4">
                 <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/40 dark:bg-purple-500/5 p-4">
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    Immutable report
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="max-w-3xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                          Immutable report
+                        </div>
+
+                        <Badge tone="purple">
+                          {detail
+                            .reportVersion
+                            .toUpperCase()}
+                        </Badge>
+                      </div>
+
+                      <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Exact event facts for this Usage Epoch.
+                        Session-fragment counters, raw journeys and recent-session intelligence are intentionally not part of the immutable archive.
+                      </p>
+                    </div>
+
+
+                    {detail
+                      .traffic
+                      ?.supported ? (
+                      <label className="w-full lg:w-[280px]">
+                        <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                          Traffic
+                        </div>
+
+                        <select
+                          aria-label="Archived traffic classification"
+                          value={
+                            archiveTrafficClassification
+                          }
+                          onChange={
+                            changeArchiveTrafficClassification
+                          }
+                          className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                        >
+                          {CONFIGURATION_ANALYTICS_TRAFFIC_OPTIONS.map(
+                            (
+                              option
+                            ) => (
+                              <option
+                                key={
+                                  option.id
+                                }
+                                value={
+                                  option.id
+                                }
+                              >
+                                {
+                                  option.label
+                                }
+                              </option>
+                            )
+                          )}
+                        </select>
+
+                        <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                          Immutable precomputed slice — no live reclassification.
+                        </div>
+                      </label>
+                    ) : (
+                      <div className="shrink-0">
+                        <Badge tone="purple">
+                          Legacy · All traffic
+                        </Badge>
+
+                        <div className="mt-1.5 max-w-[280px] text-[11px] text-gray-500 dark:text-gray-400">
+                          V1 predates traffic evidence. Historical classifications are not fabricated.
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                    Exact event facts for this Usage Epoch.
-                    Session-fragment counters, raw journeys and recent-session intelligence are intentionally not part of the immutable archive.
-                  </p>
+
+                  {detail
+                    .traffic
+                    ?.supported ? (
+                    <div
+                      data-testid="archive-traffic-composition"
+                      className="mt-4"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                        {CONFIGURATION_ANALYTICS_TRAFFIC_OPTIONS.map(
+                          (
+                            option
+                          ) => {
+                            const bucket =
+                              detail
+                                .traffic
+                                .summary
+                                ?.[
+                                  option.id
+                                ] ||
+                              {};
+
+
+                            const selected =
+                              detail
+                                .traffic
+                                .selectedClassification ===
+                              option.id;
+
+
+                            return (
+                              <div
+                                key={
+                                  option.id
+                                }
+                                className={cx(
+                                  "rounded-xl border px-3 py-3",
+                                  selected
+                                    ? "border-purple-300/80 dark:border-purple-400/40 bg-purple-100/60 dark:bg-purple-500/10"
+                                    : "border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5"
+                                )}
+                              >
+                                <div className="text-[11px] font-semibold text-gray-800 dark:text-gray-200">
+                                  {
+                                    option.label
+                                  }
+                                </div>
+
+                                <div className="mt-2 text-xl font-bold text-gray-900 dark:text-gray-100">
+                                  {formatNumber(
+                                    bucket
+                                      .sessions
+                                  )}
+                                </div>
+
+                                <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                                  sessions ·{" "}
+                                  {formatNumber(
+                                    bucket
+                                      .uniqueVisitors
+                                  )}{" "}
+                                  visitors
+                                </div>
+
+                                <div className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+                                  {formatNumber(
+                                    bucket
+                                      .eventCount
+                                  )}{" "}
+                                  events ·{" "}
+                                  {formatDuration(
+                                    bucket
+                                      .activeMs
+                                  )}{" "}
+                                  active
+                                </div>
+                              </div>
+                            );
+                          }
+                        )}
+                      </div>
+
+                      <div className="mt-2 text-[10px] text-gray-500 dark:text-gray-400">
+                        Classifier:{" "}
+                        <span className="font-mono">
+                          {detail
+                            .traffic
+                            .classifierVersion}
+                        </span>
+                        {" · "}
+                        Unique visitors may overlap across traffic classes when the same visitor owns differently classified sessions.
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
 

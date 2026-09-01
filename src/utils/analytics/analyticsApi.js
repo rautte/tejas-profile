@@ -170,6 +170,40 @@ const USAGE_EPOCH_STATES =
   ]);
 
 
+const TRAFFIC_CLASSIFICATIONS =
+  new Set([
+    "all",
+    "likely_human",
+    "likely_automated",
+    "uncertain",
+  ]);
+
+
+function trafficClassificationQueryValue(
+  value
+) {
+  const normalized =
+    cleanString(
+      value ||
+        "all"
+    ).toLowerCase();
+
+
+  if (
+    !TRAFFIC_CLASSIFICATIONS.has(
+      normalized
+    )
+  ) {
+    throw new Error(
+      "trafficClassification must be all, likely_human, likely_automated, or uncertain."
+    );
+  }
+
+
+  return normalized;
+}
+
+
 /**
  * Owner-only immutable Usage Epoch history.
  *
@@ -456,7 +490,10 @@ export async function ingestAnalyticsBatch(
     });
 
   // Ingest may intentionally return 204
-  // for owner/bot traffic.
+  // for excluded owner traffic.
+  //
+  // Automated traffic is retained and classified rather
+  // than discarded by the production Analytics pipeline.
   if (
     !res.ok &&
     res.status !== 204
@@ -550,6 +587,9 @@ export async function queryAnalyticsAgg({
   profileTargetingJobRole =
     "all",
 
+  trafficClassification =
+    "all",
+
   boundaryId = "all",
 
   from,
@@ -572,6 +612,15 @@ export async function queryAnalyticsAgg({
         "all"
     )
   );
+
+
+  qs.set(
+    "trafficClassification",
+    trafficClassificationQueryValue(
+      trafficClassification
+    )
+  );
+
 
   if (
     profileVariantId &&
@@ -826,6 +875,9 @@ export async function queryAnalyticsDays(
     profileTargetingJobRole =
       "all",
 
+    trafficClassification =
+      "all",
+
     boundaryId = "all",
 
     from,
@@ -845,6 +897,8 @@ export async function queryAnalyticsDays(
       profileTargetingLocation,
 
       profileTargetingJobRole,
+
+      trafficClassification,
 
       boundaryId,
 

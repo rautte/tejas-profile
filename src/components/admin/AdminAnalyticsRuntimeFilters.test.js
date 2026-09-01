@@ -357,6 +357,9 @@ describe(
             profileTargetingJobRole:
               "all",
 
+            trafficClassification:
+              "likely_human",
+
             boundaryId:
               "all",
           })
@@ -645,7 +648,10 @@ describe(
                       "Austin, TX" &&
                     args
                       ?.profileTargetingJobRole ===
-                      "Backend Software Engineer"
+                      "Backend Software Engineer" &&
+                    args
+                      ?.trafficClassification ===
+                      "likely_human"
                 );
 
             expect(

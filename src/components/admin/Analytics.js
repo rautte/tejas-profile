@@ -39,6 +39,45 @@ const DAY_MS =
 const MAX_EXACT_RANGE_DAYS =
   366;
 
+const DEFAULT_TRAFFIC_CLASSIFICATION =
+  "likely_human";
+
+
+const TRAFFIC_FILTERS = [
+  {
+    id:
+      "likely_human",
+
+    label:
+      "Likely human",
+  },
+
+  {
+    id:
+      "likely_automated",
+
+    label:
+      "Likely automated",
+  },
+
+  {
+    id:
+      "uncertain",
+
+    label:
+      "Uncertain",
+  },
+
+  {
+    id:
+      "all",
+
+    label:
+      "All traffic",
+  },
+];
+
+
 const PERIODS = [
   {
     id: "today",
@@ -450,6 +489,128 @@ function createResetBoundaryRequest() {
   };
 }
 
+function trafficClassificationLabel(
+  value
+) {
+  const match =
+    TRAFFIC_FILTERS.find(
+      (item) =>
+        item.id ===
+        value
+    );
+
+
+  return (
+    match?.label ||
+    "Uncertain"
+  );
+}
+
+
+function trafficConfidenceLabel(
+  value
+) {
+  const normalized =
+    String(
+      value || ""
+    )
+      .trim()
+      .toLowerCase();
+
+
+  if (
+    normalized ===
+      "high"
+  ) {
+    return "High";
+  }
+
+
+  if (
+    normalized ===
+      "medium"
+  ) {
+    return "Medium";
+  }
+
+
+  if (
+    normalized ===
+      "low"
+  ) {
+    return "Low";
+  }
+
+
+  return "";
+}
+
+
+function trafficReasonLabel(
+  value
+) {
+  switch (value) {
+    case "known_automation_user_agent":
+      return "Known automation user agent";
+
+    case "headless_user_agent":
+      return "Headless browser signature";
+
+    case "webdriver_detected":
+      return "WebDriver detected";
+
+    case "missing_user_agent":
+      return "Missing browser user agent";
+
+    case "trusted_pointer_input":
+      return "Trusted pointer interaction";
+
+    case "trusted_keyboard_input":
+      return "Trusted keyboard interaction";
+
+    case "trusted_touch_input":
+      return "Trusted touch interaction";
+
+    case "trusted_wheel_input":
+      return "Trusted wheel interaction";
+
+    case "meaningful_engagement":
+      return "Meaningful engagement";
+
+    case "passive_short_session":
+      return "Short passive session";
+
+    default:
+      return String(
+        value || ""
+      )
+        .replace(
+          /_/g,
+          " "
+        )
+        .trim();
+  }
+}
+
+
+function trafficBadgeClassName(
+  classification
+) {
+  switch (
+    classification
+  ) {
+    case "likely_human":
+      return "border-emerald-200/80 dark:border-emerald-400/20 bg-emerald-50/80 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+
+    case "likely_automated":
+      return "border-rose-200/80 dark:border-rose-400/20 bg-rose-50/80 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300";
+
+    default:
+      return "border-amber-200/80 dark:border-amber-400/20 bg-amber-50/80 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+}
+
+
 function journeyTypeLabel(
   type
 ) {
@@ -803,6 +964,195 @@ function KpiCard({
     </div>
   );
 }
+
+function TrafficBadge({
+  classification,
+  confidence,
+}) {
+  const label =
+    trafficClassificationLabel(
+      classification
+    );
+
+  const confidenceLabel =
+    trafficConfidenceLabel(
+      confidence
+    );
+
+
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+        trafficBadgeClassName(
+          classification
+        )
+      )}
+    >
+      {label}
+
+      {confidenceLabel
+        ? ` · ${confidenceLabel}`
+        : ""}
+    </span>
+  );
+}
+
+
+function TrafficCompositionSummary({
+  traffic,
+}) {
+  const classifierVersion =
+    String(
+      traffic
+        ?.classifierVersion ||
+        ""
+    ).trim();
+
+  const buckets =
+    traffic
+      ?.byClassification ||
+    null;
+
+
+  if (!buckets) {
+    return (
+      <div className="rounded-xl border border-dashed border-gray-300/80 dark:border-white/15 px-4 py-5 text-center text-sm text-gray-500 dark:text-gray-400">
+        Traffic composition is not available for this response yet.
+      </div>
+    );
+  }
+
+
+  const rows = [
+    {
+      id:
+        "likely_human",
+
+      label:
+        "Likely human",
+
+      value:
+        buckets
+          ?.likely_human ||
+        {},
+    },
+
+    {
+      id:
+        "likely_automated",
+
+      label:
+        "Likely automated",
+
+      value:
+        buckets
+          ?.likely_automated ||
+        {},
+    },
+
+    {
+      id:
+        "uncertain",
+
+      label:
+        "Uncertain",
+
+      value:
+        buckets
+          ?.uncertain ||
+        {},
+    },
+
+    {
+      id:
+        "all",
+
+      label:
+        "All traffic",
+
+      value:
+        buckets
+          ?.all ||
+        {},
+    },
+  ];
+
+
+  return (
+    <div
+      data-testid="traffic-composition"
+      className="space-y-3"
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {rows.map(
+          (row) => (
+            <div
+              key={
+                row.id
+              }
+              className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-3 py-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] font-semibold text-gray-800 dark:text-gray-200">
+                  {row.label}
+                </div>
+
+                {row.id !==
+                "all" ? (
+                  <TrafficBadge
+                    classification={
+                      row.id
+                    }
+                  />
+                ) : null}
+              </div>
+
+              <div className="mt-2 text-xl font-bold text-gray-900 dark:text-gray-100">
+                {formatNumber(
+                  row.value
+                    ?.sessions
+                )}
+              </div>
+
+              <div className="text-[10px] text-gray-500 dark:text-gray-400">
+                sessions ·{" "}
+                {formatNumber(
+                  row.value
+                    ?.uniqueVisitors
+                )}{" "}
+                visitors
+              </div>
+
+              <div className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+                {formatNumber(
+                  row.value
+                    ?.eventCount
+                )}{" "}
+                events ·{" "}
+                {formatDuration(
+                  row.value
+                    ?.activeMs
+                )}{" "}
+                active
+              </div>
+            </div>
+          )
+        )}
+      </div>
+
+      {classifierVersion ? (
+        <div className="text-[10px] text-gray-500 dark:text-gray-400">
+          Classifier:{" "}
+          <span className="font-mono">
+            {classifierVersion}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 
 function EmptyState({
   children,
@@ -2007,6 +2357,17 @@ function RecentSessions({
               .filter(Boolean)
               .join(", ");
 
+
+            const trafficReasons =
+              Array.isArray(
+                session
+                  .trafficReasonCodes
+              )
+                ? session
+                    .trafficReasonCodes
+                : [];
+
+
             return (
               <div
                 key={
@@ -2040,6 +2401,20 @@ function RecentSessions({
                             session.sessionId
                           }
                         </span>
+
+                        {session
+                          .trafficClassification ? (
+                          <TrafficBadge
+                            classification={
+                              session
+                                .trafficClassification
+                            }
+                            confidence={
+                              session
+                                .trafficConfidence
+                            }
+                          />
+                        ) : null}
 
                         {session
                           .journeyTruncated ? (
@@ -2178,6 +2553,53 @@ function RecentSessions({
 
                 {isExpanded ? (
                   <div className="border-t border-gray-200/70 dark:border-white/10 px-4 py-4">
+                    {session
+                      .trafficClassification ? (
+                      <div className="mb-4 rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/50 dark:bg-white/5 px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                            Traffic classification
+                          </div>
+
+                          <TrafficBadge
+                            classification={
+                              session
+                                .trafficClassification
+                            }
+                            confidence={
+                              session
+                                .trafficConfidence
+                            }
+                          />
+                        </div>
+
+                        <div className="mt-2 text-[11px] text-gray-600 dark:text-gray-400">
+                          {trafficReasons.length
+                            ? trafficReasons
+                                .map(
+                                  trafficReasonLabel
+                                )
+                                .filter(
+                                  Boolean
+                                )
+                                .join(
+                                  " · "
+                                )
+                            : "No strong classification evidence was retained for this session."}
+                        </div>
+
+                        {session
+                          .trafficClassifierVersion ? (
+                          <div className="mt-1 font-mono text-[9px] text-gray-500 dark:text-gray-500">
+                            {
+                              session
+                                .trafficClassifierVersion
+                            }
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4 text-xs">
                       <div>
                         <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
@@ -2580,6 +3002,14 @@ export default function AdminAnalytics() {
     useState("all");
 
   const [
+    trafficClassificationFilter,
+    setTrafficClassificationFilter,
+  ] =
+    useState(
+      DEFAULT_TRAFFIC_CLASSIFICATION
+    );
+
+  const [
     boundaryFilter,
     setBoundaryFilter,
   ] =
@@ -2787,6 +3217,12 @@ export default function AdminAnalytics() {
     profileTargetingLocationFilter !==
       "all" ||
     profileTargetingJobRoleFilter !==
+      "all";
+
+
+  const catalogQueryNeeded =
+    runtimeFiltersActive ||
+    trafficClassificationFilter !==
       "all";
 
 
@@ -3017,6 +3453,9 @@ export default function AdminAnalytics() {
               profileTargetingJobRole:
                 profileTargetingJobRoleFilter,
 
+              trafficClassification:
+                trafficClassificationFilter,
+
               boundaryId:
                 boundaryFilter,
 
@@ -3045,11 +3484,14 @@ export default function AdminAnalytics() {
            * is already the correct catalogue.
            */
           const catalogPromise =
-            runtimeFiltersActive
+            catalogQueryNeeded
               ? queryAnalyticsAgg(
                   {
                     profileVersionId:
                       profileVersionFilter,
+
+                    trafficClassification:
+                      "all",
 
                     boundaryId:
                       boundaryFilter,
@@ -3083,6 +3525,9 @@ export default function AdminAnalytics() {
 
                     profileTargetingJobRole:
                       profileTargetingJobRoleFilter,
+
+                    trafficClassification:
+                      trafficClassificationFilter,
 
                     boundaryId:
                       boundaryFilter,
@@ -3160,9 +3605,10 @@ export default function AdminAnalytics() {
         profileVariantFilter,
         profileTargetingLocationFilter,
         profileTargetingJobRoleFilter,
+        trafficClassificationFilter,
         boundaryFilter,
         comparePrevious,
-        runtimeFiltersActive,
+        catalogQueryNeeded,
         comparisonRange,
       ]
     );
@@ -3237,6 +3683,11 @@ export default function AdminAnalytics() {
     )
       ? data.daily
       : [];
+
+  const trafficClassification =
+    data?.trafficClassification ||
+    null;
+
 
   const sessionIntelligence =
     data?.sessionIntelligence ||
@@ -3514,8 +3965,16 @@ export default function AdminAnalytics() {
           "_"
         );
 
+
+      const safeTraffic =
+        trafficClassificationFilter.replace(
+          /[^a-zA-Z0-9._-]+/g,
+          "_"
+        );
+
+
       downloadJsonFile(
-        `tejas-profile-analytics_${range.from}_to_${range.to}_${safeRelease}_${safeBaseline}.json`,
+        `tejas-profile-analytics_${range.from}_to_${range.to}_${safeRelease}_${safeTraffic}_${safeBaseline}.json`,
         {
           exportedAt:
             new Date()
@@ -3538,6 +3997,9 @@ export default function AdminAnalytics() {
             profileTargetingJobRole:
               profileTargetingJobRoleFilter,
 
+            trafficClassification:
+              trafficClassificationFilter,
+
             boundaryId:
               boundaryFilter,
           },
@@ -3557,6 +4019,7 @@ export default function AdminAnalytics() {
       profileVariantFilter,
       profileTargetingLocationFilter,
       profileTargetingJobRoleFilter,
+      trafficClassificationFilter,
       boundaryFilter,
       range,
     ]);
@@ -3656,6 +4119,21 @@ export default function AdminAnalytics() {
                     </span>
                   </span>
 
+                  <span className={cx(
+                    "rounded-full border px-2.5 py-1 font-semibold",
+                    trafficClassificationFilter ===
+                      "all"
+                      ? "border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 text-gray-700 dark:text-gray-300"
+                      : trafficBadgeClassName(
+                          trafficClassificationFilter
+                        )
+                  )}>
+                    Traffic:{" "}
+                    {trafficClassificationLabel(
+                      trafficClassificationFilter
+                    )}
+                  </span>
+
                   {profileVariantFilter !==
                   "all" ? (
                     <span className="rounded-full border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/70 dark:bg-purple-500/10 px-2.5 py-1 text-purple-700 dark:text-purple-300 max-w-full">
@@ -3733,7 +4211,7 @@ export default function AdminAnalytics() {
 
             <SectionCard
               title="Analytics window"
-              subtitle="Time, baseline, Profile content and legacy release are independent filters. Comparison applies the same filters to the immediately preceding period."
+              subtitle="Time, baseline, Profile content, Traffic classification and legacy release are independent filters. Comparison applies the same filters to the immediately preceding period."
             >
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
@@ -3999,6 +4477,78 @@ export default function AdminAnalytics() {
                     </div>
                   </label>
                 </div>
+
+                <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-4">
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="max-w-2xl">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Traffic classification
+                      </div>
+
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Privacy-safe heuristic classification for Analytics quality.
+                        It is not an authentication or security decision.
+                        Likely human is the default dashboard view.
+                      </div>
+                    </div>
+
+                    <label className="w-full lg:w-[280px]">
+                      <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                        Traffic
+                      </div>
+
+                      <select
+                        aria-label="Traffic"
+                        value={
+                          trafficClassificationFilter
+                        }
+                        disabled={
+                          loading
+                        }
+                        onChange={(
+                          e
+                        ) =>
+                          setTrafficClassificationFilter(
+                            e.target.value
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                      >
+                        {TRAFFIC_FILTERS.map(
+                          (
+                            item
+                          ) => (
+                            <option
+                              key={
+                                item.id
+                              }
+                              value={
+                                item.id
+                              }
+                            >
+                              {
+                                item.label
+                              }
+                            </option>
+                          )
+                        )}
+                      </select>
+
+                      <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                        Recalculates all KPIs, journeys, geography and engagement for the selected session class.
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className="mt-4">
+                    <TrafficCompositionSummary
+                      traffic={
+                        trafficClassification
+                      }
+                    />
+                  </div>
+                </div>
+
 
                 <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/40 dark:bg-purple-500/5 p-4">
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">

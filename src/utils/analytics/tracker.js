@@ -12,6 +12,11 @@ import {
 } from "./runtimeIdentity";
 
 import {
+  readTrafficEvidence,
+  recordTrustedTrafficInteraction,
+} from "./trafficEvidence";
+
+import {
   getVisitorId,
   getOrCreateSharedSessionId,
   claimSessionStart,
@@ -155,6 +160,18 @@ function baseContext(sessionId) {
 
     tabId:
       getTabId(),
+
+    /**
+     * Privacy-safe traffic-classification evidence.
+     *
+     * Evidence is cumulative within one logical Analytics
+     * session and contains only the explicit coarse vocabulary
+     * owned by trafficEvidence.js.
+     */
+    trafficEvidence:
+      readTrafficEvidence(
+        sessionId
+      ),
 
 
     /**
@@ -595,6 +612,63 @@ function startRuntime() {
 
   scheduleFlush();
 
+  /**
+   * Capture trusted browser interaction before application-level
+   * click/navigation handlers run so the next Analytics event can
+   * carry the evidence immediately.
+   *
+   * These signals are intentionally coarse. No coordinates or
+   * keyboard contents are retained.
+   */
+  const recordTrafficInput = (
+    kind,
+    event
+  ) => {
+    if (
+      !currentSessionId
+    ) {
+      return;
+    }
+
+    recordTrustedTrafficInteraction({
+      sessionId:
+        currentSessionId,
+
+      kind,
+
+      event,
+    });
+  };
+
+  const onTrafficPointerDown =
+    (event) =>
+      recordTrafficInput(
+        "pointer",
+        event
+      );
+
+  const onTrafficKeyDown =
+    (event) =>
+      recordTrafficInput(
+        "keyboard",
+        event
+      );
+
+  const onTrafficTouchStart =
+    (event) =>
+      recordTrafficInput(
+        "touch",
+        event
+      );
+
+  const onTrafficWheel =
+    (event) =>
+      recordTrafficInput(
+        "wheel",
+        event
+      );
+
+
   const onVisibilityChange = () => {
     if (
       document.visibilityState === "hidden"
@@ -684,6 +758,39 @@ function startRuntime() {
     onPageHide
   );
 
+  window.addEventListener(
+    "pointerdown",
+    onTrafficPointerDown,
+    {
+      passive: true,
+      capture: true,
+    }
+  );
+
+  window.addEventListener(
+    "keydown",
+    onTrafficKeyDown,
+    true
+  );
+
+  window.addEventListener(
+    "touchstart",
+    onTrafficTouchStart,
+    {
+      passive: true,
+      capture: true,
+    }
+  );
+
+  window.addEventListener(
+    "wheel",
+    onTrafficWheel,
+    {
+      passive: true,
+      capture: true,
+    }
+  );
+
   runtimeCleanup = () => {
     document.removeEventListener(
       "visibilitychange",
@@ -708,6 +815,30 @@ function startRuntime() {
     window.removeEventListener(
       "beforeunload",
       onPageHide
+    );
+
+    window.removeEventListener(
+      "pointerdown",
+      onTrafficPointerDown,
+      true
+    );
+
+    window.removeEventListener(
+      "keydown",
+      onTrafficKeyDown,
+      true
+    );
+
+    window.removeEventListener(
+      "touchstart",
+      onTrafficTouchStart,
+      true
+    );
+
+    window.removeEventListener(
+      "wheel",
+      onTrafficWheel,
+      true
     );
   };
 

@@ -41,6 +41,17 @@ import {
   canonicalizeDeepLinkValue,
 } from "./analytics-domain";
 
+import {
+  TRAFFIC_CLASSIFICATION,
+  TRAFFIC_CLASSIFIER_VERSION,
+  TRAFFIC_FILTER_ALL,
+  classifyTrafficSession,
+  deriveUserAgentTrafficEvidence,
+  normalizeTrafficClassificationFilter,
+  normalizeTrafficEvidence,
+  trafficClassificationMatchesFilter,
+} from "./traffic-classification";
+
 
 type APIGatewayV2Event = any;
 
@@ -178,6 +189,17 @@ const ANALYTICS_RELEASE_PREFIX =
 
 const ANALYTICS_BOUNDARY_PREFIX =
   "BOUNDARY#";
+
+
+const TRAFFIC_SESSION_STATE_SCHEMA_ID =
+  "tejas-profile.analytics-traffic-session-state.v1";
+
+const TRAFFIC_SESSION_PK_PREFIX =
+  "TRAFFIC_SESSION#";
+
+const TRAFFIC_SESSION_STATE_SK =
+  "STATE#v1";
+
 
 const CONTROL_ID_RE =
   /^[A-Za-z0-9._:-]+$/;
@@ -536,25 +558,6 @@ function safeStr(x: any, max = 200) {
   return String(x ?? "").trim().slice(0, max);
 }
 
-function isBot(headers: Record<string, string>) {
-  // lightweight bot filter (cheap + fast; you can expand later)
-  const ua = String(headers["user-agent"] || headers["User-Agent"] || "").toLowerCase();
-  if (!ua) return true;
-  const bad = [
-    "bot",
-    "spider",
-    "crawler",
-    "headless",
-    "lighthouse",
-    "pingdom",
-    "uptimerobot",
-    "facebookexternalhit",
-    "slackbot",
-  ];
-  return bad.some((b) => ua.includes(b));
-}
-
-
 function decodeGeoHeader(
   value: any,
   max = 120
@@ -812,6 +815,7 @@ function normalizeBoundaryRecord(
  *     visitorId: string,
  *     tabId?: string,
  *     profileVersionId: string,
+ *     trafficEvidence?: string[],
  *     section?: string,
  *     ctaId?: string,
  *     projectId?: string,
@@ -974,6 +978,20 @@ function normalizeEvent(e: any) {
       160
     ) || null;
 
+
+  /**
+   * Client traffic evidence is accepted only through the
+   * explicit privacy-safe vocabulary.
+   *
+   * Request-level User-Agent evidence is added later after
+   * the trusted Analytics edge boundary has been verified.
+   */
+  const trafficEvidence =
+    normalizeTrafficEvidence(
+      e?.trafficEvidence
+    );
+
+
   let section =
     e?.section
       ? safeStr(e.section, 80)
@@ -1046,6 +1064,8 @@ function normalizeEvent(e: any) {
     platformReleaseId,
 
     deploymentConfigurationId,
+
+    trafficEvidence,
 
 
     section,
@@ -1289,6 +1309,376 @@ function sessionFragmentKey(
     sk,
   };
 }
+
+function trafficSessionStateKey(
+  sessionHash:
+    string
+) {
+  return {
+    pk:
+      `${TRAFFIC_SESSION_PK_PREFIX}${sessionHash}`,
+
+    sk:
+      TRAFFIC_SESSION_STATE_SK,
+  };
+}
+
+
+function trafficEventFingerprint(
+  eventId:
+    string
+) {
+  return sha256(
+    `traffic-session-event:${eventId}`
+  ).slice(
+    0,
+    24
+  );
+}
+
+
+function buildTrafficSessionStateUpdate(
+  event:
+    NonNullable<
+      ReturnType<
+        typeof normalizeEvent
+      >
+    >
+) {
+  const names:
+    Record<string, string> = {
+      "#schemaId":
+        "schemaId",
+
+      "#visitorHash":
+        "visitorHash",
+
+      "#sessionHash":
+        "sessionHash",
+
+      "#processedEventFingerprints":
+        "processedEventFingerprints",
+
+      "#eventCount":
+        "eventCount",
+
+      "#updatedAt":
+        "updatedAt",
+  };
+
+
+  const fingerprint =
+    trafficEventFingerprint(
+      event.eventId
+    );
+
+
+  const values:
+    Record<string, any> = {
+      ":schemaId":
+        TRAFFIC_SESSION_STATE_SCHEMA_ID,
+
+      ":visitorHash":
+        event.visitorHash,
+
+      ":sessionHash":
+        event.sessionHash,
+
+      ":fingerprint":
+        fingerprint,
+
+      ":fingerprints":
+        new Set([
+          fingerprint,
+        ]),
+
+      ":one":
+        1,
+
+      ":now":
+        nowIso(),
+  };
+
+
+  const sets = [
+    "#schemaId = if_not_exists(#schemaId, :schemaId)",
+
+    "#visitorHash = if_not_exists(#visitorHash, :visitorHash)",
+
+    "#sessionHash = if_not_exists(#sessionHash, :sessionHash)",
+
+    "#updatedAt = :now",
+  ];
+
+
+  const adds = [
+    "#processedEventFingerprints :fingerprints",
+
+    "#eventCount :one",
+  ];
+
+
+  if (
+    event.type ===
+      "section_time" &&
+    typeof event.ms ===
+      "number" &&
+    event.ms >
+      0
+  ) {
+    names[
+      "#activeMs"
+    ] =
+      "activeMs";
+
+    values[
+      ":activeMs"
+    ] =
+      event.ms;
+
+    adds.push(
+      "#activeMs :activeMs"
+    );
+  }
+
+
+  if (
+    event.section
+  ) {
+    names[
+      "#sectionsSeen"
+    ] =
+      "sectionsSeen";
+
+    values[
+      ":sectionsSeen"
+    ] =
+      new Set([
+        event.section,
+      ]);
+
+    adds.push(
+      "#sectionsSeen :sectionsSeen"
+    );
+  }
+
+
+  if (
+    buildJourneyToken(
+      event
+    )
+  ) {
+    names[
+      "#journeyEventCount"
+    ] =
+      "journeyEventCount";
+
+    adds.push(
+      "#journeyEventCount :one"
+    );
+  }
+
+
+  if (
+    event
+      .trafficEvidence
+      .length >
+    0
+  ) {
+    names[
+      "#trafficEvidence"
+    ] =
+      "trafficEvidence";
+
+    values[
+      ":trafficEvidence"
+    ] =
+      new Set(
+        event
+          .trafficEvidence
+      );
+
+    adds.push(
+      "#trafficEvidence :trafficEvidence"
+    );
+  }
+
+
+  return {
+    Key:
+      marshall(
+        trafficSessionStateKey(
+          event.sessionHash
+        )
+      ),
+
+    ExpressionAttributeNames:
+      names,
+
+    ExpressionAttributeValues:
+      marshall(
+        values
+      ),
+
+    ConditionExpression:
+      "(" +
+      "attribute_not_exists(#visitorHash) " +
+      "OR #visitorHash = :visitorHash" +
+      ") AND (" +
+      "attribute_not_exists(#processedEventFingerprints) " +
+      "OR NOT contains(" +
+      "#processedEventFingerprints, " +
+      ":fingerprint)" +
+      ")",
+
+    UpdateExpression:
+      `SET ${sets.join(", ")} ` +
+      `ADD ${adds.join(", ")}`,
+  };
+}
+
+
+async function applyEventToTrafficSessionState(
+  event:
+    NonNullable<
+      ReturnType<
+        typeof normalizeEvent
+      >
+    >
+) {
+  if (
+    !ANALYTICS_TABLE
+  ) {
+    return {
+      accepted:
+        false,
+
+      duplicate:
+        false,
+    };
+  }
+
+
+  const update =
+    buildTrafficSessionStateUpdate(
+      event
+    );
+
+
+  try {
+    await ddb.send(
+      new UpdateItemCommand({
+        TableName:
+          ANALYTICS_TABLE,
+
+        ...update,
+      })
+    );
+
+
+    return {
+      accepted:
+        true,
+
+      duplicate:
+        false,
+    };
+  } catch (
+    error: any
+  ) {
+    if (
+      error?.name !==
+        "ConditionalCheckFailedException"
+    ) {
+      throw error;
+    }
+
+
+    /**
+     * A conditional failure can mean either:
+     *
+     * 1. normal event retry
+     * 2. impossible sessionHash -> multiple visitor mapping
+     *
+     * Distinguish them explicitly and fail closed on #2.
+     */
+    const existing =
+      await ddb.send(
+        new GetItemCommand({
+          TableName:
+            ANALYTICS_TABLE,
+
+          Key:
+            marshall(
+              trafficSessionStateKey(
+                event.sessionHash
+              )
+            ),
+
+          ConsistentRead:
+            true,
+        })
+      );
+
+
+    const item =
+      existing.Item
+        ? unmarshall(
+            existing.Item
+          )
+        : null;
+
+
+    if (
+      item &&
+      safeStr(
+        item
+          ?.visitorHash,
+        80
+      ) &&
+      safeStr(
+        item
+          ?.visitorHash,
+        80
+      ) !==
+        event.visitorHash
+    ) {
+      throw new Error(
+        "Analytics logical session maps to multiple visitors."
+      );
+    }
+
+
+    const fingerprint =
+      trafficEventFingerprint(
+        event.eventId
+      );
+
+
+    if (
+      stringSetValues(
+        item
+          ?.processedEventFingerprints
+      ).includes(
+        fingerprint
+      )
+    ) {
+      return {
+        accepted:
+          false,
+
+        duplicate:
+          true,
+      };
+    }
+
+
+    throw new Error(
+      "Canonical Analytics traffic session state rejected an event unexpectedly."
+    );
+  }
+}
+
 
 function buildSessionFragmentInit(
   event: NonNullable<
@@ -1563,6 +1953,39 @@ function buildSessionEventUpdate(
     "#processedEventIds :eventIds",
     "#eventCount :one",
   ];
+
+
+  /**
+   * Traffic evidence is a monotonic session-fragment Set.
+   *
+   * The final classification happens only after all fragments
+   * belonging to one logical session have been reconstructed.
+   */
+  if (
+    event
+      .trafficEvidence
+      .length >
+    0
+  ) {
+    names[
+      "#trafficEvidence"
+    ] =
+      "trafficEvidence";
+
+    values[
+      ":trafficEvidence"
+    ] =
+      new Set(
+        event
+          .trafficEvidence
+      );
+
+    adds.push(
+      "#trafficEvidence " +
+      ":trafficEvidence"
+    );
+  }
+
 
   const conditions: string[] = [
     "attribute_not_exists(#processedEventIds) " +
@@ -3650,11 +4073,6 @@ async function handleIngest(event: APIGatewayV2Event) {
     );
   }
 
-  // basic bot filter (doesn’t have to be perfect)
-  if (isBot(headers)) {
-    return json(204, { ok: true, ignored: "bot" }, cors);
-  }
-
   // Owner traffic is not analytics traffic.
   //
   // Client-side exclusion is the primary mechanism, but this is the
@@ -3667,6 +4085,25 @@ async function handleIngest(event: APIGatewayV2Event) {
       body: "",
     };
   }
+
+
+  /**
+   * Reduce User-Agent immediately to coarse evidence.
+   *
+   * Raw User-Agent is never added to Analytics persistence.
+   * Known automation is retained for classification instead
+   * of being discarded.
+   */
+  const requestTrafficEvidence =
+    deriveUserAgentTrafficEvidence(
+      headers[
+        "user-agent"
+      ] ||
+      headers[
+        "User-Agent"
+      ]
+    );
+
 
   const geo =
     await getGeoFromHeaders(
@@ -3711,17 +4148,51 @@ async function handleIngest(event: APIGatewayV2Event) {
     );
   }
 
-  // Normalize
-  const events = rawEvents
-    .map(normalizeEvent)
-    .filter(
-      (
-        e: ReturnType<typeof normalizeEvent>
-      ): e is NonNullable<
-        ReturnType<typeof normalizeEvent>
-      > => e !== null
-    );
-  
+  // Normalize.
+  //
+  // Browser evidence and request-level User-Agent evidence
+  // are combined only after the trusted edge credential has
+  // already been verified.
+  const events =
+    rawEvents
+      .map(
+        normalizeEvent
+      )
+      .filter(
+        (
+          e:
+            ReturnType<
+              typeof normalizeEvent
+            >
+        ): e is NonNullable<
+          ReturnType<
+            typeof normalizeEvent
+          >
+        > =>
+          e !==
+          null
+      )
+      .map(
+        (
+          normalizedEvent:
+            NonNullable<
+              ReturnType<
+                typeof normalizeEvent
+              >
+            >
+        ) => ({
+          ...normalizedEvent,
+
+          trafficEvidence:
+            normalizeTrafficEvidence([
+              ...normalizedEvent
+                .trafficEvidence,
+
+              ...requestTrafficEvidence,
+            ]),
+        })
+      );
+
   const rejectedCount =
     rawEvents.length - events.length;
 
@@ -3902,6 +4373,21 @@ async function handleIngest(event: APIGatewayV2Event) {
         geo,
         boundary
       );
+
+
+    /**
+     * Canonical logical-session traffic state.
+     *
+     * This is deliberately independent from result.accepted.
+     *
+     * If the physical fragment succeeded but this write failed,
+     * the request retry sees a duplicate fragment while this
+     * idempotent state update still gets another chance.
+     */
+    await applyEventToTrafficSessionState(
+      analyticsEvent
+    );
+
 
     /**
      * Automatic historical archive projection.
@@ -4129,6 +4615,13 @@ function rawEventForStorage(
 
     deploymentConfigurationId:
       event.deploymentConfigurationId,
+
+    /**
+     * Privacy-safe classification evidence only.
+     * Raw User-Agent and browser identifiers are not persisted.
+     */
+    trafficEvidence:
+      event.trafficEvidence,
 
 
     section:
@@ -4695,6 +5188,202 @@ async function queryVisitorFirstSeen(
   return combined;
 }
 
+async function queryTrafficSessionStates(
+  sessionHashes:
+    string[]
+) {
+  const output =
+    new Map<
+      string,
+      any
+    >();
+
+
+  if (
+    !ANALYTICS_TABLE ||
+    sessionHashes.length ===
+      0
+  ) {
+    return output;
+  }
+
+
+  const chunks:
+    string[][] = [];
+
+
+  for (
+    let index = 0;
+    index <
+      sessionHashes.length;
+    index +=
+      MAX_BATCH_GET_KEYS
+  ) {
+    chunks.push(
+      sessionHashes.slice(
+        index,
+        index +
+          MAX_BATCH_GET_KEYS
+      )
+    );
+  }
+
+
+  for (
+    const chunk of
+      chunks
+  ) {
+    let pendingKeys =
+      chunk.map(
+        (
+          sessionHash
+        ) =>
+          marshall(
+            trafficSessionStateKey(
+              sessionHash
+            )
+          )
+      );
+
+
+    for (
+      let attempt = 0;
+      attempt <
+        VISITOR_BATCH_GET_RETRIES &&
+      pendingKeys.length >
+        0;
+      attempt +=
+        1
+    ) {
+      const response =
+        await ddb.send(
+          new BatchGetItemCommand({
+            RequestItems: {
+              [ANALYTICS_TABLE]: {
+                Keys:
+                  pendingKeys,
+
+                ConsistentRead:
+                  true,
+
+                ProjectionExpression:
+                  "#schemaId, " +
+                  "#sessionHash, " +
+                  "#visitorHash, " +
+                  "#eventCount, " +
+                  "#activeMs, " +
+                  "#sectionsSeen, " +
+                  "#journeyEventCount, " +
+                  "#trafficEvidence",
+
+                ExpressionAttributeNames: {
+                  "#schemaId":
+                    "schemaId",
+
+                  "#sessionHash":
+                    "sessionHash",
+
+                  "#visitorHash":
+                    "visitorHash",
+
+                  "#eventCount":
+                    "eventCount",
+
+                  "#activeMs":
+                    "activeMs",
+
+                  "#sectionsSeen":
+                    "sectionsSeen",
+
+                  "#journeyEventCount":
+                    "journeyEventCount",
+
+                  "#trafficEvidence":
+                    "trafficEvidence",
+                },
+              },
+            },
+          })
+        );
+
+
+      for (
+        const raw of
+          response
+            .Responses?.[
+              ANALYTICS_TABLE
+            ] ||
+          []
+      ) {
+        const item =
+          unmarshall(
+            raw
+          );
+
+
+        const sessionHash =
+          safeStr(
+            item
+              ?.sessionHash,
+            80
+          );
+
+
+        if (
+          sessionHash &&
+          safeStr(
+            item
+              ?.schemaId,
+            120
+          ) ===
+            TRAFFIC_SESSION_STATE_SCHEMA_ID
+        ) {
+          output.set(
+            sessionHash,
+            item
+          );
+        }
+      }
+
+
+      pendingKeys =
+        response
+          .UnprocessedKeys?.[
+            ANALYTICS_TABLE
+          ]?.Keys ||
+        [];
+
+
+      if (
+        pendingKeys.length >
+          0
+      ) {
+        await sleep(
+          25 *
+          Math.pow(
+            2,
+            attempt
+          )
+        );
+      }
+    }
+
+
+    if (
+      pendingKeys.length >
+        0
+    ) {
+      throw new Error(
+        "Unable to load all canonical traffic session states after retries."
+      );
+    }
+  }
+
+
+  return output;
+}
+
+
 function numericValue(value: any) {
   const n =
     Number(value || 0);
@@ -4760,6 +5449,550 @@ function positiveIntegerSetValues(
     ...normalized,
   ];
 }
+
+type TrafficClassificationIndexEntry =
+  ReturnType<
+    typeof classifyTrafficSession
+  > & {
+    sessionHash:
+      string;
+
+    visitorHash:
+      string;
+  };
+
+
+type TrafficClassificationIndex =
+  Map<
+    string,
+    TrafficClassificationIndexEntry
+  >;
+
+
+/**
+ * Builds one deterministic classification for each logical
+ * Analytics session represented in the supplied fragments.
+ *
+ * Physical DAY / release / boundary fragmentation must never
+ * create separate traffic classifications.
+ */
+async function buildTrafficClassificationIndex(
+  byDay:
+    Map<string, any[]>
+) {
+  const identities =
+    new Map<
+      string,
+      string
+    >();
+
+
+  for (
+    const items of
+      byDay.values()
+  ) {
+    for (
+      const item of
+        items
+    ) {
+      const sessionHash =
+        safeStr(
+          item
+            ?.sessionHash,
+          80
+        );
+
+      const visitorHash =
+        safeStr(
+          item
+            ?.visitorHash,
+          80
+        );
+
+
+      if (
+        !sessionHash ||
+        !visitorHash
+      ) {
+        continue;
+      }
+
+
+      const existingVisitor =
+        identities.get(
+          sessionHash
+        );
+
+
+      if (
+        existingVisitor &&
+        existingVisitor !==
+          visitorHash
+      ) {
+        throw new Error(
+          "Analytics logical session maps to multiple visitors."
+        );
+      }
+
+
+      identities.set(
+        sessionHash,
+        visitorHash
+      );
+    }
+  }
+
+
+  const canonicalStates =
+    await queryTrafficSessionStates(
+      [
+        ...identities.keys(),
+      ]
+    );
+
+
+  const index:
+    TrafficClassificationIndex =
+      new Map();
+
+
+  for (
+    const [
+      sessionHash,
+      visitorHash,
+    ] of
+      identities.entries()
+  ) {
+    const state =
+      canonicalStates.get(
+        sessionHash
+      );
+
+
+    /**
+     * Pre-P12 historical sessions do not have canonical state.
+     *
+     * Never rebuild them from the caller's date window because
+     * doing so would make the same session change classification
+     * between 1-day and wider queries.
+     *
+     * Conservative legacy behavior is stable uncertainty.
+     */
+    if (
+      !state
+    ) {
+      index.set(
+        sessionHash,
+        {
+          sessionHash,
+
+          visitorHash,
+
+          ...classifyTrafficSession(
+            {}
+          ),
+        }
+      );
+
+      continue;
+    }
+
+
+    const canonicalVisitorHash =
+      safeStr(
+        state
+          ?.visitorHash,
+        80
+      );
+
+
+    if (
+      !canonicalVisitorHash ||
+      canonicalVisitorHash !==
+        visitorHash
+    ) {
+      throw new Error(
+        "Canonical Analytics traffic session visitor does not match fragment evidence."
+      );
+    }
+
+
+    const sections =
+      new Set(
+        stringSetValues(
+          state
+            ?.sectionsSeen
+        ).filter(
+          (
+            section
+          ) =>
+            PUBLIC_SECTIONS.has(
+              section
+            )
+        )
+      );
+
+
+    const classification =
+      classifyTrafficSession({
+        evidence:
+          normalizeTrafficEvidence(
+            state
+              ?.trafficEvidence
+          ),
+
+        eventCount:
+          numericValue(
+            state
+              ?.eventCount
+          ),
+
+        activeMs:
+          numericValue(
+            state
+              ?.activeMs
+          ),
+
+        sectionCount:
+          sections.size,
+
+        journeyEventCount:
+          numericValue(
+            state
+              ?.journeyEventCount
+          ),
+      });
+
+
+    index.set(
+      sessionHash,
+      {
+        sessionHash,
+
+        visitorHash,
+
+        ...classification,
+      }
+    );
+  }
+
+
+  return index;
+}
+
+
+/**
+ * Traffic classification is a logical-session filter.
+ *
+ * The original fragment payload remains untouched so the existing
+ * exact Profile Variant metric projection continues to work.
+ */
+function filterSessionFragmentsByTraffic(
+  byDay:
+    Map<string, any[]>,
+
+  classificationIndex:
+    TrafficClassificationIndex,
+
+  trafficFilter:
+    string
+) {
+  if (
+    trafficFilter ===
+      TRAFFIC_FILTER_ALL
+  ) {
+    return byDay;
+  }
+
+
+  const filtered =
+    new Map<
+      string,
+      any[]
+    >();
+
+
+  for (
+    const [
+      day,
+      items,
+    ] of byDay.entries()
+  ) {
+    filtered.set(
+      day,
+
+      items.filter(
+        (
+          item
+        ) => {
+          const sessionHash =
+            safeStr(
+              item?.sessionHash,
+              80
+            );
+
+
+          if (!sessionHash) {
+            return false;
+          }
+
+
+          const classification =
+            classificationIndex.get(
+              sessionHash
+            );
+
+
+          if (!classification) {
+            return false;
+          }
+
+
+          return trafficClassificationMatchesFilter(
+            classification
+              .classification,
+
+            trafficFilter
+          );
+        }
+      )
+    );
+  }
+
+
+  return filtered;
+}
+
+
+function buildTrafficClassificationSummary(
+  byDay:
+    Map<string, any[]>,
+
+  classificationIndex:
+    TrafficClassificationIndex
+) {
+  type Bucket = {
+    visitors:
+      Set<string>;
+
+    sessions:
+      Set<string>;
+
+    eventCount:
+      number;
+
+    activeMs:
+      number;
+  };
+
+
+  function bucket():
+    Bucket {
+    return {
+      visitors:
+        new Set<string>(),
+
+      sessions:
+        new Set<string>(),
+
+      eventCount:
+        0,
+
+      activeMs:
+        0,
+    };
+  }
+
+
+  const buckets =
+    new Map<
+      string,
+      Bucket
+    >([
+      [
+        TRAFFIC_FILTER_ALL,
+        bucket(),
+      ],
+
+      [
+        TRAFFIC_CLASSIFICATION
+          .LIKELY_HUMAN,
+        bucket(),
+      ],
+
+      [
+        TRAFFIC_CLASSIFICATION
+          .LIKELY_AUTOMATED,
+        bucket(),
+      ],
+
+      [
+        TRAFFIC_CLASSIFICATION
+          .UNCERTAIN,
+        bucket(),
+      ],
+    ]);
+
+
+  for (
+    const items of
+      byDay.values()
+  ) {
+    for (
+      const item of items
+    ) {
+      const sessionHash =
+        safeStr(
+          item?.sessionHash,
+          80
+        );
+
+      const visitorHash =
+        safeStr(
+          item?.visitorHash,
+          80
+        );
+
+
+      if (
+        !sessionHash ||
+        !visitorHash
+      ) {
+        continue;
+      }
+
+
+      const classification =
+        classificationIndex.get(
+          sessionHash
+        );
+
+
+      if (!classification) {
+        throw new Error(
+          "Analytics traffic classification is missing for a logical session."
+        );
+      }
+
+
+      const classificationBucket =
+        buckets.get(
+          classification
+            .classification
+        );
+
+
+      const allBucket =
+        buckets.get(
+          TRAFFIC_FILTER_ALL
+        );
+
+
+      if (
+        !classificationBucket ||
+        !allBucket
+      ) {
+        throw new Error(
+          "Analytics traffic classification bucket is invalid."
+        );
+      }
+
+
+      for (
+        const target of [
+          allBucket,
+          classificationBucket,
+        ]
+      ) {
+        target
+          .visitors
+          .add(
+            visitorHash
+          );
+
+        target
+          .sessions
+          .add(
+            sessionHash
+          );
+
+        target.eventCount +=
+          numericValue(
+            item?.eventCount
+          );
+
+        target.activeMs +=
+          numericValue(
+            item?.activeMs
+          );
+      }
+    }
+  }
+
+
+  function output(
+    key:
+      string
+  ) {
+    const value =
+      buckets.get(
+        key
+      )!;
+
+
+    return {
+      uniqueVisitors:
+        value
+          .visitors
+          .size,
+
+      sessions:
+        value
+          .sessions
+          .size,
+
+      eventCount:
+        value
+          .eventCount,
+
+      activeMs:
+        value
+          .activeMs,
+    };
+  }
+
+
+  return {
+    classifierVersion:
+      TRAFFIC_CLASSIFIER_VERSION,
+
+    byClassification: {
+      all:
+        output(
+          TRAFFIC_FILTER_ALL
+        ),
+
+      likely_human:
+        output(
+          TRAFFIC_CLASSIFICATION
+            .LIKELY_HUMAN
+        ),
+
+      likely_automated:
+        output(
+          TRAFFIC_CLASSIFICATION
+            .LIKELY_AUTOMATED
+        ),
+
+      uncertain:
+        output(
+          TRAFFIC_CLASSIFICATION
+            .UNCERTAIN
+        ),
+    },
+  };
+}
+
 
 type ParsedJourneyEvent = {
   ts: number;
@@ -5812,6 +7045,10 @@ function aggregateSessionFragments(
     string | null,
   runtimeProfileFilter:
     RuntimeProfileFilter,
+
+  trafficClassificationFilter:
+    string,
+
   visitorFirstSeenByHash:
     Map<string, number>,
   effectiveRangeStartTs:
@@ -7003,6 +8240,9 @@ function aggregateSessionFragments(
           .profileTargetingJobRole ||
         "all",
 
+      trafficClassification:
+        trafficClassificationFilter,
+
       boundaryId:
         boundaryFilter
           ?.boundaryId ||
@@ -7298,7 +8538,13 @@ function aggregateSessionFragments(
 
 function buildSessionIntelligence(
   days: string[],
-  byDay: Map<string, any[]>
+
+  byDay:
+    Map<string, any[]>,
+
+  trafficClassificationBySessionHash:
+    TrafficClassificationIndex =
+      new Map()
 ) {
   type LogicalSessionState = {
     sessionHash: string;
@@ -8297,6 +9543,34 @@ function buildSessionIntelligence(
               a.localeCompare(b)
           );
 
+        const trafficClassification =
+          trafficClassificationBySessionHash
+            .get(
+              state.sessionHash
+            ) ||
+          {
+            ...classifyTrafficSession({
+              eventCount:
+                state.eventCount,
+
+              activeMs:
+                state.activeMs,
+
+              sectionCount:
+                state.sections.size,
+
+              journeyEventCount:
+                fullJourney.length,
+            }),
+
+            sessionHash:
+              state.sessionHash,
+
+            visitorHash:
+              state.visitorHash,
+          };
+
+
         return {
           sessionId:
             `s_${sha256(
@@ -8305,6 +9579,22 @@ function buildSessionIntelligence(
               0,
               16
             )}`,
+
+          trafficClassifierVersion:
+            trafficClassification
+              .classifierVersion,
+
+          trafficClassification:
+            trafficClassification
+              .classification,
+
+          trafficConfidence:
+            trafficClassification
+              .confidence,
+
+          trafficReasonCodes:
+            trafficClassification
+              .reasonCodes,
 
           startedAt,
 
@@ -8659,6 +9949,36 @@ async function handleQuery(
         profileTargetingJobRoleFilter,
     };
 
+  const rawTrafficClassification =
+    safeStr(
+      qs
+        .trafficClassification ||
+        "",
+      40
+    );
+
+
+  const trafficClassificationFilter =
+    normalizeTrafficClassificationFilter(
+      rawTrafficClassification
+    );
+
+
+  if (
+    trafficClassificationFilter ===
+      null
+  ) {
+    return json(
+      400,
+      {
+        error:
+          "Invalid 'trafficClassification' filter.",
+      },
+      cors
+    );
+  }
+
+
   const rawBoundaryId =
     safeStr(
       qs.boundaryId || "",
@@ -8730,6 +10050,20 @@ async function handleQuery(
     );
 
 
+  /**
+   * Classification comes from one canonical logical-session
+   * state independent of the requested date/release/boundary/
+   * Profile scope.
+   *
+   * The query window controls which metrics are counted, not
+   * how the logical session itself is classified.
+   */
+  const trafficClassificationIndex =
+    await buildTrafficClassificationIndex(
+      byDay
+    );
+
+
   const analyticsByDay =
     projectRuntimeProfileFilteredFragments(
       byDay,
@@ -8737,9 +10071,32 @@ async function handleQuery(
     );
 
 
+  /**
+   * Composition remains visible even while one classification
+   * is selected. This summary is scoped by the other Analytics
+   * filters, but intentionally precedes the Traffic filter.
+   */
+  const trafficClassification =
+    buildTrafficClassificationSummary(
+      analyticsByDay,
+
+      trafficClassificationIndex
+    );
+
+
+  const trafficFilteredAnalyticsByDay =
+    filterSessionFragmentsByTraffic(
+      analyticsByDay,
+
+      trafficClassificationIndex,
+
+      trafficClassificationFilter
+    );
+
+
   const visitorHashes =
     collectVisitorHashes(
-      analyticsByDay
+      trafficFilteredAnalyticsByDay
     );
 
   const visitorFirstSeenByHash =
@@ -8764,18 +10121,30 @@ async function handleQuery(
   const analytics =
     aggregateSessionFragments(
       range.days,
-      analyticsByDay,
+
+      trafficFilteredAnalyticsByDay,
+
       profileVersionFilter,
+
       runtimeProfileFilter,
+
+      trafficClassificationFilter,
+
       visitorFirstSeenByHash,
+
       effectiveRangeStartTs,
+
       boundaryFilter
     );
+
 
   const sessionIntelligence =
     buildSessionIntelligence(
       range.days,
-      analyticsByDay
+
+      trafficFilteredAnalyticsByDay,
+
+      trafficClassificationIndex
     );
 
   return json(
@@ -8785,6 +10154,8 @@ async function handleQuery(
       stage: STAGE,
 
       ...analytics,
+
+      trafficClassification,
 
       sessionIntelligence,
     },

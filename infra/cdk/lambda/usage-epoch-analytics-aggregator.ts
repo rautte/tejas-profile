@@ -25,8 +25,16 @@ import {
 import {
   USAGE_EPOCH_ANALYTICS_EVENT_DOCUMENT_SCHEMA,
   USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1,
+  USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V2,
   createUsageEpochAnalyticsPartitionKey,
 } from "./usage-epoch-analytics-projection";
+
+import {
+  TRAFFIC_CLASSIFICATION,
+  TRAFFIC_CLASSIFIER_VERSION,
+  classifyTrafficSession,
+  normalizeTrafficEvidence,
+} from "./traffic-classification";
 
 
 const DAY_MS =
@@ -40,6 +48,16 @@ const VISITOR_BATCH_GET_RETRIES =
 
 const EVENT_FINGERPRINT_RE =
   /^[a-f0-9]{64}$/;
+
+
+const JOURNEY_EVENT_TYPES =
+  new Set([
+    "section_view",
+    "cta_click",
+    "project_open",
+    "code_snippet_view",
+    "deep_link",
+  ]);
 
 
 type DynamoDbSender = {
@@ -237,6 +255,136 @@ function enumerateEpochDays(
 }
 
 
+function normalizeProjectedTrafficEvidence({
+  raw,
+  schemaId,
+}: {
+  raw:
+    any;
+
+  schemaId:
+    string;
+}) {
+  const source =
+    raw
+      ?.trafficEvidence;
+
+
+  const values =
+    source instanceof
+      Set
+      ? [
+          ...source,
+        ]
+      : Array.isArray(
+          source
+        )
+        ? source
+        : source == null
+          ? []
+          : null;
+
+
+  if (
+    values ===
+      null
+  ) {
+    throw new Error(
+      "Usage Epoch Analytics projection traffic evidence must be an array."
+    );
+  }
+
+
+  const canonicalInput =
+    values.map(
+      (
+        value
+      ) =>
+        cleanString(
+          value,
+          80
+        )
+    );
+
+
+  const normalized =
+    normalizeTrafficEvidence(
+      canonicalInput
+    );
+
+
+  /**
+   * Projection rows are immutable evidence, so do not silently
+   * discard unknown/non-canonical evidence during report creation.
+   */
+  const canonicalObserved =
+    [
+      ...new Set(
+        canonicalInput
+          .filter(
+            Boolean
+          )
+      ),
+    ].sort(
+      (
+        left,
+        right
+      ) =>
+        left.localeCompare(
+          right
+        )
+    );
+
+
+  if (
+    JSON.stringify(
+      canonicalObserved
+    ) !==
+    JSON.stringify(
+      normalized
+    )
+  ) {
+    throw new Error(
+      "Usage Epoch Analytics projection traffic evidence is invalid."
+    );
+  }
+
+
+  if (
+    schemaId ===
+      USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1
+  ) {
+    if (
+      normalized.length >
+      0
+    ) {
+      throw new Error(
+        "Usage Epoch Analytics V1 projection cannot contain traffic evidence."
+      );
+    }
+
+
+    return [];
+  }
+
+
+  /**
+   * V2 always materializes the field, even when the evidence set is
+   * empty. This prevents absence from acquiring ambiguous semantics.
+   */
+  if (
+    source == null
+  ) {
+    throw new Error(
+      "Usage Epoch Analytics V2 projection is missing traffic evidence."
+    );
+  }
+
+
+  return normalized;
+}
+
+
 function normalizeProjectedEvent({
   raw,
   epoch,
@@ -277,16 +425,35 @@ function normalizeProjectedEvent({
   }
 
 
+  const schemaId =
+    cleanString(
+      raw.schemaId,
+      120
+    );
+
+
   if (
     raw.schema !==
       USAGE_EPOCH_ANALYTICS_EVENT_DOCUMENT_SCHEMA ||
-    raw.schemaId !==
-      USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1
+    (
+      schemaId !==
+        USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1 &&
+      schemaId !==
+        USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V2
+    )
   ) {
     throw new Error(
       "Usage Epoch Analytics projection schema is invalid."
     );
   }
+
+
+  const trafficEvidence =
+    normalizeProjectedTrafficEvidence({
+      raw,
+
+      schemaId,
+    });
 
 
   if (
@@ -564,8 +731,7 @@ function normalizeProjectedEvent({
     schema:
       USAGE_EPOCH_ANALYTICS_EVENT_DOCUMENT_SCHEMA,
 
-    schemaId:
-      USAGE_EPOCH_ANALYTICS_EVENT_SCHEMA_ID_V1,
+    schemaId,
 
     usageEpochId:
       epoch.usageEpochId,
@@ -593,6 +759,8 @@ function normalizeProjectedEvent({
     sessionHash,
 
     type,
+
+    trafficEvidence,
 
     countryCode,
 
@@ -989,6 +1157,247 @@ function interactionState(
 
 
   return value;
+}
+
+
+function classifyUsageEpochLogicalSessions({
+  epoch,
+
+  events:
+    inputEvents,
+}: {
+  epoch:
+    any;
+
+  events:
+    any[];
+}) {
+  type SessionState = {
+    visitorHash:
+      string;
+
+    eventCount:
+      number;
+
+    activeMs:
+      number;
+
+    sections:
+      Set<string>;
+
+    journeyEventCount:
+      number;
+
+    trafficEvidence:
+      Set<string>;
+  };
+
+
+  const normalizedEvents =
+    inputEvents.map(
+      (
+        event
+      ) =>
+        normalizeProjectedEvent({
+          raw:
+            event,
+
+          epoch,
+        })
+    );
+
+
+  const sessions =
+    new Map<
+      string,
+      SessionState
+    >();
+
+
+  for (
+    const event of
+      normalizedEvents
+  ) {
+    let state =
+      sessions.get(
+        event.sessionHash
+      );
+
+
+    if (!state) {
+      state = {
+        visitorHash:
+          event.visitorHash,
+
+        eventCount:
+          0,
+
+        activeMs:
+          0,
+
+        sections:
+          new Set<string>(),
+
+        journeyEventCount:
+          0,
+
+        trafficEvidence:
+          new Set<string>(),
+      };
+
+
+      sessions.set(
+        event.sessionHash,
+        state
+      );
+    } else if (
+      state.visitorHash !==
+        event.visitorHash
+    ) {
+      throw new Error(
+        "Usage Epoch logical Analytics session maps to multiple visitors."
+      );
+    }
+
+
+    state.eventCount +=
+      1;
+
+
+    if (
+      event.type ===
+        "section_time" &&
+      typeof event.ms ===
+        "number" &&
+      event.ms >
+        0
+    ) {
+      state.activeMs +=
+        event.ms;
+    }
+
+
+    if (
+      event.section
+    ) {
+      state.sections.add(
+        event.section
+      );
+    }
+
+
+    if (
+      JOURNEY_EVENT_TYPES.has(
+        event.type
+      )
+    ) {
+      state.journeyEventCount +=
+        1;
+    }
+
+
+    for (
+      const evidence of
+        event.trafficEvidence
+    ) {
+      state
+        .trafficEvidence
+        .add(
+          evidence
+        );
+    }
+  }
+
+
+  const classificationBySessionHash =
+    new Map<
+      string,
+      ReturnType<
+        typeof classifyTrafficSession
+      >
+    >();
+
+
+  for (
+    const [
+      sessionHash,
+      state,
+    ] of sessions.entries()
+  ) {
+    classificationBySessionHash.set(
+      sessionHash,
+
+      classifyTrafficSession({
+        evidence:
+          state
+            .trafficEvidence,
+
+        eventCount:
+          state
+            .eventCount,
+
+        activeMs:
+          state
+            .activeMs,
+
+        sectionCount:
+          state
+            .sections
+            .size,
+
+        journeyEventCount:
+          state
+            .journeyEventCount,
+      })
+    );
+  }
+
+
+  return {
+    normalizedEvents,
+
+    classificationBySessionHash,
+  };
+}
+
+
+function trafficSummaryFromAnalytics(
+  analytics:
+    any
+) {
+  return {
+    uniqueVisitors:
+      Number(
+        analytics
+          ?.overview
+          ?.uniqueVisitors ||
+        0
+      ),
+
+    sessions:
+      Number(
+        analytics
+          ?.overview
+          ?.sessions ||
+        0
+      ),
+
+    eventCount:
+      Number(
+        analytics
+          ?.overview
+          ?.eventCount ||
+        0
+      ),
+
+    activeMs:
+      Number(
+        analytics
+          ?.overview
+          ?.activeMs ||
+        0
+      ),
+  };
 }
 
 
@@ -2180,6 +2589,243 @@ export function aggregateUsageEpochAnalyticsEvents({
         })
       ),
   };
+}
+
+
+export function aggregateUsageEpochAnalyticsTrafficReport({
+  epoch:
+    inputEpoch,
+
+  events:
+    inputEvents,
+
+  visitorFirstSeenByHash =
+    new Map<
+      string,
+      number
+    >(),
+}: {
+  epoch:
+    unknown;
+
+  events:
+    any[];
+
+  visitorFirstSeenByHash?:
+    Map<
+      string,
+      number
+    >;
+}) {
+  const epoch =
+    requireClosingEpoch(
+      inputEpoch
+    );
+
+
+  /**
+   * All-traffic aggregation executes first so the existing
+   * projection-integrity and duplicate-event guards remain
+   * authoritative before classification affects any slice.
+   */
+  const all =
+    aggregateUsageEpochAnalyticsEvents({
+      epoch,
+
+      events:
+        inputEvents,
+
+      visitorFirstSeenByHash,
+    });
+
+
+  const {
+    normalizedEvents,
+
+    classificationBySessionHash,
+  } =
+    classifyUsageEpochLogicalSessions({
+      epoch,
+
+      events:
+        inputEvents,
+    });
+
+
+  function eventsFor(
+    classification:
+      string
+  ) {
+    return normalizedEvents.filter(
+      (
+        event
+      ) =>
+        classificationBySessionHash
+          .get(
+            event.sessionHash
+          )
+          ?.classification ===
+        classification
+    );
+  }
+
+
+  const likelyHuman =
+    aggregateUsageEpochAnalyticsEvents({
+      epoch,
+
+      events:
+        eventsFor(
+          TRAFFIC_CLASSIFICATION
+            .LIKELY_HUMAN
+        ),
+
+      visitorFirstSeenByHash,
+    });
+
+
+  const likelyAutomated =
+    aggregateUsageEpochAnalyticsEvents({
+      epoch,
+
+      events:
+        eventsFor(
+          TRAFFIC_CLASSIFICATION
+            .LIKELY_AUTOMATED
+        ),
+
+      visitorFirstSeenByHash,
+    });
+
+
+  const uncertain =
+    aggregateUsageEpochAnalyticsEvents({
+      epoch,
+
+      events:
+        eventsFor(
+          TRAFFIC_CLASSIFICATION
+            .UNCERTAIN
+        ),
+
+      visitorFirstSeenByHash,
+    });
+
+
+  const analyticsByTraffic = {
+    all,
+
+    likely_human:
+      likelyHuman,
+
+    likely_automated:
+      likelyAutomated,
+
+    uncertain,
+  };
+
+
+  return {
+    traffic: {
+      classifierVersion:
+        TRAFFIC_CLASSIFIER_VERSION,
+
+      summary: {
+        all:
+          trafficSummaryFromAnalytics(
+            all
+          ),
+
+        likely_human:
+          trafficSummaryFromAnalytics(
+            likelyHuman
+          ),
+
+        likely_automated:
+          trafficSummaryFromAnalytics(
+            likelyAutomated
+          ),
+
+        uncertain:
+          trafficSummaryFromAnalytics(
+            uncertain
+          ),
+      },
+    },
+
+    analyticsByTraffic,
+  };
+}
+
+
+export async function buildUsageEpochAnalyticsReportV2Data({
+  client,
+
+  projectionTableName,
+
+  analyticsTableName,
+
+  epoch:
+    inputEpoch,
+}: {
+  client:
+    DynamoDbSender;
+
+  projectionTableName:
+    string;
+
+  analyticsTableName:
+    string;
+
+  epoch:
+    unknown;
+}) {
+  const epoch =
+    requireClosingEpoch(
+      inputEpoch
+    );
+
+
+  const events =
+    await queryUsageEpochAnalyticsEvents({
+      client,
+
+      projectionTableName,
+
+      epoch,
+    });
+
+
+  const visitorHashes =
+    [
+      ...new Set(
+        events.map(
+          (
+            event
+          ) =>
+            event.visitorHash
+        )
+      ),
+    ];
+
+
+  const visitorFirstSeenByHash =
+    await readVisitorFirstSeenByHash({
+      client,
+
+      analyticsTableName,
+
+      visitorHashes,
+    });
+
+
+  return aggregateUsageEpochAnalyticsTrafficReport({
+    epoch,
+
+    events,
+
+    visitorFirstSeenByHash,
+  });
 }
 
 

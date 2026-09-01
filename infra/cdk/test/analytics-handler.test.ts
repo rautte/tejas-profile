@@ -15,6 +15,10 @@ import {
   createOpenUsageEpochDocument,
 } from "../lambda/usage-epoch-contract";
 
+import {
+  TRAFFIC_EVIDENCE,
+} from "../lambda/traffic-classification";
+
 
 const TABLE =
   "analytics-table-test";
@@ -781,6 +785,163 @@ describe(
           .toContain(
             "Mozilla/5.0 UnitTest"
           );
+      }
+    );
+
+
+    test(
+      "known automation user-agent is retained as coarse evidence instead of being discarded",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+          s3Send,
+        } =
+          loadHandler();
+
+
+        installBasicIngestMocks(
+          ddbSend as any,
+          s3Send as any
+        );
+
+
+        const rawUserAgent =
+          "Mozilla/5.0 compatible Googlebot/2.1";
+
+
+        const response =
+          await handler(
+            event({
+              headers: {
+                "user-agent":
+                  rawUserAgent,
+              },
+
+              body: {
+                events: [
+                  analyticsEvent({
+                    eventId:
+                      "automation-evidence-event",
+                  }),
+                ],
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(
+          200
+        );
+
+
+        expect(
+          responseBody(
+            response
+          )
+        ).toMatchObject({
+          accepted:
+            1,
+
+          duplicates:
+            0,
+        });
+
+
+        const eventWrite =
+          ddbSend
+            .mock
+            .calls
+            .map(
+              (
+                call
+              ) =>
+                call[0]
+            )
+            .find(
+              (
+                command:
+                  any
+              ) =>
+                commandName(
+                  command
+                ) ===
+                  "UpdateItemCommand" &&
+                String(
+                  command
+                    .input
+                    .ConditionExpression ||
+                    ""
+                ).includes(
+                  "processedEventIds"
+                )
+            );
+
+
+        expect(
+          eventWrite
+        ).toBeDefined();
+
+
+        const values =
+          commandValues(
+            eventWrite
+          );
+
+
+        expect(
+          values[
+            ":trafficEvidence"
+          ]
+        ).toEqual(
+          new Set([
+            TRAFFIC_EVIDENCE
+              .KNOWN_AUTOMATION_USER_AGENT,
+          ])
+        );
+
+
+        expect(
+          s3Send
+        ).toHaveBeenCalledTimes(
+          1
+        );
+
+
+        const raw =
+          JSON.parse(
+            String(
+              s3Send
+                .mock
+                .calls[0][0]
+                .input
+                .Body
+            )
+          );
+
+
+        expect(
+          raw.events[0]
+            .trafficEvidence
+        ).toEqual([
+          TRAFFIC_EVIDENCE
+            .KNOWN_AUTOMATION_USER_AGENT,
+        ]);
+
+
+        /**
+         * The raw User-Agent itself remains ephemeral.
+         * Only the coarse evidence code is retained.
+         */
+        expect(
+          JSON.stringify(
+            raw
+          )
+        ).not.toContain(
+          rawUserAgent
+        );
       }
     );
 
@@ -4368,6 +4529,1009 @@ describe(
 
 
     test(
+      "query classifies logical sessions and filters all dashboard metrics by traffic classification",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+        } =
+          loadHandler();
+
+
+        const ts =
+          Date.now() -
+          20_000;
+
+        const day =
+          new Date(
+            ts
+          )
+            .toISOString()
+            .slice(
+              0,
+              10
+            );
+
+
+        const metrics =
+          {
+            sectionVisits: {
+              "About Me":
+                1,
+            },
+
+            sectionTimeMs: {},
+
+            ctaCounts: {},
+
+            projectOpens: {},
+
+            snippetViews: {},
+
+            deepLinks: {},
+          };
+
+
+        const humanFragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_test#SESSION#human-session",
+
+          visitorHash:
+            "human-visitor",
+
+          sessionHash:
+            "human-session",
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            ts,
+
+          lastEventAt:
+            ts +
+            5_000,
+
+          eventCount:
+            4,
+
+          activeMs:
+            5_000,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+            ]),
+
+          trafficEvidence:
+            new Set([
+              TRAFFIC_EVIDENCE
+                .TRUSTED_POINTER_INPUT,
+            ]),
+
+          metrics,
+        };
+
+
+        const automatedFragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_test#SESSION#automated-session",
+
+          visitorHash:
+            "automated-visitor",
+
+          sessionHash:
+            "automated-session",
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            ts +
+            6_000,
+
+          lastEventAt:
+            ts +
+            8_000,
+
+          eventCount:
+            2,
+
+          activeMs:
+            1_000,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+            ]),
+
+          trafficEvidence:
+            new Set([
+              TRAFFIC_EVIDENCE
+                .KNOWN_AUTOMATION_USER_AGENT,
+            ]),
+
+          metrics,
+        };
+
+
+        /**
+         * This mirrors the short passive pattern that motivated
+         * P12: suspicious enough to flag, but not enough evidence
+         * to falsely declare automation.
+         */
+        const uncertainFragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_test#SESSION#uncertain-session",
+
+          visitorHash:
+            "uncertain-visitor",
+
+          sessionHash:
+            "uncertain-session",
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            ts +
+            9_000,
+
+          lastEventAt:
+            ts +
+            24_000,
+
+          eventCount:
+            6,
+
+          activeMs:
+            13_000,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+              "Education",
+            ]),
+
+          journeyEvents:
+            new Set([
+              JSON.stringify({
+                t:
+                  ts +
+                  9_000,
+
+                i:
+                  "uncertain-a",
+
+                k:
+                  "section",
+
+                v:
+                  "About Me",
+              }),
+
+              JSON.stringify({
+                t:
+                  ts +
+                  10_000,
+
+                i:
+                  "uncertain-b",
+
+                k:
+                  "section",
+
+                v:
+                  "Education",
+              }),
+            ]),
+
+          metrics,
+        };
+
+
+        const canonicalTrafficStates = [
+          {
+            schemaId:
+              "tejas-profile.analytics-traffic-session-state.v1",
+
+            sessionHash:
+              "human-session",
+
+            visitorHash:
+              "human-visitor",
+
+            eventCount:
+              4,
+
+            activeMs:
+              5_000,
+
+            sectionsSeen:
+              new Set([
+                "About Me",
+              ]),
+
+            journeyEventCount:
+              0,
+
+            trafficEvidence:
+              new Set([
+                TRAFFIC_EVIDENCE
+                  .TRUSTED_POINTER_INPUT,
+              ]),
+          },
+
+          {
+            schemaId:
+              "tejas-profile.analytics-traffic-session-state.v1",
+
+            sessionHash:
+              "automated-session",
+
+            visitorHash:
+              "automated-visitor",
+
+            eventCount:
+              2,
+
+            activeMs:
+              1_000,
+
+            sectionsSeen:
+              new Set([
+                "About Me",
+              ]),
+
+            journeyEventCount:
+              0,
+
+            trafficEvidence:
+              new Set([
+                TRAFFIC_EVIDENCE
+                  .KNOWN_AUTOMATION_USER_AGENT,
+              ]),
+          },
+
+          {
+            schemaId:
+              "tejas-profile.analytics-traffic-session-state.v1",
+
+            sessionHash:
+              "uncertain-session",
+
+            visitorHash:
+              "uncertain-visitor",
+
+            eventCount:
+              6,
+
+            activeMs:
+              13_000,
+
+            sectionsSeen:
+              new Set([
+                "About Me",
+                "Education",
+              ]),
+
+            journeyEventCount:
+              2,
+
+            /**
+             * No trafficEvidence attribute:
+             * production omits empty DynamoDB sets.
+             */
+          },
+        ];
+
+
+        ddbSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              const name =
+                commandName(
+                  command
+                );
+
+
+              if (
+                name ===
+                  "QueryCommand"
+              ) {
+                return {
+                  Items: [
+                    marshall(
+                      humanFragment
+                    ),
+
+                    marshall(
+                      automatedFragment
+                    ),
+
+                    marshall(
+                      uncertainFragment
+                    ),
+                  ],
+                };
+              }
+
+
+              if (
+                name ===
+                  "BatchGetItemCommand"
+              ) {
+                const requested =
+                  (
+                    command
+                      .input
+                      .RequestItems?.[
+                        TABLE
+                      ]
+                      ?.Keys ||
+                    []
+                  ).map(
+                    (
+                      raw:
+                        any
+                    ) =>
+                      unmarshall(
+                        raw
+                      )
+                  );
+
+
+                const trafficStateRequest =
+                  requested.some(
+                    (
+                      key:
+                        any
+                    ) =>
+                      String(
+                        key
+                          ?.pk ||
+                        ""
+                      ).startsWith(
+                        "TRAFFIC_SESSION#"
+                      )
+                  );
+
+
+                if (
+                  trafficStateRequest
+                ) {
+                  return {
+                    Responses: {
+                      [TABLE]:
+                        canonicalTrafficStates.map(
+                          (
+                            item
+                          ) =>
+                            marshall(
+                              item
+                            )
+                        ),
+                    },
+
+                    UnprocessedKeys:
+                      {},
+                  };
+                }
+
+
+                return {
+                  Responses: {
+                    [TABLE]: [
+                      marshall({
+                        visitorHash:
+                          "human-visitor",
+
+                        firstSeenAt:
+                          ts,
+                      }),
+
+                      marshall({
+                        visitorHash:
+                          "automated-visitor",
+
+                        firstSeenAt:
+                          ts +
+                          6_000,
+                      }),
+
+                      marshall({
+                        visitorHash:
+                          "uncertain-visitor",
+
+                        firstSeenAt:
+                          ts +
+                          9_000,
+                      }),
+                    ],
+                  },
+
+                  UnprocessedKeys:
+                    {},
+                };
+              }
+
+
+
+              return {};
+            }
+          );
+
+
+        const allResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                profileVersionId:
+                  "pv_test",
+
+                trafficClassification:
+                  "all",
+              },
+            })
+          );
+
+
+        expect(
+          allResponse
+            .statusCode
+        ).toBe(200);
+
+
+        const allBody =
+          responseBody(
+            allResponse
+          );
+
+
+        expect(
+          allBody
+            .filter
+            .trafficClassification
+        ).toBe(
+          "all"
+        );
+
+
+        expect(
+          allBody
+            .overview
+        ).toMatchObject({
+          uniqueVisitors:
+            3,
+
+          sessions:
+            3,
+
+          eventCount:
+            12,
+
+          activeMs:
+            19_000,
+        });
+
+
+        expect(
+          allBody
+            .trafficClassification
+        ).toEqual({
+          classifierVersion:
+            "traffic-classifier.v1",
+
+          byClassification: {
+            all: {
+              uniqueVisitors:
+                3,
+
+              sessions:
+                3,
+
+              eventCount:
+                12,
+
+              activeMs:
+                19_000,
+            },
+
+            likely_human: {
+              uniqueVisitors:
+                1,
+
+              sessions:
+                1,
+
+              eventCount:
+                4,
+
+              activeMs:
+                5_000,
+            },
+
+            likely_automated: {
+              uniqueVisitors:
+                1,
+
+              sessions:
+                1,
+
+              eventCount:
+                2,
+
+              activeMs:
+                1_000,
+            },
+
+            uncertain: {
+              uniqueVisitors:
+                1,
+
+              sessions:
+                1,
+
+              eventCount:
+                6,
+
+              activeMs:
+                13_000,
+            },
+          },
+        });
+
+
+        const classifications =
+          new Map(
+            allBody
+              .sessionIntelligence
+              .recentSessions
+              .map(
+                (
+                  row:
+                    any
+                ) => [
+                  row
+                    .trafficClassification,
+
+                  row,
+                ]
+              )
+          );
+
+
+        expect(
+          classifications
+            .get(
+              "likely_human"
+            )
+        ).toMatchObject({
+          trafficClassifierVersion:
+            "traffic-classifier.v1",
+
+          trafficClassification:
+            "likely_human",
+
+          trafficConfidence:
+            "high",
+
+          trafficReasonCodes: [
+            TRAFFIC_EVIDENCE
+              .TRUSTED_POINTER_INPUT,
+          ],
+        });
+
+
+        expect(
+          classifications
+            .get(
+              "likely_automated"
+            )
+        ).toMatchObject({
+          trafficClassification:
+            "likely_automated",
+
+          trafficConfidence:
+            "high",
+
+          trafficReasonCodes: [
+            TRAFFIC_EVIDENCE
+              .KNOWN_AUTOMATION_USER_AGENT,
+          ],
+        });
+
+
+        expect(
+          classifications
+            .get(
+              "uncertain"
+            )
+        ).toMatchObject({
+          trafficClassification:
+            "uncertain",
+
+          trafficConfidence:
+            "medium",
+
+          trafficReasonCodes: [
+            TRAFFIC_EVIDENCE
+              .PASSIVE_SHORT_SESSION,
+          ],
+        });
+
+
+        const humanResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                profileVersionId:
+                  "pv_test",
+
+                trafficClassification:
+                  "likely_human",
+              },
+            })
+          );
+
+
+        expect(
+          humanResponse
+            .statusCode
+        ).toBe(200);
+
+
+        const humanBody =
+          responseBody(
+            humanResponse
+          );
+
+
+        expect(
+          humanBody
+            .filter
+            .trafficClassification
+        ).toBe(
+          "likely_human"
+        );
+
+
+        expect(
+          humanBody
+            .overview
+        ).toMatchObject({
+          uniqueVisitors:
+            1,
+
+          sessions:
+            1,
+
+          eventCount:
+            4,
+
+          activeMs:
+            5_000,
+        });
+
+
+        expect(
+          humanBody
+            .sessionIntelligence
+            .coverage
+            .logicalSessions
+        ).toBe(
+          1
+        );
+
+
+        expect(
+          humanBody
+            .sessionIntelligence
+            .recentSessions
+        ).toHaveLength(
+          1
+        );
+
+
+        expect(
+          humanBody
+            .sessionIntelligence
+            .recentSessions[0]
+            .trafficClassification
+        ).toBe(
+          "likely_human"
+        );
+
+
+        /**
+         * Composition remains based on the pre-Traffic-filter scope,
+         * allowing the Admin UI to show what was excluded.
+         */
+        expect(
+          humanBody
+            .trafficClassification
+            .byClassification
+            .likely_automated
+            .sessions
+        ).toBe(
+          1
+        );
+      }
+    );
+
+
+    test(
+      "query defaults Traffic to all and rejects unknown classification filters",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+        } =
+          loadHandler();
+
+
+        const ts =
+          Date.now() -
+          10_000;
+
+        const day =
+          new Date(
+            ts
+          )
+            .toISOString()
+            .slice(
+              0,
+              10
+            );
+
+
+        const fragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_test#SESSION#default-traffic-session",
+
+          visitorHash:
+            "default-traffic-visitor",
+
+          sessionHash:
+            "default-traffic-session",
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            ts,
+
+          lastEventAt:
+            ts,
+
+          eventCount:
+            1,
+
+          activeMs:
+            0,
+
+          metrics: {
+            sectionVisits: {},
+            sectionTimeMs: {},
+            ctaCounts: {},
+            projectOpens: {},
+            snippetViews: {},
+            deepLinks: {},
+          },
+        };
+
+
+        ddbSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              const name =
+                commandName(
+                  command
+                );
+
+
+              if (
+                name ===
+                  "QueryCommand"
+              ) {
+                return {
+                  Items: [
+                    marshall(
+                      fragment
+                    ),
+                  ],
+                };
+              }
+
+
+              if (
+                name ===
+                  "BatchGetItemCommand"
+              ) {
+                return {
+                  Responses: {
+                    [TABLE]: [
+                      marshall({
+                        visitorHash:
+                          "default-traffic-visitor",
+
+                        firstSeenAt:
+                          ts,
+                      }),
+                    ],
+                  },
+
+                  UnprocessedKeys:
+                    {},
+                };
+              }
+
+
+              return {};
+            }
+          );
+
+
+        const defaultResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+              },
+            })
+          );
+
+
+        expect(
+          defaultResponse
+            .statusCode
+        ).toBe(200);
+
+
+        expect(
+          responseBody(
+            defaultResponse
+          )
+            .filter
+            .trafficClassification
+        ).toBe(
+          "all"
+        );
+
+
+        const callsBeforeInvalid =
+          ddbSend
+            .mock
+            .calls
+            .length;
+
+
+        const invalidResponse =
+          await handler(
+            event({
+              path:
+                "/analytics/query",
+
+              method:
+                "GET",
+
+              headers: {
+                "x-owner-token":
+                  OWNER_TOKEN,
+              },
+
+              queryStringParameters: {
+                from:
+                  day,
+
+                to:
+                  day,
+
+                trafficClassification:
+                  "definitely_a_robot",
+              },
+            })
+          );
+
+
+        expect(
+          invalidResponse
+            .statusCode
+        ).toBe(
+          400
+        );
+
+
+        expect(
+          responseBody(
+            invalidResponse
+          )
+            .error
+        ).toBe(
+          "Invalid 'trafficClassification' filter."
+        );
+
+
+        expect(
+          ddbSend
+            .mock
+            .calls
+            .length
+        ).toBe(
+          callsBeforeInvalid
+        );
+      }
+    );
+
+
+    test(
       "query returns 404 for an unknown boundary",
       async () => {
         const {
@@ -5097,5 +6261,698 @@ describe(
     }
   );
 
+  }
+);
+
+describe(
+  "analytics-handler canonical traffic-session classification",
+  () => {
+    beforeEach(
+      () => {
+        jest
+          .restoreAllMocks();
+
+        jest
+          .resetModules();
+
+        process.env
+          .ANALYTICS_EVENTS_BUCKET =
+          BUCKET;
+
+        process.env
+          .ANALYTICS_TABLE =
+          TABLE;
+
+        process.env
+          .OWNER_TOKEN =
+          OWNER_TOKEN;
+
+        process.env
+          .ANALYTICS_EDGE_TOKEN =
+          EDGE_TOKEN;
+
+        process.env
+          .ALLOWED_ORIGINS =
+          "http://localhost:3000";
+
+        process.env
+          .STAGE =
+          "dev";
+
+        delete process.env
+          .USAGE_EPOCHS_TABLE;
+
+        delete process.env
+          .USAGE_EPOCH_ANALYTICS_TABLE;
+      }
+    );
+
+
+    test(
+      "classification is invariant between a one-day and wider query for the same logical session",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+        } =
+          loadHandler();
+
+
+        const dayOne =
+          "2026-08-30";
+
+        const dayTwo =
+          "2026-08-31";
+
+
+        const visitorHash =
+          "window-invariant-visitor";
+
+        const sessionHash =
+          "window-invariant-session";
+
+
+        const metrics = {
+          sectionVisits:
+            {},
+
+          sectionTimeMs:
+            {},
+
+          ctaCounts:
+            {},
+
+          projectOpens:
+            {},
+
+          snippetViews:
+            {},
+
+          deepLinks:
+            {},
+        };
+
+
+        const dayOneFragment = {
+          pk:
+            `DAY#${dayOne}`,
+
+          sk:
+            `PV#pv_test#SESSION#${sessionHash}`,
+
+          visitorHash,
+
+          sessionHash,
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            Date.parse(
+              `${dayOne}T23:59:50.000Z`
+            ),
+
+          lastEventAt:
+            Date.parse(
+              `${dayOne}T23:59:59.000Z`
+            ),
+
+          eventCount:
+            1,
+
+          activeMs:
+            0,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+            ]),
+
+          metrics,
+        };
+
+
+        const dayTwoFragment = {
+          pk:
+            `DAY#${dayTwo}`,
+
+          sk:
+            `PV#pv_test#SESSION#${sessionHash}`,
+
+          visitorHash,
+
+          sessionHash,
+
+          profileVersionId:
+            "pv_test",
+
+          firstEventAt:
+            Date.parse(
+              `${dayTwo}T00:00:01.000Z`
+            ),
+
+          lastEventAt:
+            Date.parse(
+              `${dayTwo}T00:01:00.000Z`
+            ),
+
+          eventCount:
+            4,
+
+          activeMs:
+            35_000,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+              "Projects",
+            ]),
+
+          metrics,
+        };
+
+
+        const canonicalState = {
+          schemaId:
+            "tejas-profile.analytics-traffic-session-state.v1",
+
+          sessionHash,
+
+          visitorHash,
+
+          eventCount:
+            5,
+
+          activeMs:
+            35_000,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+              "Projects",
+            ]),
+
+          journeyEventCount:
+            2,
+
+          /**
+           * No trafficEvidence attribute:
+           * production omits empty DynamoDB sets.
+           */
+        };
+
+
+        ddbSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              const name =
+                commandName(
+                  command
+                );
+
+
+              if (
+                name ===
+                  "QueryCommand"
+              ) {
+                const values =
+                  commandValues(
+                    command
+                  );
+
+
+                if (
+                  values[
+                    ":pk"
+                  ] ===
+                    `DAY#${dayOne}`
+                ) {
+                  return {
+                    Items: [
+                      marshall(
+                        dayOneFragment
+                      ),
+                    ],
+                  };
+                }
+
+
+                if (
+                  values[
+                    ":pk"
+                  ] ===
+                    `DAY#${dayTwo}`
+                ) {
+                  return {
+                    Items: [
+                      marshall(
+                        dayTwoFragment
+                      ),
+                    ],
+                  };
+                }
+
+
+                return {
+                  Items:
+                    [],
+                };
+              }
+
+
+              if (
+                name ===
+                  "BatchGetItemCommand"
+              ) {
+                const requested =
+                  (
+                    command
+                      .input
+                      .RequestItems?.[
+                        TABLE
+                      ]
+                      ?.Keys ||
+                    []
+                  ).map(
+                    (
+                      raw:
+                        any
+                    ) =>
+                      unmarshall(
+                        raw
+                      )
+                  );
+
+
+                if (
+                  requested.some(
+                    (
+                      key:
+                        any
+                    ) =>
+                      String(
+                        key
+                          ?.pk ||
+                        ""
+                      ).startsWith(
+                        "TRAFFIC_SESSION#"
+                      )
+                  )
+                ) {
+                  return {
+                    Responses: {
+                      [TABLE]: [
+                        marshall(
+                          canonicalState
+                        ),
+                      ],
+                    },
+
+                    UnprocessedKeys:
+                      {},
+                  };
+                }
+
+
+                return {
+                  Responses: {
+                    [TABLE]: [
+                      marshall({
+                        visitorHash,
+
+                        firstSeenAt:
+                          Date.parse(
+                            `${dayOne}T23:59:50.000Z`
+                          ),
+                      }),
+                    ],
+                  },
+
+                  UnprocessedKeys:
+                    {},
+                };
+              }
+
+
+              return {};
+            }
+          );
+
+
+        const oneDay =
+          responseBody(
+            await handler(
+              event({
+                path:
+                  "/analytics/query",
+
+                method:
+                  "GET",
+
+                headers: {
+                  "x-owner-token":
+                    OWNER_TOKEN,
+                },
+
+                queryStringParameters: {
+                  from:
+                    dayOne,
+
+                  to:
+                    dayOne,
+
+                  profileVersionId:
+                    "pv_test",
+                },
+              })
+            )
+          );
+
+
+        const wider =
+          responseBody(
+            await handler(
+              event({
+                path:
+                  "/analytics/query",
+
+                method:
+                  "GET",
+
+                headers: {
+                  "x-owner-token":
+                    OWNER_TOKEN,
+                },
+
+                queryStringParameters: {
+                  from:
+                    dayOne,
+
+                  to:
+                    dayTwo,
+
+                  profileVersionId:
+                    "pv_test",
+                },
+              })
+            )
+          );
+
+
+        expect(
+          oneDay
+            .overview
+            .eventCount
+        ).toBe(
+          1
+        );
+
+
+        expect(
+          wider
+            .overview
+            .eventCount
+        ).toBe(
+          5
+        );
+
+
+        expect(
+          oneDay
+            .sessionIntelligence
+            .recentSessions[0]
+            .trafficClassification
+        ).toBe(
+          "likely_human"
+        );
+
+
+        expect(
+          wider
+            .sessionIntelligence
+            .recentSessions[0]
+            .trafficClassification
+        ).toBe(
+          "likely_human"
+        );
+
+
+        expect(
+          oneDay
+            .sessionIntelligence
+            .recentSessions[0]
+            .trafficClassifierVersion
+        ).toBe(
+          wider
+            .sessionIntelligence
+            .recentSessions[0]
+            .trafficClassifierVersion
+        );
+
+
+        expect(
+          oneDay
+            .trafficClassification
+            .byClassification
+            .likely_human
+            .sessions
+        ).toBe(
+          1
+        );
+      }
+    );
+
+
+    test(
+      "pre-P12 session without canonical state is stable low-confidence uncertain",
+      async () => {
+        const {
+          handler,
+          ddbSend,
+        } =
+          loadHandler();
+
+
+        const day =
+          "2026-08-30";
+
+
+        const fragment = {
+          pk:
+            `DAY#${day}`,
+
+          sk:
+            "PV#pv_legacy#SESSION#legacy-traffic-session",
+
+          visitorHash:
+            "legacy-traffic-visitor",
+
+          sessionHash:
+            "legacy-traffic-session",
+
+          profileVersionId:
+            "pv_legacy",
+
+          firstEventAt:
+            Date.parse(
+              `${day}T12:00:00.000Z`
+            ),
+
+          lastEventAt:
+            Date.parse(
+              `${day}T12:10:00.000Z`
+            ),
+
+          /**
+           * This would qualify as meaningful engagement if we
+           * incorrectly rebuilt classification from query scope.
+           */
+          eventCount:
+            20,
+
+          activeMs:
+            120_000,
+
+          sectionsSeen:
+            new Set([
+              "About Me",
+              "Experience",
+              "Projects",
+            ]),
+
+          metrics: {
+            sectionVisits:
+              {},
+
+            sectionTimeMs:
+              {},
+
+            ctaCounts:
+              {},
+
+            projectOpens:
+              {},
+
+            snippetViews:
+              {},
+
+            deepLinks:
+              {},
+          },
+        };
+
+
+        ddbSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              const name =
+                commandName(
+                  command
+                );
+
+
+              if (
+                name ===
+                  "QueryCommand"
+              ) {
+                return {
+                  Items: [
+                    marshall(
+                      fragment
+                    ),
+                  ],
+                };
+              }
+
+
+              if (
+                name ===
+                  "BatchGetItemCommand"
+              ) {
+                const requested =
+                  (
+                    command
+                      .input
+                      .RequestItems?.[
+                        TABLE
+                      ]
+                      ?.Keys ||
+                    []
+                  ).map(
+                    (
+                      raw:
+                        any
+                    ) =>
+                      unmarshall(
+                        raw
+                      )
+                  );
+
+
+                if (
+                  requested.some(
+                    (
+                      key:
+                        any
+                    ) =>
+                      String(
+                        key
+                          ?.pk ||
+                        ""
+                      ).startsWith(
+                        "TRAFFIC_SESSION#"
+                      )
+                  )
+                ) {
+                  return {
+                    Responses: {
+                      [TABLE]:
+                        [],
+                    },
+
+                    UnprocessedKeys:
+                      {},
+                  };
+                }
+
+
+                return {
+                  Responses: {
+                    [TABLE]: [
+                      marshall({
+                        visitorHash:
+                          "legacy-traffic-visitor",
+
+                        firstSeenAt:
+                          Date.parse(
+                            `${day}T12:00:00.000Z`
+                          ),
+                      }),
+                    ],
+                  },
+
+                  UnprocessedKeys:
+                    {},
+                };
+              }
+
+
+              return {};
+            }
+          );
+
+
+        const body =
+          responseBody(
+            await handler(
+              event({
+                path:
+                  "/analytics/query",
+
+                method:
+                  "GET",
+
+                headers: {
+                  "x-owner-token":
+                    OWNER_TOKEN,
+                },
+
+                queryStringParameters: {
+                  from:
+                    day,
+
+                  to:
+                    day,
+
+                  profileVersionId:
+                    "pv_legacy",
+                },
+              })
+            )
+          );
+
+
+        expect(
+          body
+            .sessionIntelligence
+            .recentSessions[0]
+        ).toMatchObject({
+          trafficClassification:
+            "uncertain",
+
+          trafficConfidence:
+            "low",
+
+          trafficReasonCodes:
+            [],
+        });
+      }
+    );
   }
 );

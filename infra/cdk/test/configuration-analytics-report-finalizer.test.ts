@@ -40,11 +40,12 @@ import {
 } from "../lambda/usage-epoch-analytics-projection";
 
 import {
-  aggregateUsageEpochAnalyticsEvents,
+  aggregateUsageEpochAnalyticsTrafficReport,
 } from "../lambda/usage-epoch-analytics-aggregator";
 
 import {
-  createConfigurationAnalyticsReportDocument,
+  CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2,
+  createConfigurationAnalyticsReportV2Document,
 } from "../lambda/configuration-analytics-report-contract";
 
 import {
@@ -475,7 +476,7 @@ describe(
         });
 
 
-        expect(
+        const reportPut =
           s3Send.mock.calls
             .map(
               (
@@ -483,14 +484,33 @@ describe(
               ) =>
                 call[0]
             )
-            .some(
+            .find(
               (
                 command
               ) =>
                 command instanceof
                   PutObjectCommand
+            ) as
+            PutObjectCommand;
+
+
+        expect(
+          reportPut
+        ).toBeDefined();
+
+
+        expect(
+          JSON.parse(
+            String(
+              reportPut
+                .input
+                .Body
             )
-        ).toBe(true);
+          )
+          .schemaId
+        ).toBe(
+          CONFIGURATION_ANALYTICS_REPORT_SCHEMA_ID_V2
+        );
 
 
         expect(
@@ -530,8 +550,8 @@ describe(
           60_000;
 
 
-        const analytics =
-          aggregateUsageEpochAnalyticsEvents({
+        const reportData =
+          aggregateUsageEpochAnalyticsTrafficReport({
             epoch,
 
             events: [
@@ -549,10 +569,16 @@ describe(
 
 
         const expectedReport =
-          createConfigurationAnalyticsReportDocument({
+          createConfigurationAnalyticsReportV2Document({
             epoch,
 
-            analytics,
+            traffic:
+              reportData
+                .traffic,
+
+            analyticsByTraffic:
+              reportData
+                .analyticsByTraffic,
           });
 
 

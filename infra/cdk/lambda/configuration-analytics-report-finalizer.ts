@@ -13,7 +13,7 @@ import {
 } from "./analytics-domain";
 
 import {
-  createConfigurationAnalyticsReportDocument,
+  createConfigurationAnalyticsReportV2Document,
 } from "./configuration-analytics-report-contract";
 
 import {
@@ -21,7 +21,7 @@ import {
 } from "./configuration-analytics-report-store";
 
 import {
-  buildUsageEpochAnalyticsReportData,
+  buildUsageEpochAnalyticsReportV2Data,
 } from "./usage-epoch-analytics-aggregator";
 
 import {
@@ -442,8 +442,8 @@ export async function finalizeConfigurationAnalyticsReportForEpoch({
   }
 
 
-  const analytics =
-    await buildUsageEpochAnalyticsReportData({
+  const reportData =
+    await buildUsageEpochAnalyticsReportV2Data({
       client:
         ddbClient,
 
@@ -458,10 +458,16 @@ export async function finalizeConfigurationAnalyticsReportForEpoch({
 
 
   const report =
-    createConfigurationAnalyticsReportDocument({
+    createConfigurationAnalyticsReportV2Document({
       epoch,
 
-      analytics,
+      traffic:
+        reportData
+          .traffic,
+
+      analyticsByTraffic:
+        reportData
+          .analyticsByTraffic,
     });
 
 
