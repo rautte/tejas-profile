@@ -32,6 +32,10 @@ import {
   queryAnalyticsMeta,
 } from "../../utils/analytics/analyticsApi";
 
+import {
+  listProfileVariants,
+} from "../../utils/snapshots/controlPlaneCatalogApi";
+
 
 const DAY_MS =
   24 * 60 * 60 * 1000;
@@ -2915,11 +2919,434 @@ function ReleaseTable({
 }
 
 
+
+function cleanAnalyticsFilterValue(
+  value
+) {
+  return String(
+    value ?? ""
+  ).trim();
+}
+
+
+function normalizeProfileVariantCatalog({
+  variants = [],
+  activeProfileVariantId = "",
+  activeTargetingLocation = "",
+  activeTargetingJobRole = "",
+} = {}) {
+  const activeId =
+    cleanAnalyticsFilterValue(
+      activeProfileVariantId
+    );
+
+  const activeLocation =
+    cleanAnalyticsFilterValue(
+      activeTargetingLocation
+    );
+
+  const activeJobRole =
+    cleanAnalyticsFilterValue(
+      activeTargetingJobRole
+    );
+
+  const byId =
+    new Map();
+
+
+  for (
+    const variant of
+      Array.isArray(
+        variants
+      )
+        ? variants
+        : []
+  ) {
+    const profileVariantId =
+      cleanAnalyticsFilterValue(
+        variant
+          ?.profileVariantId
+      );
+
+    const location =
+      cleanAnalyticsFilterValue(
+        variant
+          ?.targeting
+          ?.location
+      );
+
+    const jobRole =
+      cleanAnalyticsFilterValue(
+        variant
+          ?.targeting
+          ?.jobRole
+      );
+
+
+    /**
+     * The filter domain only admits complete, real authored
+     * targeting tuples.
+     *
+     * Do not invent targeting for malformed historical records.
+     */
+    if (
+      !profileVariantId ||
+      !location ||
+      !jobRole
+    ) {
+      continue;
+    }
+
+
+    byId.set(
+      profileVariantId,
+      {
+        ...variant,
+
+        profileVariantId,
+
+        targeting: {
+          ...variant
+            ?.targeting,
+
+          location:
+            profileVariantId ===
+              activeId &&
+            activeLocation
+              ? activeLocation
+              : location,
+
+          jobRole:
+            profileVariantId ===
+              activeId &&
+            activeJobRole
+              ? activeJobRole
+              : jobRole,
+        },
+      }
+    );
+  }
+
+
+  /**
+   * Runtime ACTIVE state is authoritative and must remain
+   * representable even when:
+   *
+   * - the current analytics window contains zero events;
+   * - the catalog is temporarily stale;
+   * - pagination has not returned the ACTIVE row yet.
+   */
+  if (
+    activeId &&
+    activeLocation &&
+    activeJobRole &&
+    !byId.has(
+      activeId
+    )
+  ) {
+    byId.set(
+      activeId,
+      {
+        profileVariantId:
+          activeId,
+
+        createdAt:
+          null,
+
+        targeting: {
+          location:
+            activeLocation,
+
+          jobRole:
+            activeJobRole,
+        },
+
+        runtimeOnly:
+          true,
+      }
+    );
+  }
+
+
+  return Array.from(
+    byId.values()
+  ).sort(
+    (
+      left,
+      right
+    ) => {
+      const leftId =
+        cleanAnalyticsFilterValue(
+          left
+            ?.profileVariantId
+        );
+
+      const rightId =
+        cleanAnalyticsFilterValue(
+          right
+            ?.profileVariantId
+        );
+
+
+      // Current ACTIVE Profile always leads the meaningful list.
+      if (
+        leftId ===
+          activeId &&
+        rightId !==
+          activeId
+      ) {
+        return -1;
+      }
+
+      if (
+        rightId ===
+          activeId &&
+        leftId !==
+          activeId
+      ) {
+        return 1;
+      }
+
+
+      const leftCreatedAt =
+        Date.parse(
+          left
+            ?.createdAt ||
+          ""
+        );
+
+      const rightCreatedAt =
+        Date.parse(
+          right
+            ?.createdAt ||
+          ""
+        );
+
+      const leftTime =
+        Number.isFinite(
+          leftCreatedAt
+        )
+          ? leftCreatedAt
+          : Number.NEGATIVE_INFINITY;
+
+      const rightTime =
+        Number.isFinite(
+          rightCreatedAt
+        )
+          ? rightCreatedAt
+          : Number.NEGATIVE_INFINITY;
+
+
+      if (
+        leftTime !==
+        rightTime
+      ) {
+        return (
+          rightTime -
+          leftTime
+        );
+      }
+
+
+      return leftId
+        .localeCompare(
+          rightId
+        );
+    }
+  );
+}
+
+
+function uniqueProfileTargetingValues(
+  variants,
+  key
+) {
+  const seen =
+    new Set();
+
+  const values =
+    [];
+
+
+  for (
+    const variant of
+      variants || []
+  ) {
+    const value =
+      cleanAnalyticsFilterValue(
+        variant
+          ?.targeting
+          ?.[key]
+      );
+
+    if (
+      !value ||
+      seen.has(
+        value
+      )
+    ) {
+      continue;
+    }
+
+
+    seen.add(
+      value
+    );
+
+    values.push(
+      value
+    );
+  }
+
+
+  return values;
+}
+
+
+function hasProfileTargetingPair(
+  variants,
+  location,
+  jobRole
+) {
+  const cleanLocation =
+    cleanAnalyticsFilterValue(
+      location
+    );
+
+  const cleanJobRole =
+    cleanAnalyticsFilterValue(
+      jobRole
+    );
+
+
+  return (
+    variants || []
+  ).some(
+    (
+      variant
+    ) =>
+      cleanAnalyticsFilterValue(
+        variant
+          ?.targeting
+          ?.location
+      ) ===
+        cleanLocation &&
+      cleanAnalyticsFilterValue(
+        variant
+          ?.targeting
+          ?.jobRole
+      ) ===
+        cleanJobRole
+  );
+}
+
+
+async function loadCompleteProfileVariantCatalog(
+  loadPage
+) {
+  if (
+    typeof loadPage !==
+    "function"
+  ) {
+    throw new Error(
+      "Profile Variant catalog loader is unavailable."
+    );
+  }
+
+
+  const variants =
+    [];
+
+  const seenTokens =
+    new Set();
+
+  let nextToken =
+    undefined;
+
+
+  for (
+    let page = 0;
+    page < 100;
+    page += 1
+  ) {
+    const result =
+      await loadPage({
+        limit:
+          50,
+
+        ...(nextToken
+          ? {
+              nextToken,
+            }
+          : {}),
+      });
+
+
+    if (
+      Array.isArray(
+        result
+          ?.variants
+      )
+    ) {
+      variants.push(
+        ...result
+          .variants
+      );
+    }
+
+
+    const next =
+      cleanAnalyticsFilterValue(
+        result
+          ?.nextToken
+      );
+
+
+    if (!next) {
+      return variants;
+    }
+
+
+    if (
+      seenTokens.has(
+        next
+      )
+    ) {
+      throw new Error(
+        "Profile Variant catalog pagination repeated a nextToken."
+      );
+    }
+
+
+    seenTokens.add(
+      next
+    );
+
+    nextToken =
+      next;
+  }
+
+
+  throw new Error(
+    "Profile Variant catalog exceeded the pagination safety limit."
+  );
+}
+
+
 // -----------------------------
 // Main dashboard
 // -----------------------------
 
-export default function AdminAnalytics() {
+export default function AdminAnalytics({
+  activeProfileVariantId =
+    "",
+
+  activeProfileTargeting =
+    null,
+
+  loadProfileVariants =
+    listProfileVariants,
+} = {}) {
   const [
     analyticsMode,
     setAnalyticsMode,
@@ -2933,6 +3360,30 @@ export default function AdminAnalytics() {
       () =>
         readBuildProfileVersion(),
       []
+    );
+
+  const activeProfileVariantIdValue =
+    cleanAnalyticsFilterValue(
+      activeProfileVariantId
+    );
+
+  const activeProfileTargetingLocation =
+    cleanAnalyticsFilterValue(
+      activeProfileTargeting
+        ?.location
+    );
+
+  const activeProfileTargetingJobRole =
+    cleanAnalyticsFilterValue(
+      activeProfileTargeting
+        ?.jobRole
+    );
+
+  const authoritativeProfileFilterMode =
+    Boolean(
+      activeProfileVariantIdValue &&
+      activeProfileTargetingLocation &&
+      activeProfileTargetingJobRole
     );
 
   const initialRange =
@@ -3066,6 +3517,9 @@ export default function AdminAnalytics() {
   const defaultBaselineInitialized =
     useRef(false);
 
+  const profileDefaultVariantSignature =
+    useRef("");
+
   const [
     comparePrevious,
     setComparePrevious,
@@ -3095,6 +3549,18 @@ export default function AdminAnalytics() {
     setRuntimeFilterCatalog,
   ] =
     useState(null);
+
+  const [
+    profileVariantCatalog,
+    setProfileVariantCatalog,
+  ] =
+    useState([]);
+
+  const [
+    profileFiltersReady,
+    setProfileFiltersReady,
+  ] =
+    useState(false);
 
   const [
     loading,
@@ -3231,16 +3697,81 @@ export default function AdminAnalytics() {
     data;
 
 
-  const profileVariantOptions =
+  const normalizedProfileVariantCatalog =
     useMemo(
       () =>
-        membershipFilterOptions(
+        normalizeProfileVariantCatalog({
+          variants:
+            profileVariantCatalog,
+
+          activeProfileVariantId:
+            activeProfileVariantIdValue,
+
+          activeTargetingLocation:
+            activeProfileTargetingLocation,
+
+          activeTargetingJobRole:
+            activeProfileTargetingJobRole,
+        }),
+      [
+        profileVariantCatalog,
+        activeProfileVariantIdValue,
+        activeProfileTargetingLocation,
+        activeProfileTargetingJobRole,
+      ]
+    );
+
+
+  const selectedAuthoritativeProfileVariant =
+    useMemo(
+      () =>
+        profileVariantFilter ===
+          "all"
+          ? null
+          : normalizedProfileVariantCatalog
+              .find(
+                (
+                  variant
+                ) =>
+                  variant
+                    ?.profileVariantId ===
+                  profileVariantFilter
+              ) ||
+            null,
+      [
+        normalizedProfileVariantCatalog,
+        profileVariantFilter,
+      ]
+    );
+
+
+  const profileVariantOptions =
+    useMemo(
+      () => {
+        if (
+          authoritativeProfileFilterMode
+        ) {
+          return normalizedProfileVariantCatalog
+            .map(
+              (
+                variant
+              ) =>
+                variant
+                  .profileVariantId
+            );
+        }
+
+
+        return membershipFilterOptions(
           filterCatalog
             ?.profileVariants,
           "profileVariantId",
           profileVariantFilter
-        ),
+        );
+      },
       [
+        authoritativeProfileFilterMode,
+        normalizedProfileVariantCatalog,
         filterCatalog,
         profileVariantFilter,
       ]
@@ -3249,34 +3780,119 @@ export default function AdminAnalytics() {
 
   const profileTargetingLocationOptions =
     useMemo(
-      () =>
-        membershipFilterOptions(
-          filterCatalog
-            ?.profileTargetingLocations,
-          "profileTargetingLocation",
-          profileTargetingLocationFilter
-        ),
+      () => {
+        if (
+          !authoritativeProfileFilterMode
+        ) {
+          return membershipFilterOptions(
+            filterCatalog
+              ?.profileTargetingLocations,
+            "profileTargetingLocation",
+            profileTargetingLocationFilter
+          );
+        }
+
+
+        if (
+          selectedAuthoritativeProfileVariant
+        ) {
+          return [
+            selectedAuthoritativeProfileVariant
+              .targeting
+              .location,
+          ];
+        }
+
+
+        const eligible =
+          profileTargetingJobRoleFilter ===
+            "all"
+            ? normalizedProfileVariantCatalog
+            : normalizedProfileVariantCatalog
+                .filter(
+                  (
+                    variant
+                  ) =>
+                    variant
+                      ?.targeting
+                      ?.jobRole ===
+                    profileTargetingJobRoleFilter
+                );
+
+
+        return uniqueProfileTargetingValues(
+          eligible,
+          "location"
+        );
+      },
       [
+        authoritativeProfileFilterMode,
+        selectedAuthoritativeProfileVariant,
+        normalizedProfileVariantCatalog,
         filterCatalog,
         profileTargetingLocationFilter,
+        profileTargetingJobRoleFilter,
       ]
     );
 
 
   const profileTargetingJobRoleOptions =
     useMemo(
-      () =>
-        membershipFilterOptions(
-          filterCatalog
-            ?.profileTargetingJobRoles,
-          "profileTargetingJobRole",
-          profileTargetingJobRoleFilter
-        ),
+      () => {
+        if (
+          !authoritativeProfileFilterMode
+        ) {
+          return membershipFilterOptions(
+            filterCatalog
+              ?.profileTargetingJobRoles,
+            "profileTargetingJobRole",
+            profileTargetingJobRoleFilter
+          );
+        }
+
+
+        if (
+          selectedAuthoritativeProfileVariant
+        ) {
+          return [
+            selectedAuthoritativeProfileVariant
+              .targeting
+              .jobRole,
+          ];
+        }
+
+
+        const eligible =
+          profileTargetingLocationFilter ===
+            "all"
+            ? normalizedProfileVariantCatalog
+            : normalizedProfileVariantCatalog
+                .filter(
+                  (
+                    variant
+                  ) =>
+                    variant
+                      ?.targeting
+                      ?.location ===
+                    profileTargetingLocationFilter
+                );
+
+
+        return uniqueProfileTargetingValues(
+          eligible,
+          "jobRole"
+        );
+      },
       [
+        authoritativeProfileFilterMode,
+        selectedAuthoritativeProfileVariant,
+        normalizedProfileVariantCatalog,
         filterCatalog,
+        profileTargetingLocationFilter,
         profileTargetingJobRoleFilter,
       ]
     );
+
 
   const boundaryOptions =
     useMemo(
@@ -3613,6 +4229,146 @@ export default function AdminAnalytics() {
       ]
     );
 
+  useEffect(
+    () => {
+      if (
+        !authoritativeProfileFilterMode
+      ) {
+        setProfileFiltersReady(
+          true
+        );
+
+        return;
+      }
+
+
+      const signature =
+        [
+          activeProfileVariantIdValue,
+          activeProfileTargetingLocation,
+          activeProfileTargetingJobRole,
+        ].join(
+          "\u0000"
+        );
+
+
+      if (
+        profileDefaultVariantSignature
+          .current !==
+        signature
+      ) {
+        /**
+         * One React effect transition updates the complete Profile
+         * filter tuple.
+         *
+         * The aggregate query therefore never observes:
+         *
+         *   new Profile Variant
+         *   + stale old location
+         *   + stale old job role
+         */
+        setProfileVariantFilter(
+          activeProfileVariantIdValue
+        );
+
+        setProfileTargetingLocationFilter(
+          activeProfileTargetingLocation
+        );
+
+        setProfileTargetingJobRoleFilter(
+          activeProfileTargetingJobRole
+        );
+
+        profileDefaultVariantSignature
+          .current =
+          signature;
+      }
+
+
+      setProfileFiltersReady(
+        true
+      );
+    },
+    [
+      authoritativeProfileFilterMode,
+      activeProfileVariantIdValue,
+      activeProfileTargetingLocation,
+      activeProfileTargetingJobRole,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        analyticsMode !==
+          "live" ||
+        !authoritativeProfileFilterMode
+      ) {
+        setProfileVariantCatalog(
+          []
+        );
+
+        return undefined;
+      }
+
+
+      let cancelled =
+        false;
+
+
+      (async () => {
+        try {
+          const variants =
+            await loadCompleteProfileVariantCatalog(
+              loadProfileVariants
+            );
+
+
+          if (
+            !cancelled
+          ) {
+            setProfileVariantCatalog(
+              variants
+            );
+          }
+        } catch {
+          /**
+           * Fail closed to the ACTIVE runtime tuple.
+           *
+           * normalizeProfileVariantCatalog() injects the exact
+           * ACTIVE runtime identity, so a catalog read failure can
+           * never make the live Profile disappear or fabricate
+           * historical targeting.
+           */
+          if (
+            !cancelled
+          ) {
+            setProfileVariantCatalog(
+              []
+            );
+          }
+        }
+      })();
+
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [
+      analyticsMode,
+      authoritativeProfileFilterMode,
+      activeProfileVariantIdValue,
+      activeProfileTargetingLocation,
+      activeProfileTargetingJobRole,
+      loadProfileVariants,
+      refreshVersion,
+    ]
+  );
+
+
   useEffect(() => {
     if (
       analyticsMode !==
@@ -3641,7 +4397,8 @@ export default function AdminAnalytics() {
     if (
       analyticsMode !==
         "live" ||
-      !metadataReady
+      !metadataReady ||
+      !profileFiltersReady
     ) {
       return undefined;
     }
@@ -3661,6 +4418,7 @@ export default function AdminAnalytics() {
     loadAnalytics,
     refreshVersion,
     metadataReady,
+    profileFiltersReady,
   ]);
 
   const overview =
@@ -3724,6 +4482,228 @@ export default function AdminAnalytics() {
       ? sessionIntelligence
           .topSectionPaths
       : [];
+
+  const applyProfileVariantFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          );
+
+
+        if (
+          next ===
+          "all"
+        ) {
+          setProfileVariantFilter(
+            "all"
+          );
+
+          setProfileTargetingLocationFilter(
+            "all"
+          );
+
+          setProfileTargetingJobRoleFilter(
+            "all"
+          );
+
+          return;
+        }
+
+
+        if (
+          authoritativeProfileFilterMode
+        ) {
+          const variant =
+            normalizedProfileVariantCatalog
+              .find(
+                (
+                  item
+                ) =>
+                  item
+                    ?.profileVariantId ===
+                  next
+              );
+
+
+          if (!variant) {
+            return;
+          }
+
+
+          setProfileVariantFilter(
+            next
+          );
+
+          setProfileTargetingLocationFilter(
+            variant
+              .targeting
+              .location
+          );
+
+          setProfileTargetingJobRoleFilter(
+            variant
+              .targeting
+              .jobRole
+          );
+
+          return;
+        }
+
+
+        // Backward-compatible fallback for contexts that do not
+        // provide formal runtime Profile identity.
+        setProfileVariantFilter(
+          next
+        );
+      },
+      [
+        authoritativeProfileFilterMode,
+        normalizedProfileVariantCatalog,
+      ]
+    );
+
+
+  const applyProfileTargetingLocationFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+
+        if (
+          !authoritativeProfileFilterMode ||
+          profileVariantFilter !==
+            "all"
+        ) {
+          setProfileTargetingLocationFilter(
+            next
+          );
+
+          return;
+        }
+
+
+        if (
+          next ===
+          "all"
+        ) {
+          setProfileTargetingLocationFilter(
+            "all"
+          );
+
+          return;
+        }
+
+
+        const currentRole =
+          profileTargetingJobRoleFilter;
+
+
+        setProfileTargetingLocationFilter(
+          next
+        );
+
+
+        if (
+          currentRole !==
+            "all" &&
+          !hasProfileTargetingPair(
+            normalizedProfileVariantCatalog,
+            next,
+            currentRole
+          )
+        ) {
+          setProfileTargetingJobRoleFilter(
+            "all"
+          );
+        }
+      },
+      [
+        authoritativeProfileFilterMode,
+        profileVariantFilter,
+        profileTargetingJobRoleFilter,
+        normalizedProfileVariantCatalog,
+      ]
+    );
+
+
+  const applyProfileTargetingJobRoleFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+
+        if (
+          !authoritativeProfileFilterMode ||
+          profileVariantFilter !==
+            "all"
+        ) {
+          setProfileTargetingJobRoleFilter(
+            next
+          );
+
+          return;
+        }
+
+
+        if (
+          next ===
+          "all"
+        ) {
+          setProfileTargetingJobRoleFilter(
+            "all"
+          );
+
+          return;
+        }
+
+
+        const currentLocation =
+          profileTargetingLocationFilter;
+
+
+        setProfileTargetingJobRoleFilter(
+          next
+        );
+
+
+        if (
+          currentLocation !==
+            "all" &&
+          !hasProfileTargetingPair(
+            normalizedProfileVariantCatalog,
+            currentLocation,
+            next
+          )
+        ) {
+          setProfileTargetingLocationFilter(
+            "all"
+          );
+        }
+      },
+      [
+        authoritativeProfileFilterMode,
+        profileVariantFilter,
+        profileTargetingLocationFilter,
+        normalizedProfileVariantCatalog,
+      ]
+    );
+
 
   const clearRuntimeFilters =
     useCallback(() => {
@@ -4596,7 +5576,7 @@ export default function AdminAnalytics() {
                         onChange={(
                           e
                         ) =>
-                          setProfileVariantFilter(
+                          applyProfileVariantFilter(
                             e.target.value
                           )
                         }
@@ -4612,7 +5592,10 @@ export default function AdminAnalytics() {
                               key={id}
                               value={id}
                             >
-                              {id}
+                              {id ===
+                              activeProfileVariantIdValue
+                                ? `${id} (active)`
+                                : id}
                             </option>
                           )
                         )}
@@ -4635,12 +5618,17 @@ export default function AdminAnalytics() {
                           profileTargetingLocationFilter
                         }
                         disabled={
-                          loading
+                          loading ||
+                          (
+                            authoritativeProfileFilterMode &&
+                            profileVariantFilter !==
+                              "all"
+                          )
                         }
                         onChange={(
                           e
                         ) =>
-                          setProfileTargetingLocationFilter(
+                          applyProfileTargetingLocationFilter(
                             e.target.value
                           )
                         }
@@ -4683,12 +5671,17 @@ export default function AdminAnalytics() {
                           profileTargetingJobRoleFilter
                         }
                         disabled={
-                          loading
+                          loading ||
+                          (
+                            authoritativeProfileFilterMode &&
+                            profileVariantFilter !==
+                              "all"
+                          )
                         }
                         onChange={(
                           e
                         ) =>
-                          setProfileTargetingJobRoleFilter(
+                          applyProfileTargetingJobRoleFilter(
                             e.target.value
                           )
                         }

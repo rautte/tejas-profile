@@ -730,7 +730,19 @@ function AppContent() {
 
     return {
       ...base,
-      Analytics: <AdminAnalytics darkMode={darkMode} />,
+      Analytics: (
+        <AdminAnalytics
+          darkMode={darkMode}
+
+          activeProfileVariantId={
+            activeProfileVariantId
+          }
+
+          activeProfileTargeting={
+            activeProfileTargeting
+          }
+        />
+      ),
       Snapshots: (
         <AdminSnapshots
           darkMode={darkMode}
@@ -774,6 +786,7 @@ function AppContent() {
     activePlatformReleaseId,
     activeDeploymentConfigurationId,
     refreshActiveProfile,
+    activeProfileTargeting,
   ]);
 
   const mobileDockItems = useMemo(() => {
