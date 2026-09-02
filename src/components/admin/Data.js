@@ -48,6 +48,8 @@ import {
   removeArrayIndex,
 } from "./data-editor/arrayUtils";
 
+import PublishReviewPanel from "./data-editor/PublishReviewPanel";
+
 import {
   cx,
 } from "../../utils/cx";
@@ -1578,6 +1580,37 @@ export default function AdminData({
     );
 
 
+  const [
+    showPublishReview,
+    setShowPublishReview,
+  ] =
+    useState(
+      false
+    );
+
+  const [
+    publishSuccess,
+    setPublishSuccess,
+  ] =
+    useState(
+      null
+    );
+
+  function handlePublished(
+    result
+  ) {
+    discardDraft();
+
+    setShowPublishReview(
+      false
+    );
+
+    setPublishSuccess(
+      result
+    );
+  }
+
+
   const onFieldChange =
     useMemo(
       () =>
@@ -1779,12 +1812,36 @@ export default function AdminData({
                   draftStatus}
               </span>
 
+              {draft &&
+              draftStatus ===
+                PROFILE_DRAFT_STATUS.READY ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowPublishReview(
+                      true
+                    )
+                  }
+                  className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
+                >
+                  Publish…
+                </button>
+              ) : null}
+
               {draft ? (
                 <button
                   type="button"
-                  onClick={
-                    discardDraft
-                  }
+                  onClick={() => {
+                    setPublishSuccess(
+                      null
+                    );
+
+                    setShowPublishReview(
+                      false
+                    );
+
+                    discardDraft();
+                  }}
                   className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
                 >
                   Discard draft
@@ -1793,9 +1850,13 @@ export default function AdminData({
                 !resumableDraft ? (
                 <button
                   type="button"
-                  onClick={
-                    startDraft
-                  }
+                  onClick={() => {
+                    setPublishSuccess(
+                      null
+                    );
+
+                    startDraft();
+                  }}
                   className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline"
                 >
                   Start draft
@@ -1844,11 +1905,68 @@ export default function AdminData({
 
             <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
               {draft
-                ? "Editing a draft. Plain text/number/toggle fields save automatically; nothing here affects production until a future Publish step."
+                ? "Editing a draft. Plain text/number/toggle fields save automatically; nothing here affects production until you publish."
                 : "Read-only view of the active Profile Variant's content. Start a draft to begin editing — nothing here can change production."}
             </p>
           </div>
         </div>
+
+        {publishSuccess ? (
+          <div
+            className={cx(
+              CARD_SURFACE,
+              CARD_ROUNDED_2XL,
+              "border-emerald-200/70 dark:border-emerald-400/20 bg-emerald-50/50 dark:bg-emerald-500/5 p-4 space-y-1"
+            )}
+          >
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              Published
+            </div>
+
+            <div className="text-xs text-gray-700 dark:text-gray-300">
+              New Profile Variant{" "}
+              <span className="font-mono text-gray-900 dark:text-gray-100">
+                {
+                  publishSuccess.profileVariantId
+                }
+              </span>{" "}
+              is now stored. It is not yet live — activate it from Snapshots when you're ready.
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setPublishSuccess(
+                  null
+                )
+              }
+              className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
+        {showPublishReview &&
+        draft &&
+        variant ? (
+          <PublishReviewPanel
+            draft={
+              draft
+            }
+            baseVariant={
+              variant
+            }
+            onPublished={
+              handlePublished
+            }
+            onCancel={() =>
+              setShowPublishReview(
+                false
+              )
+            }
+          />
+        ) : null}
 
         {!cleanString(
           activeProfileVariantId

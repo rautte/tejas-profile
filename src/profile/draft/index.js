@@ -27,3 +27,8 @@ export {
 export {
   useProfileDraftSession,
 } from "./useProfileDraftSession";
+
+export {
+  diffProfileContentValues,
+  formatDiffPath,
+} from "./diffProfileContent";

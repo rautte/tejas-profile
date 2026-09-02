@@ -19,11 +19,28 @@ import {
   updateProfileDraft,
 } from "../../profile/draft";
 
+import {
+  buildProfilePublicationPackage,
+  publishProfilePublication,
+} from "../../profile/publish";
+
 
 jest.mock(
   "../../utils/snapshots/snapshotsApi",
   () => ({
     getProfileVariant:
+      jest.fn(),
+  })
+);
+
+
+jest.mock(
+  "../../profile/publish",
+  () => ({
+    buildProfilePublicationPackage:
+      jest.fn(),
+
+    publishProfilePublication:
       jest.fn(),
   })
 );
@@ -1681,5 +1698,271 @@ test(
         );
       }
     );
+  }
+);
+
+
+beforeEach(
+  () => {
+    buildProfilePublicationPackage
+      .mockReset();
+
+    publishProfilePublication
+      .mockReset();
+  }
+);
+
+
+test(
+  "publishing a ready draft shows a diff review, mints a new Profile Variant on confirm, and clears the draft",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    buildProfilePublicationPackage
+      .mockResolvedValue(
+        {
+          schema:
+            "tejas-profile.profile-publication-package",
+
+          variant: {
+            profileVariantId:
+              "prv_republished",
+          },
+        }
+      );
+
+    publishProfilePublication
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          profileVariantId:
+            "prv_republished",
+
+          contentHash:
+            "b".repeat(
+              64
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    const greetingInput =
+      await screen.findByDisplayValue(
+        "Hi, I'm"
+      );
+
+    fireEvent.change(
+      greetingInput,
+      {
+        target: {
+          value:
+            "Hello there",
+        },
+      }
+    );
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Publish…",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "hero.greeting"
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Confirm & publish",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "prv_republished"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        /is now stored\. It is not yet live/
+      )
+    ).toBeInTheDocument();
+
+    // Draft was cleared by the publish -- back to a clean, no-draft view.
+    expect(
+      screen.queryByRole(
+        "button",
+        {
+          name:
+            "Discard draft",
+        }
+      )
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "a failed publish keeps the draft intact and surfaces the error",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    buildProfilePublicationPackage
+      .mockResolvedValue(
+        {
+          schema:
+            "tejas-profile.profile-publication-package",
+
+          variant: {
+            profileVariantId:
+              "prv_republished",
+          },
+        }
+      );
+
+    publishProfilePublication
+      .mockRejectedValue(
+        new Error(
+          "network error"
+        )
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    const greetingInput =
+      await screen.findByDisplayValue(
+        "Hi, I'm"
+      );
+
+    fireEvent.change(
+      greetingInput,
+      {
+        target: {
+          value:
+            "Hello there",
+        },
+      }
+    );
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Publish…",
+        }
+      )
+    );
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Confirm & publish",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "network error"
+      )
+    ).toBeInTheDocument();
+
+    // Draft survives a failed publish -- nothing was discarded.
+    expect(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Discard draft",
+        }
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByDisplayValue(
+        "Hello there"
+      )
+    ).toBeInTheDocument();
   }
 );

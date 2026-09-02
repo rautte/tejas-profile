@@ -29,6 +29,11 @@ import {
 } from "../../utils/snapshots/profileVariantCatalog";
 
 import {
+  generateProfileVariantId,
+  suggestProfileVariantId,
+} from "../../utils/snapshots/profileVariantId";
+
+import {
   cx,
 } from "../../utils/cx";
 
@@ -44,101 +49,6 @@ function cleanString(
   return String(
     value || ""
   ).trim();
-}
-
-
-function generateProfileVariantId() {
-  const random =
-    typeof crypto !==
-      "undefined" &&
-    typeof crypto
-      .randomUUID ===
-      "function"
-      ? crypto
-          .randomUUID()
-          .replace(
-            /-/g,
-            ""
-          )
-          .slice(
-            0,
-            10
-          )
-      : Math.random()
-          .toString(16)
-          .slice(2, 12);
-
-  return `prv_${Date.now().toString(36)}_${random}`;
-}
-
-
-function slugify(
-  value
-) {
-  return String(
-    value || ""
-  )
-    .trim()
-    .toLowerCase()
-    .replace(
-      /[^a-z0-9]+/g,
-      "_"
-    )
-    .replace(
-      /^_+|_+$/g,
-      ""
-    );
-}
-
-
-function compactUtcTimestamp() {
-  return new Date()
-    .toISOString()
-    .replace(
-      /[-:]/g,
-      ""
-    )
-    .replace(
-      /\.\d{3}Z$/,
-      "Z"
-    );
-}
-
-
-/**
- * Suggests prv_<location>_<jobRole>_<timestamp>, matching the
- * existing hand-authored Profile Variant ID convention (e.g.
- * prv_bangalore_backend_infra_20260830T141157Z). Only a suggestion:
- * the owner can freely overwrite it, and once they do this stops
- * being recomputed for them.
- */
-function suggestProfileVariantId({
-  location,
-  jobRole,
-}) {
-  const parts =
-    [
-      slugify(
-        location
-      ),
-
-      slugify(
-        jobRole
-      ),
-    ].filter(
-      Boolean
-    );
-
-  if (
-    parts.length ===
-    0
-  ) {
-    return null;
-  }
-
-  return `prv_${parts.join(
-    "_"
-  )}_${compactUtcTimestamp()}`;
 }
 
 
