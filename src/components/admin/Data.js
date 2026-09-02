@@ -21,6 +21,11 @@ import {
 } from "../../utils/snapshots/snapshotsApi";
 
 import {
+  PROFILE_DRAFT_STATUS,
+  useProfileDraftSession,
+} from "../../profile/draft";
+
+import {
   SIDEBAR_GROUPS,
 } from "../../data/App";
 
@@ -68,6 +73,73 @@ function getByPath(
 }
 
 
+/**
+ * Immutable set at an arbitrary path of string keys / array
+ * indices. updateProfileDraft() only merges shallowly at the
+ * top-level content section, so editing a nested field requires
+ * reconstructing the whole section value with every sibling
+ * preserved — this does that, one level at a time.
+ */
+function setDeepValue(
+  source,
+  path,
+  value
+) {
+  if (
+    path.length ===
+    0
+  ) {
+    return value;
+  }
+
+  const [
+    head,
+    ...rest
+  ] =
+    path;
+
+  if (
+    Array.isArray(
+      source
+    )
+  ) {
+    const clone =
+      source.slice();
+
+    clone[
+      head
+    ] =
+      setDeepValue(
+        clone[
+          head
+        ],
+        rest,
+        value
+      );
+
+    return clone;
+  }
+
+  const clone = {
+    ...(source ||
+      {}),
+  };
+
+  clone[
+    head
+  ] =
+    setDeepValue(
+      clone[
+        head
+      ],
+      rest,
+      value
+    );
+
+  return clone;
+}
+
+
 function formatDateTime(
   value
 ) {
@@ -103,11 +175,236 @@ function formatDateTime(
  * so new sections/fields need no new renderer code — only editing
  * (a later phase) needs per-kind interactive controls.
  */
+const EDITABLE_SCALAR_KINDS =
+  new Set([
+    "text",
+    "textarea",
+    "number",
+    "boolean",
+    "url",
+    "email",
+    "phone",
+  ]);
+
+
+const DRAFT_STATUS_LABELS =
+  {
+    [PROFILE_DRAFT_STATUS.CLEAN]:
+      "No draft",
+
+    [PROFILE_DRAFT_STATUS.DRAFT]:
+      "Draft — incomplete",
+
+    [PROFILE_DRAFT_STATUS.DRAFT_WITH_ERRORS]:
+      "Draft — has errors",
+
+    [PROFILE_DRAFT_STATUS.READY]:
+      "Draft — ready",
+
+    [PROFILE_DRAFT_STATUS.STALE]:
+      "Draft — stale",
+
+    [PROFILE_DRAFT_STATUS.PUBLISHING]:
+      "Publishing…",
+
+    [PROFILE_DRAFT_STATUS.PUBLISHED]:
+      "Published",
+  };
+
+
+const DRAFT_STATUS_BADGE_CLASS =
+  {
+    default:
+      "border-gray-200/70 dark:border-white/10 bg-gray-50/70 dark:bg-white/5 text-gray-600 dark:text-gray-400",
+
+    [PROFILE_DRAFT_STATUS.DRAFT]:
+      "border-purple-200/70 dark:border-purple-400/20 bg-purple-50/70 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300",
+
+    [PROFILE_DRAFT_STATUS.DRAFT_WITH_ERRORS]:
+      "border-red-200/70 dark:border-red-400/20 bg-red-50/70 dark:bg-red-500/10 text-red-700 dark:text-red-300",
+
+    [PROFILE_DRAFT_STATUS.READY]:
+      "border-emerald-200/70 dark:border-emerald-400/20 bg-emerald-50/70 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+
+    [PROFILE_DRAFT_STATUS.STALE]:
+      "border-amber-200/70 dark:border-amber-400/20 bg-amber-50/70 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  };
+
+
+const EDITABLE_INPUT_CLASS =
+  "w-full h-9 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 text-xs text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-purple-500/30";
+
+
+/**
+ * Only plain scalar kinds are live-editable in this phase.
+ * Collections, assets, and nested objects stay read-only here —
+ * that's the Reusable Editor Component System / Section Editors
+ * phases, not this one.
+ */
+function EditableScalarField({
+  field,
+  value,
+  onChange,
+}) {
+  if (
+    field.kind ===
+    "textarea"
+  ) {
+    return (
+      <textarea
+        rows={
+          3
+        }
+        value={
+          value ??
+          ""
+        }
+        onChange={(
+          e
+        ) =>
+          onChange(
+            e
+              .target
+              .value
+          )
+        }
+        className={cx(
+          EDITABLE_INPUT_CLASS,
+          "h-auto py-2"
+        )}
+      />
+    );
+  }
+
+  if (
+    field.kind ===
+    "boolean"
+  ) {
+    return (
+      <label className="inline-flex items-center gap-2 text-xs text-gray-800 dark:text-gray-200">
+        <input
+          type="checkbox"
+          checked={Boolean(
+            value
+          )}
+          onChange={(
+            e
+          ) =>
+            onChange(
+              e
+                .target
+                .checked
+            )
+          }
+        />
+
+        {value
+          ? "Yes"
+          : "No"}
+      </label>
+    );
+  }
+
+  if (
+    field.kind ===
+    "number"
+  ) {
+    return (
+      <input
+        type="number"
+        value={
+          value ??
+          ""
+        }
+        onChange={(
+          e
+        ) =>
+          onChange(
+            e
+              .target
+              .value ===
+            ""
+              ? ""
+              : Number(
+                  e
+                    .target
+                    .value
+                )
+          )
+        }
+        className={
+          EDITABLE_INPUT_CLASS
+        }
+      />
+    );
+  }
+
+  const inputType =
+    field.kind ===
+    "url"
+      ? "url"
+      : field.kind ===
+        "email"
+        ? "email"
+        : field.kind ===
+          "phone"
+          ? "tel"
+          : "text";
+
+  return (
+    <input
+      type={
+        inputType
+      }
+      value={
+        value ??
+        ""
+      }
+      onChange={(
+        e
+      ) =>
+        onChange(
+          e
+            .target
+            .value
+        )
+      }
+      className={
+        EDITABLE_INPUT_CLASS
+      }
+    />
+  );
+}
+
+
 function ScalarFieldValue({
   field,
   value,
   assets,
+  onChange,
 }) {
+  if (
+    typeof onChange ===
+      "function" &&
+    EDITABLE_SCALAR_KINDS.has(
+      field.kind
+    )
+  ) {
+    return (
+      <EditableScalarField
+        field={
+          field
+        }
+        value={
+          value
+        }
+        onChange={
+          onChange
+        }
+      />
+    );
+  }
+
   if (
     field.kind ===
     "asset"
@@ -331,12 +628,21 @@ function FieldRow({
   field,
   containerValue,
   assets,
+  pathPrefix =
+    [],
+  onFieldChange,
 }) {
   const value =
     getByPath(
       containerValue,
       field.path
     );
+
+  const fullPath =
+    [
+      ...pathPrefix,
+      field.path,
+    ];
 
   if (
     field.kind ===
@@ -370,6 +676,12 @@ function FieldRow({
                 }
                 assets={
                   assets
+                }
+                pathPrefix={
+                  fullPath
+                }
+                onFieldChange={
+                  onFieldChange
                 }
               />
             )
@@ -476,6 +788,17 @@ function FieldRow({
           assets={
             assets
           }
+          onChange={
+            onFieldChange
+              ? (
+                  nextValue
+                ) =>
+                  onFieldChange(
+                    fullPath,
+                    nextValue
+                  )
+              : undefined
+          }
         />
       </div>
     </div>
@@ -486,6 +809,7 @@ function FieldRow({
 function GroupPanel({
   group,
   variant,
+  onFieldChange,
 }) {
   if (!group) {
     return (
@@ -594,11 +918,43 @@ function GroupPanel({
               variant
                 ?.assets
             }
+            pathPrefix={
+              topLevelContentKey(
+                group
+              )
+            }
+            onFieldChange={
+              onFieldChange
+            }
           />
         )
       )}
     </div>
   );
+}
+
+
+function topLevelContentKey(
+  group
+) {
+  const path =
+    String(
+      group
+        ?.path ||
+        ""
+    );
+
+  return path.startsWith(
+    "content."
+  )
+    ? [
+        path.slice(
+          "content.".length
+        ),
+      ]
+    : [
+        path,
+      ];
 }
 
 
@@ -980,6 +1336,105 @@ export default function AdminData({
   );
 
 
+  const {
+    draft,
+    resumableDraft,
+    status:
+      draftStatus,
+    autosaveError,
+    startDraft,
+    resumeDraft,
+    discardDraft,
+    patchDraft,
+  } =
+    useProfileDraftSession(
+      {
+        baseProfileVariantId:
+          variant
+            ?.profileVariantId ||
+          cleanString(
+            activeProfileVariantId
+          ),
+
+        baseTargeting:
+          variant
+            ?.targeting,
+
+        baseContent:
+          variant
+            ?.content,
+      }
+    );
+
+
+  const onFieldChange =
+    useMemo(
+      () =>
+        draft
+          ? (
+              fullPath,
+              nextValue
+            ) => {
+              const [
+                sectionKey,
+                ...rest
+              ] =
+                fullPath;
+
+              const nextSectionValue =
+                setDeepValue(
+                  draft
+                    .content
+                    ?.[
+                      sectionKey
+                    ],
+                  rest,
+                  nextValue
+                );
+
+              patchDraft(
+                {
+                  content:
+                    {
+                      [sectionKey]:
+                        nextSectionValue,
+                    },
+                }
+              );
+            }
+          : undefined,
+      [
+        draft,
+        patchDraft,
+      ]
+    );
+
+
+  const renderVariant =
+    useMemo(
+      () =>
+        variant
+          ? {
+              ...variant,
+
+              content:
+                draft
+                  ? draft.content
+                  : variant.content,
+
+              targeting:
+                draft
+                  ? draft.targeting
+                  : variant.targeting,
+            }
+          : null,
+      [
+        variant,
+        draft,
+      ]
+    );
+
+
   const filteredGroups =
     useMemo(
       () => {
@@ -1097,9 +1552,89 @@ export default function AdminData({
               </div>
             </div>
 
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              Read-only view of the active Profile Variant's content. Editing
-              arrives in a later phase — nothing here can change production.
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span
+                className={cx(
+                  "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                  DRAFT_STATUS_BADGE_CLASS[
+                    draftStatus
+                  ] ||
+                    DRAFT_STATUS_BADGE_CLASS.default
+                )}
+              >
+                {DRAFT_STATUS_LABELS[
+                  draftStatus
+                ] ||
+                  draftStatus}
+              </span>
+
+              {draft ? (
+                <button
+                  type="button"
+                  onClick={
+                    discardDraft
+                  }
+                  className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
+                >
+                  Discard draft
+                </button>
+              ) : variant &&
+                !resumableDraft ? (
+                <button
+                  type="button"
+                  onClick={
+                    startDraft
+                  }
+                  className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline"
+                >
+                  Start draft
+                </button>
+              ) : null}
+
+              {autosaveError ? (
+                <span className="text-xs text-red-600 dark:text-red-400">
+                  Autosave failed:{" "}
+                  {
+                    autosaveError
+                  }
+                </span>
+              ) : null}
+            </div>
+
+            {resumableDraft ? (
+              <div className="mt-3 rounded-lg border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/60 dark:bg-purple-500/5 p-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-gray-700 dark:text-gray-300">
+                  A saved draft from a previous session is available.
+                </span>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={
+                      resumeDraft
+                    }
+                    className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline"
+                  >
+                    Resume draft
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      discardDraft
+                    }
+                    className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              {draft
+                ? "Editing a draft. Plain text/number/toggle fields save automatically; nothing here affects production until a future Publish step."
+                : "Read-only view of the active Profile Variant's content. Start a draft to begin editing — nothing here can change production."}
             </p>
           </div>
         </div>
@@ -1248,7 +1783,7 @@ export default function AdminData({
                     assetFieldRefs
                   }
                   variant={
-                    variant
+                    renderVariant
                   }
                 />
               ) : (
@@ -1257,7 +1792,10 @@ export default function AdminData({
                     selectedGroup
                   }
                   variant={
-                    variant
+                    renderVariant
+                  }
+                  onFieldChange={
+                    onFieldChange
                   }
                 />
               )}
