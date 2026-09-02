@@ -42,6 +42,13 @@ import {
 } from "./analytics-domain";
 
 import {
+  ENGAGED_SESSION_ACTIVE_MS,
+  ENGAGED_SESSION_EVENT_COUNT,
+  MEANINGFUL_SESSION_ACTIVE_MS,
+  computeOutreachScoreV1,
+} from "./outreach-score-v1";
+
+import {
   TRAFFIC_CLASSIFICATION,
   TRAFFIC_CLASSIFIER_VERSION,
   TRAFFIC_FILTER_ALL,
@@ -7068,6 +7075,20 @@ function aggregateSessionFragments(
       Set<string>
     >();
 
+  // Per-session totals, for Outreach Score's engaged-session
+  // rate and consistency components.
+  const sessionActiveMs =
+    new Map<
+      string,
+      number
+    >();
+
+  const sessionEventCount =
+    new Map<
+      string,
+      number
+    >();
+
   let totalActiveMs = 0;
   let totalEventCount = 0;
   let fragmentCount = 0;
@@ -7420,6 +7441,22 @@ function aggregateSessionFragments(
 
       totalEventCount +=
         itemEventCount;
+
+      sessionActiveMs.set(
+        sessionHash,
+        (sessionActiveMs.get(
+          sessionHash
+        ) || 0) +
+          itemActiveMs
+      );
+
+      sessionEventCount.set(
+        sessionHash,
+        (sessionEventCount.get(
+          sessionHash
+        ) || 0) +
+          itemEventCount
+      );
 
       dailyState.activeMs +=
         itemActiveMs;
@@ -8056,6 +8093,58 @@ function aggregateSessionFragments(
       : 0;
 
   // -----------------------------
+  // Outreach Score engagement inputs
+  // -----------------------------
+
+  let meaningfulSessionCount = 0;
+  let engagedSessionCount = 0;
+  let topSessionActiveMs = 0;
+
+  for (
+    const sessionHash of
+      sessions
+  ) {
+    const ms =
+      sessionActiveMs.get(
+        sessionHash
+      ) || 0;
+
+    const events =
+      sessionEventCount.get(
+        sessionHash
+      ) || 0;
+
+    if (
+      ms >=
+      MEANINGFUL_SESSION_ACTIVE_MS
+    ) {
+      meaningfulSessionCount += 1;
+    }
+
+    if (
+      ms >=
+        ENGAGED_SESSION_ACTIVE_MS ||
+      events >=
+        ENGAGED_SESSION_EVENT_COUNT
+    ) {
+      engagedSessionCount += 1;
+    }
+
+    if (
+      ms >
+      topSessionActiveMs
+    ) {
+      topSessionActiveMs = ms;
+    }
+  }
+
+  const topSessionActiveMsShare =
+    totalActiveMs > 0
+      ? topSessionActiveMs /
+        totalActiveMs
+      : 0;
+
+  // -----------------------------
   // Section response
   // -----------------------------
 
@@ -8533,6 +8622,19 @@ function aggregateSessionFragments(
             value.fragmentCount,
         })
       ),
+
+    engagement: {
+      meaningfulSessionCount,
+
+      engagedSessionCount,
+
+      topSessionActiveMsShare:
+        Number(
+          topSessionActiveMsShare.toFixed(
+            4
+          )
+        ),
+    },
   };
 }
 
@@ -10147,6 +10249,35 @@ async function handleQuery(
       trafficClassificationIndex
     );
 
+  /**
+   * Computed from the same already-filtered aggregate every other
+   * field in this response comes from, so it automatically respects
+   * every active filter, including traffic classification.
+   */
+  const outreachScore =
+    computeOutreachScoreV1({
+      overview:
+        analytics.overview,
+
+      sections:
+        analytics.sections,
+
+      ctas:
+        analytics.ctas,
+
+      projects:
+        analytics.projects,
+
+      deepLinks:
+        analytics.deepLinks,
+
+      engagement:
+        analytics.engagement,
+
+      totalSectionCount:
+        PUBLIC_SECTION_ORDER.length,
+    });
+
   return json(
     200,
     {
@@ -10158,6 +10289,8 @@ async function handleQuery(
       trafficClassification,
 
       sessionIntelligence,
+
+      outreachScore,
     },
     cors
   );

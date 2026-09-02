@@ -975,6 +975,150 @@ function KpiCard({
   );
 }
 
+const OUTREACH_SCORE_COMPONENT_LABELS = {
+  reach:
+    "Reach",
+
+  engagement:
+    "Engagement",
+
+  depth:
+    "Content Depth",
+
+  intent:
+    "Intent",
+
+  consistency:
+    "Consistency",
+};
+
+const OUTREACH_SCORE_CONFIDENCE_LABELS = {
+  low:
+    "Low",
+
+  medium:
+    "Medium",
+
+  high:
+    "High",
+};
+
+function OutreachScoreCard({
+  outreachScore,
+}) {
+  const score =
+    Number(
+      outreachScore
+        ?.score
+    );
+
+  const confidence =
+    OUTREACH_SCORE_CONFIDENCE_LABELS[
+      outreachScore
+        ?.confidence
+    ] ||
+    outreachScore
+      ?.confidence ||
+    "—";
+
+  const components =
+    outreachScore
+      ?.components ||
+    {};
+
+  if (
+    !Number.isFinite(
+      score
+    )
+  ) {
+    return (
+      <div className="text-sm text-gray-500 dark:text-gray-400">
+        No Outreach Score for this filter combination yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)] gap-6">
+      <div className="flex sm:flex-col items-center sm:items-start gap-4 sm:gap-2">
+        <div className="text-4xl font-bold text-gray-900 dark:text-gray-100">
+          {score}
+          <span className="text-lg font-medium text-gray-500 dark:text-gray-400">
+            /100
+          </span>
+        </div>
+
+        <div className="inline-flex items-center rounded-full border border-purple-200/80 dark:border-purple-400/20 bg-purple-50/80 dark:bg-purple-500/10 px-2.5 py-1 text-[11px] font-semibold text-purple-700 dark:text-purple-300">
+          Confidence: {confidence}
+        </div>
+      </div>
+
+      <div className="space-y-2.5">
+        {Object.keys(
+          OUTREACH_SCORE_COMPONENT_LABELS
+        ).map(
+          (key) => {
+            const value =
+              Number(
+                components[
+                  key
+                ]
+              );
+
+            const clamped =
+              Number.isFinite(
+                value
+              )
+                ? Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      value
+                    )
+                  )
+                : 0;
+
+            return (
+              <div
+                key={
+                  key
+                }
+              >
+                <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                  <span>
+                    {
+                      OUTREACH_SCORE_COMPONENT_LABELS[
+                        key
+                      ]
+                    }
+                  </span>
+
+                  <span className="font-mono">
+                    {Number.isFinite(
+                      value
+                    )
+                      ? value
+                      : "—"}
+                  </span>
+                </div>
+
+                <div className="mt-1 h-1.5 w-full rounded-full bg-gray-200/70 dark:bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-purple-500"
+                    style={{
+                      width: `${clamped}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          }
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TrafficBadge({
   classification,
   confidence,
@@ -6336,6 +6480,17 @@ export default function AdminAnalytics({
                       )} session-day fragments`}
                     />
                   </div>
+                </SectionCard>
+
+                <SectionCard
+                  title="Outreach Score"
+                  subtitle="Absolute 0-100 score for this exact filter combination — outreach-score.v1"
+                >
+                  <OutreachScoreCard
+                    outreachScore={
+                      data.outreachScore
+                    }
+                  />
                 </SectionCard>
 
                 <SectionCard

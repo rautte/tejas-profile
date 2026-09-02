@@ -3548,6 +3548,50 @@ describe(
           activeMs:
             0,
         });
+
+        expect(
+          resetBody
+            .outreachScore
+        ).toMatchObject({
+          algorithm:
+            "outreach-score.v1",
+
+          // One logical session in this fixture: Confidence
+          // must reflect that small sample size regardless of
+          // how the score itself lands.
+          confidence:
+            "low",
+        });
+
+        expect(
+          resetBody
+            .outreachScore
+            .score
+        ).toBeGreaterThanOrEqual(
+          0
+        );
+
+        expect(
+          resetBody
+            .outreachScore
+            .score
+        ).toBeLessThanOrEqual(
+          100
+        );
+
+        expect(
+          Object.keys(
+            resetBody
+              .outreachScore
+              .components
+          ).sort()
+        ).toEqual([
+          "consistency",
+          "depth",
+          "engagement",
+          "intent",
+          "reach",
+        ]);
       }
     );
 
