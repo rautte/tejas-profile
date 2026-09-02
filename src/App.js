@@ -773,7 +773,19 @@ function AppContent() {
           }}
         />
       ),
-      Data: <AdminData darkMode={darkMode} />,
+      Data: (
+        <AdminData
+          darkMode={darkMode}
+
+          activeProfileVariantId={
+            activeProfileVariantId
+          }
+
+          activeProfileTargeting={
+            activeProfileTargeting
+          }
+        />
+      ),
       Settings: <AdminSettings darkMode={darkMode} />,
     };
   }, [
