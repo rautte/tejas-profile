@@ -13,6 +13,10 @@ import {
   queryAnalyticsMeta,
 } from "../../utils/analytics/analyticsApi";
 
+import {
+  readBuildProfileVersion,
+} from "../../utils/profileVersion";
+
 
 jest.mock(
   "../../utils/analytics/analyticsApi",
@@ -260,6 +264,16 @@ beforeEach(
     jest.clearAllMocks();
 
 
+    // react-scripts' Jest config sets resetMocks: true, which wipes
+    // any implementation baked into jest.mock()'s factory before
+    // every test — re-assert it here, matching the other mocks below.
+    readBuildProfileVersion
+      .mockReturnValue({
+        id:
+          "pv_build",
+      });
+
+
     queryAnalyticsMeta
       .mockResolvedValue({
         ok:
@@ -346,7 +360,7 @@ describe(
         ).toHaveBeenCalledWith(
           expect.objectContaining({
             profileVersionId:
-              "all",
+              "pv_build",
 
             profileVariantId:
               "all",
@@ -407,7 +421,7 @@ describe(
             "combobox",
             {
               name:
-                "Legacy release",
+                "Profile Version",
             }
           );
 
@@ -728,7 +742,7 @@ describe(
             "combobox",
             {
               name:
-                "Legacy release",
+                "Profile Version",
             }
           );
 

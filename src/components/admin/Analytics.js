@@ -390,7 +390,11 @@ function resolveBoundaryProfileVersion(
 
 function boundaryOptionLabel(
   boundary,
-  releaseCatalog
+  releaseCatalog,
+  {
+    showProfileVersion =
+      true,
+  } = {}
 ) {
   if (!boundary) {
     return "Unknown boundary";
@@ -402,10 +406,12 @@ function boundaryOptionLabel(
       : "Deploy";
 
   const profileVersionId =
-    resolveBoundaryProfileVersion(
-      boundary,
-      releaseCatalog
-    );
+    showProfileVersion
+      ? resolveBoundaryProfileVersion(
+          boundary,
+          releaseCatalog
+        )
+      : "";
 
   const release =
     profileVersionId
@@ -3620,43 +3626,68 @@ export default function AdminAnalytics({
 
   const releaseOptions =
     useMemo(() => {
-      const ids = [];
-      const seen =
-        new Set();
+      const byId =
+        new Map();
 
-      function add(id) {
+      function add(
+        id,
+        releasedAt
+      ) {
         const clean =
           String(
             id || ""
           ).trim();
 
-        if (
-          !clean ||
-          seen.has(clean)
-        ) {
+        if (!clean) {
           return;
         }
 
-        seen.add(clean);
-        ids.push(clean);
+        const existing =
+          byId.get(
+            clean
+          );
+
+        if (
+          !existing ||
+          releasedAt >
+            existing.releasedAt
+        ) {
+          byId.set(
+            clean,
+            {
+              id: clean,
+              releasedAt,
+            }
+          );
+        }
       }
 
-      // /analytics/meta already returns
-      // releases newest-first.
       for (
         const release of
           releaseCatalog || []
       ) {
+        const releasedAt =
+          Number(
+            release
+              ?.releasedAt
+          );
+
         add(
           release
-            ?.profileVersionId
+            ?.profileVersionId,
+          Number.isFinite(
+            releasedAt
+          )
+            ? releasedAt
+            : Number.NEGATIVE_INFINITY
         );
       }
 
       // Current build may not yet have
       // been registered by deployment CI.
       add(
-        profileVersion?.id
+        profileVersion?.id,
+        Number.POSITIVE_INFINITY
       );
 
       // Never make a previously selected
@@ -3666,11 +3697,58 @@ export default function AdminAnalytics({
         "all"
       ) {
         add(
-          profileVersionFilter
+          profileVersionFilter,
+          Number.NEGATIVE_INFINITY
         );
       }
 
-      return ids;
+      const currentId =
+        String(
+          profileVersion
+            ?.id || ""
+        ).trim();
+
+      /**
+       * Ordering rule: current/newest first, then strictly
+       * by full timestamp descending. Never incidental API
+       * order and never lexical ID sort.
+       */
+      return Array.from(
+        byId.values()
+      )
+        .sort(
+          (
+            left,
+            right
+          ) => {
+            if (
+              left.id ===
+                currentId &&
+              right.id !==
+                currentId
+            ) {
+              return -1;
+            }
+
+            if (
+              right.id ===
+                currentId &&
+              left.id !==
+                currentId
+            ) {
+              return 1;
+            }
+
+            return (
+              right.releasedAt -
+              left.releasedAt
+            );
+          }
+        )
+        .map(
+          (entry) =>
+            entry.id
+        );
     }, [
       releaseCatalog,
       profileVersion,
@@ -3896,14 +3974,82 @@ export default function AdminAnalytics({
 
   const boundaryOptions =
     useMemo(
-      () =>
-        Array.isArray(
-          boundaryCatalog
-        )
-          ? boundaryCatalog
-          : [],
+      () => {
+        const all =
+          Array.isArray(
+            boundaryCatalog
+          )
+            ? boundaryCatalog
+            : [];
+
+        /**
+         * Only boundaries that actually belong to the
+         * selected Profile Version appear. "All" keeps the
+         * full cross-release history for manual analysis.
+         */
+        const scoped =
+          profileVersionFilter ===
+          "all"
+            ? all
+            : all.filter(
+                (
+                  boundary
+                ) =>
+                  resolveBoundaryProfileVersion(
+                    boundary,
+                    releaseCatalog
+                  ) ===
+                  profileVersionFilter
+              );
+
+        /**
+         * Ordering rule: full timestamp descending, never
+         * incidental API order.
+         */
+        return [
+          ...scoped,
+        ].sort(
+          (
+            left,
+            right
+          ) => {
+            const leftAt =
+              Number(
+                left
+                  ?.effectiveAt
+              );
+
+            const rightAt =
+              Number(
+                right
+                  ?.effectiveAt
+              );
+
+            const leftTime =
+              Number.isFinite(
+                leftAt
+              )
+                ? leftAt
+                : Number.NEGATIVE_INFINITY;
+
+            const rightTime =
+              Number.isFinite(
+                rightAt
+              )
+                ? rightAt
+                : Number.NEGATIVE_INFINITY;
+
+            return (
+              rightTime -
+              leftTime
+            );
+          }
+        );
+      },
       [
         boundaryCatalog,
+        releaseCatalog,
+        profileVersionFilter,
       ]
     );
 
@@ -3939,7 +4085,12 @@ export default function AdminAnalytics({
       : selectedBoundary
         ? boundaryOptionLabel(
             selectedBoundary,
-            releaseCatalog
+            releaseCatalog,
+            {
+              showProfileVersion:
+                profileVersionFilter ===
+                "all",
+            }
           )
         : boundaryFilter;
 
@@ -3984,11 +4135,13 @@ export default function AdminAnalytics({
             boundaries
           );
 
-          // A reset changes the dashboard's
-          // default baseline.
+          // Legacy Release defaults to the current
+          // effective build profileVersion, and From
+          // defaults to that profileVersion's newest
+          // Deploy/Reset boundary by full timestamp.
           //
-          // Deploy boundaries remain selectable
-          // but do NOT silently reset analytics.
+          // One shot: this never overrides an owner's
+          // subsequent manual selection.
           if (
             !defaultBaselineInitialized
               .current
@@ -3996,19 +4149,69 @@ export default function AdminAnalytics({
             const now =
               Date.now();
 
-            const latestReset =
-              boundaries.find(
-                (boundary) =>
-                  boundary?.type ===
-                    "reset" &&
+            const targetProfileVersionId =
+              String(
+                profileVersion
+                  ?.id || ""
+              ).trim();
+
+            let latestBoundary =
+              null;
+
+            for (
+              const boundary of
+                boundaries
+            ) {
+              const effectiveAt =
+                Number(
+                  boundary
+                    ?.effectiveAt
+                );
+
+              if (
+                !Number.isFinite(
+                  effectiveAt
+                ) ||
+                effectiveAt >
+                  now
+              ) {
+                continue;
+              }
+
+              if (
+                targetProfileVersionId &&
+                resolveBoundaryProfileVersion(
+                  boundary,
+                  releases
+                ) !==
+                  targetProfileVersionId
+              ) {
+                continue;
+              }
+
+              if (
+                !latestBoundary ||
+                effectiveAt >
                   Number(
-                    boundary
+                    latestBoundary
                       ?.effectiveAt
-                  ) <= now
+                  )
+              ) {
+                latestBoundary =
+                  boundary;
+              }
+            }
+
+            if (
+              targetProfileVersionId
+            ) {
+              setProfileVersionFilter(
+                targetProfileVersionId
               );
+            }
 
             setBoundaryFilter(
-              latestReset
+              latestBoundary
                 ?.boundaryId ||
                 "all"
             );
@@ -4043,7 +4246,9 @@ export default function AdminAnalytics({
           }
         }
       },
-      []
+      [
+        profileVersion?.id,
+      ]
     );
 
   const loadAnalytics =
@@ -4482,6 +4687,122 @@ export default function AdminAnalytics({
       ? sessionIntelligence
           .topSectionPaths
       : [];
+
+  const applyProfileVersionFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+
+        setResetArmed(
+          false
+        );
+
+        setPendingResetRequest(
+          null
+        );
+
+        setResetError(
+          ""
+        );
+
+
+        if (
+          next ===
+          "all"
+        ) {
+          setProfileVersionFilter(
+            "all"
+          );
+
+          setBoundaryFilter(
+            "all"
+          );
+
+          return;
+        }
+
+
+        setProfileVersionFilter(
+          next
+        );
+
+
+        /**
+         * Changing Profile Version atomically recomputes
+         * Boundary/Date-Time to that version's newest
+         * boundary. The aggregate query must never observe
+         * a new Profile Version paired with a Boundary that
+         * belongs to a different one.
+         */
+        const now =
+          Date.now();
+
+        let latestBoundary =
+          null;
+
+        for (
+          const boundary of
+            boundaryCatalog ||
+            []
+        ) {
+          const effectiveAt =
+            Number(
+              boundary
+                ?.effectiveAt
+            );
+
+          if (
+            !Number.isFinite(
+              effectiveAt
+            ) ||
+            effectiveAt >
+              now
+          ) {
+            continue;
+          }
+
+          if (
+            resolveBoundaryProfileVersion(
+              boundary,
+              releaseCatalog
+            ) !== next
+          ) {
+            continue;
+          }
+
+          if (
+            !latestBoundary ||
+            effectiveAt >
+              Number(
+                latestBoundary
+                  ?.effectiveAt
+              )
+          ) {
+            latestBoundary =
+              boundary;
+          }
+        }
+
+
+        setBoundaryFilter(
+          latestBoundary
+            ?.boundaryId ||
+            "all"
+        );
+      },
+      [
+        boundaryCatalog,
+        releaseCatalog,
+      ]
+    );
+
 
   const applyProfileVariantFilter =
     useCallback(
@@ -5348,10 +5669,58 @@ export default function AdminAnalytics({
 
                   <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
                     <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
-                      From
+                      From · Profile Version
                     </div>
 
                     <select
+                      aria-label="Profile Version"
+                      value={
+                        profileVersionFilter
+                      }
+                      disabled={
+                        metaLoading
+                      }
+                      onChange={(
+                        e
+                      ) =>
+                        applyProfileVersionFilter(
+                          e.target.value
+                        )
+                      }
+                      className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                    >
+                      <option value="all">
+                        All legacy releases
+                      </option>
+
+                      {releaseOptions.map(
+                        (id) => (
+                          <option
+                            key={id}
+                            value={id}
+                          >
+                            {id ===
+                            profileVersion
+                              ?.id
+                              ? `${id} (current)`
+                              : id}
+                          </option>
+                        )
+                      )}
+                    </select>
+
+                    <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                      Existing profileVersionId dimension. Independent of Profile Variant activation.
+                    </div>
+                  </label>
+
+                  <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
+                    <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                      From · Boundary / Date-Time
+                    </div>
+
+                    <select
+                      aria-label="Boundary / Date-Time"
                       value={
                         boundaryFilter
                       }
@@ -5398,7 +5767,12 @@ export default function AdminAnalytics({
                           >
                             {boundaryOptionLabel(
                               boundary,
-                              releaseCatalog
+                              releaseCatalog,
+                              {
+                                showProfileVersion:
+                                  profileVersionFilter ===
+                                  "all",
+                              }
                             )}
                           </option>
                         )
@@ -5406,54 +5780,7 @@ export default function AdminAnalytics({
                     </select>
 
                     <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                      Baseline lower bound. The selected period still applies.
-                    </div>
-                  </label>
-
-                  <label className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/40 dark:bg-white/5 p-3">
-                    <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
-                      Legacy release
-                    </div>
-
-                    <select
-                      aria-label="Legacy release"
-                      value={
-                        profileVersionFilter
-                      }
-                      disabled={
-                        metaLoading
-                      }
-                      onChange={(
-                        e
-                      ) =>
-                        setProfileVersionFilter(
-                          e.target.value
-                        )
-                      }
-                      className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
-                    >
-                      <option value="all">
-                        All legacy releases
-                      </option>
-
-                      {releaseOptions.map(
-                        (id) => (
-                          <option
-                            key={id}
-                            value={id}
-                          >
-                            {id ===
-                            profileVersion
-                              ?.id
-                              ? `${id} (current)`
-                              : id}
-                          </option>
-                        )
-                      )}
-                    </select>
-
-                    <div className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                      Existing profileVersionId dimension. Independent of Profile Variant activation.
+                      Baseline lower bound, scoped to the selected Profile Version. The selected period still applies.
                     </div>
                   </label>
                 </div>
