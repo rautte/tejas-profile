@@ -36,6 +36,10 @@ import {
   listProfileVariants,
 } from "../../utils/snapshots/controlPlaneCatalogApi";
 
+import {
+  canonicalJsonStringify,
+} from "../../utils/profileVariant";
+
 
 const DAY_MS =
   24 * 60 * 60 * 1000;
@@ -426,6 +430,218 @@ function boundaryOptionLabel(
   );
 }
 
+
+/**
+ * Ordering rule: current/newest first, then strictly by full
+ * timestamp descending. Never incidental API order and never
+ * lexical ID sort. Shared between the live "Profile Version"
+ * selector and Compare's independent Dashboard B selector.
+ */
+function computeReleaseOptions({
+  releaseCatalog,
+  currentProfileVersionId,
+  selectedProfileVersionFilter,
+} = {}) {
+  const byId =
+    new Map();
+
+  function add(
+    id,
+    releasedAt
+  ) {
+    const clean =
+      String(
+        id || ""
+      ).trim();
+
+    if (!clean) {
+      return;
+    }
+
+    const existing =
+      byId.get(
+        clean
+      );
+
+    if (
+      !existing ||
+      releasedAt >
+        existing.releasedAt
+    ) {
+      byId.set(
+        clean,
+        {
+          id: clean,
+          releasedAt,
+        }
+      );
+    }
+  }
+
+  for (
+    const release of
+      releaseCatalog ||
+      []
+  ) {
+    const releasedAt =
+      Number(
+        release
+          ?.releasedAt
+      );
+
+    add(
+      release
+        ?.profileVersionId,
+      Number.isFinite(
+        releasedAt
+      )
+        ? releasedAt
+        : Number.NEGATIVE_INFINITY
+    );
+  }
+
+  // Current build may not yet have been registered by
+  // deployment CI.
+  add(
+    currentProfileVersionId,
+    Number.POSITIVE_INFINITY
+  );
+
+  // Never make a previously selected value disappear from
+  // the control.
+  if (
+    selectedProfileVersionFilter &&
+    selectedProfileVersionFilter !==
+      "all"
+  ) {
+    add(
+      selectedProfileVersionFilter,
+      Number.NEGATIVE_INFINITY
+    );
+  }
+
+  const currentId =
+    String(
+      currentProfileVersionId ||
+        ""
+    ).trim();
+
+  return Array.from(
+    byId.values()
+  )
+    .sort(
+      (
+        left,
+        right
+      ) => {
+        if (
+          left.id ===
+            currentId &&
+          right.id !==
+            currentId
+        ) {
+          return -1;
+        }
+
+        if (
+          right.id ===
+            currentId &&
+          left.id !==
+            currentId
+        ) {
+          return 1;
+        }
+
+        return (
+          right.releasedAt -
+          left.releasedAt
+        );
+      }
+    )
+    .map(
+      (entry) =>
+        entry.id
+    );
+}
+
+
+/**
+ * Only boundaries that actually belong to the selected Profile
+ * Version appear. "All" keeps the full cross-release history for
+ * manual analysis. Ordering rule: full timestamp descending.
+ * Shared between the live "Boundary / Date-Time" selector and
+ * Compare's independent Dashboard B selector.
+ */
+function computeBoundaryOptions({
+  boundaryCatalog,
+  releaseCatalog,
+  profileVersionFilter,
+} = {}) {
+  const all =
+    Array.isArray(
+      boundaryCatalog
+    )
+      ? boundaryCatalog
+      : [];
+
+  const scoped =
+    !profileVersionFilter ||
+    profileVersionFilter ===
+      "all"
+      ? all
+      : all.filter(
+          (
+            boundary
+          ) =>
+            resolveBoundaryProfileVersion(
+              boundary,
+              releaseCatalog
+            ) ===
+            profileVersionFilter
+        );
+
+  return [
+    ...scoped,
+  ].sort(
+    (
+      left,
+      right
+    ) => {
+      const leftAt =
+        Number(
+          left
+            ?.effectiveAt
+        );
+
+      const rightAt =
+        Number(
+          right
+            ?.effectiveAt
+        );
+
+      const leftTime =
+        Number.isFinite(
+          leftAt
+        )
+          ? leftAt
+          : Number.NEGATIVE_INFINITY;
+
+      const rightTime =
+        Number.isFinite(
+          rightAt
+        )
+          ? rightAt
+          : Number.NEGATIVE_INFINITY;
+
+      return (
+        rightTime -
+        leftTime
+      );
+    }
+  );
+}
+
+
 function createResetBoundaryRequest() {
   const effectiveAt =
     Date.now();
@@ -748,6 +964,394 @@ function comparisonDelta(
     )}% vs previous`
   );
 }
+
+
+function compareDeltaLabel(
+  aValue,
+  bValue
+) {
+  if (
+    aValue == null ||
+    bValue == null
+  ) {
+    return "—";
+  }
+
+  const a =
+    Number(
+      aValue
+    ) || 0;
+
+  const b =
+    Number(
+      bValue
+    ) || 0;
+
+  if (
+    a === 0 &&
+    b === 0
+  ) {
+    return "0%";
+  }
+
+  if (a === 0) {
+    return "New";
+  }
+
+  const pct =
+    ((b - a) / a) *
+    100;
+
+  const sign =
+    pct > 0
+      ? "+"
+      : "";
+
+  return `${sign}${pct.toFixed(
+    1
+  )}%`;
+}
+
+
+function resumeSectionVisits(
+  aggData
+) {
+  const row = (
+    Array.isArray(
+      aggData?.sections
+    )
+      ? aggData.sections
+      : []
+  ).find(
+    (
+      section
+    ) =>
+      section?.section ===
+      "Resume"
+  );
+
+  return (
+    row?.visits || 0
+  );
+}
+
+
+/**
+ * Metric rows for Compare's A/B/Delta table. Outreach Score's
+ * component breakdown is included alongside the total so a score
+ * difference is explainable, not just visible.
+ */
+function buildCompareMetricRows(
+  aData,
+  bData
+) {
+  const aOverview =
+    aData?.overview ||
+    {};
+
+  const bOverview =
+    bData?.overview ||
+    {};
+
+  const aScore =
+    aData?.outreachScore ||
+    null;
+
+  const bScore =
+    bData?.outreachScore ||
+    null;
+
+  return [
+    {
+      label:
+        "Unique Visitors",
+
+      a:
+        aOverview.uniqueVisitors ||
+        0,
+
+      b:
+        bOverview.uniqueVisitors ||
+        0,
+    },
+
+    {
+      label:
+        "Sessions",
+
+      a:
+        aOverview.sessions ||
+        0,
+
+      b:
+        bOverview.sessions ||
+        0,
+    },
+
+    {
+      label:
+        "Avg Active Time",
+
+      a:
+        aOverview.avgActiveMsPerSession ||
+        0,
+
+      b:
+        bOverview.avgActiveMsPerSession ||
+        0,
+
+      format:
+        "duration",
+    },
+
+    {
+      label:
+        "Sections / Session",
+
+      a:
+        Number(
+          (
+            aOverview.avgSectionsPerSession ||
+            0
+          ).toFixed(2)
+        ),
+
+      b:
+        Number(
+          (
+            bOverview.avgSectionsPerSession ||
+            0
+          ).toFixed(2)
+        ),
+    },
+
+    {
+      label:
+        "Resume Actions",
+
+      a:
+        resumeSectionVisits(
+          aData
+        ),
+
+      b:
+        resumeSectionVisits(
+          bData
+        ),
+    },
+
+    {
+      label:
+        "Outreach Score",
+
+      a:
+        aScore?.score ??
+        null,
+
+      b:
+        bScore?.score ??
+        null,
+
+      emphasize:
+        true,
+    },
+
+    {
+      label:
+        "— Reach",
+
+      a:
+        aScore
+          ?.components
+          ?.reach ??
+        null,
+
+      b:
+        bScore
+          ?.components
+          ?.reach ??
+        null,
+    },
+
+    {
+      label:
+        "— Engagement",
+
+      a:
+        aScore
+          ?.components
+          ?.engagement ??
+        null,
+
+      b:
+        bScore
+          ?.components
+          ?.engagement ??
+        null,
+    },
+
+    {
+      label:
+        "— Content Depth",
+
+      a:
+        aScore
+          ?.components
+          ?.depth ??
+        null,
+
+      b:
+        bScore
+          ?.components
+          ?.depth ??
+        null,
+    },
+
+    {
+      label:
+        "— Intent",
+
+      a:
+        aScore
+          ?.components
+          ?.intent ??
+        null,
+
+      b:
+        bScore
+          ?.components
+          ?.intent ??
+        null,
+    },
+
+    {
+      label:
+        "— Consistency",
+
+      a:
+        aScore
+          ?.components
+          ?.consistency ??
+        null,
+
+      b:
+        bScore
+          ?.components
+          ?.consistency ??
+        null,
+    },
+  ];
+}
+
+
+function CompareResultsTable({
+  aData,
+  bData,
+}) {
+  const rows =
+    buildCompareMetricRows(
+      aData,
+      bData
+    );
+
+  function formatCell(
+    value,
+    format
+  ) {
+    if (
+      value == null
+    ) {
+      return "—";
+    }
+
+    if (
+      format ===
+      "duration"
+    ) {
+      return formatDuration(
+        value
+      );
+    }
+
+    return formatNumber(
+      value
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 border-b border-gray-200/70 dark:border-white/10">
+            <th className="py-2 pr-4">
+              Metric
+            </th>
+
+            <th className="py-2 px-4">
+              A
+            </th>
+
+            <th className="py-2 px-4">
+              B
+            </th>
+
+            <th className="py-2 pl-4">
+              Delta
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map(
+            (
+              row
+            ) => (
+              <tr
+                key={
+                  row.label
+                }
+                className={cx(
+                  "border-b border-gray-100/70 dark:border-white/5",
+                  row.emphasize
+                    ? "font-semibold text-gray-900 dark:text-gray-100"
+                    : "text-gray-700 dark:text-gray-300"
+                )}
+              >
+                <td className="py-2 pr-4">
+                  {
+                    row.label
+                  }
+                </td>
+
+                <td className="py-2 px-4 font-mono">
+                  {formatCell(
+                    row.a,
+                    row.format
+                  )}
+                </td>
+
+                <td className="py-2 px-4 font-mono">
+                  {formatCell(
+                    row.b,
+                    row.format
+                  )}
+                </td>
+
+                <td className="py-2 pl-4 font-mono">
+                  {compareDeltaLabel(
+                    row.a,
+                    row.b
+                  )}
+                </td>
+              </tr>
+            )
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 
 function membershipFilterOptions(
   rows,
@@ -3079,6 +3683,75 @@ function cleanAnalyticsFilterValue(
 }
 
 
+/**
+ * A complete Analytics dashboard state identity, for Compare's
+ * exact-self-comparison prevention.
+ *
+ * Only canonicalAnalyticsDashboardState(A) === (B) is prohibited —
+ * individual matching fields (e.g. the same Profile Version) are
+ * always legitimate. Uses the *resolved* date window rather than
+ * the period/custom-range selection mechanism, so two different
+ * paths to the same effective window are correctly treated as the
+ * same state.
+ */
+function canonicalAnalyticsDashboardState(
+  {
+    profileVersionFilter,
+    boundaryFilter,
+    profileVariantFilter,
+    profileTargetingLocationFilter,
+    profileTargetingJobRoleFilter,
+    trafficClassificationFilter,
+    rangeFrom,
+    rangeTo,
+  }
+) {
+  return canonicalJsonStringify(
+    {
+      profileVersionFilter:
+        cleanAnalyticsFilterValue(
+          profileVersionFilter
+        ),
+
+      boundaryFilter:
+        cleanAnalyticsFilterValue(
+          boundaryFilter
+        ),
+
+      profileVariantFilter:
+        cleanAnalyticsFilterValue(
+          profileVariantFilter
+        ),
+
+      profileTargetingLocationFilter:
+        cleanAnalyticsFilterValue(
+          profileTargetingLocationFilter
+        ),
+
+      profileTargetingJobRoleFilter:
+        cleanAnalyticsFilterValue(
+          profileTargetingJobRoleFilter
+        ),
+
+      trafficClassificationFilter:
+        cleanAnalyticsFilterValue(
+          trafficClassificationFilter
+        ),
+
+      rangeFrom:
+        cleanAnalyticsFilterValue(
+          rangeFrom
+        ),
+
+      rangeTo:
+        cleanAnalyticsFilterValue(
+          rangeTo
+        ),
+    }
+  );
+}
+
+
 function normalizeProfileVariantCatalog({
   variants = [],
   activeProfileVariantId = "",
@@ -3677,6 +4350,83 @@ export default function AdminAnalytics({
     useState(false);
 
   const [
+    compareOpen,
+    setCompareOpen,
+  ] =
+    useState(false);
+
+  const [
+    compareB,
+    setCompareB,
+  ] =
+    useState(() => ({
+      period:
+        "7d",
+
+      customFrom:
+        initialRange.from,
+
+      customTo:
+        initialRange.to,
+
+      appliedCustomRange:
+        initialRange,
+
+      profileVersionFilter:
+        "all",
+
+      boundaryFilter:
+        "all",
+
+      profileVariantFilter:
+        "all",
+
+      profileTargetingLocationFilter:
+        "all",
+
+      profileTargetingJobRoleFilter:
+        "all",
+
+      trafficClassificationFilter:
+        DEFAULT_TRAFFIC_CLASSIFICATION,
+    }));
+
+  const patchCompareB =
+    useCallback(
+      (
+        patch
+      ) => {
+        setCompareB(
+          (
+            previous
+          ) => ({
+            ...previous,
+            ...patch,
+          })
+        );
+      },
+      []
+    );
+
+  const [
+    compareBData,
+    setCompareBData,
+  ] =
+    useState(null);
+
+  const [
+    compareBLoading,
+    setCompareBLoading,
+  ] =
+    useState(false);
+
+  const [
+    compareBError,
+    setCompareBError,
+  ] =
+    useState("");
+
+  const [
     data,
     setData,
   ] =
@@ -3768,136 +4518,64 @@ export default function AdminAnalytics({
       ]
     );
 
-  const releaseOptions =
+  const compareBRange =
     useMemo(() => {
-      const byId =
-        new Map();
-
-      function add(
-        id,
-        releasedAt
-      ) {
-        const clean =
-          String(
-            id || ""
-          ).trim();
-
-        if (!clean) {
-          return;
-        }
-
-        const existing =
-          byId.get(
-            clean
-          );
-
-        if (
-          !existing ||
-          releasedAt >
-            existing.releasedAt
-        ) {
-          byId.set(
-            clean,
-            {
-              id: clean,
-              releasedAt,
-            }
-          );
-        }
-      }
-
-      for (
-        const release of
-          releaseCatalog || []
-      ) {
-        const releasedAt =
-          Number(
-            release
-              ?.releasedAt
-          );
-
-        add(
-          release
-            ?.profileVersionId,
-          Number.isFinite(
-            releasedAt
-          )
-            ? releasedAt
-            : Number.NEGATIVE_INFINITY
-        );
-      }
-
-      // Current build may not yet have
-      // been registered by deployment CI.
-      add(
-        profileVersion?.id,
-        Number.POSITIVE_INFINITY
-      );
-
-      // Never make a previously selected
-      // value disappear from the control.
       if (
-        profileVersionFilter !==
-        "all"
+        compareB.period ===
+        "custom"
       ) {
-        add(
-          profileVersionFilter,
-          Number.NEGATIVE_INFINITY
+        return (
+          compareB
+            .appliedCustomRange
         );
       }
 
-      const currentId =
-        String(
-          profileVersion
-            ?.id || ""
-        ).trim();
-
-      /**
-       * Ordering rule: current/newest first, then strictly
-       * by full timestamp descending. Never incidental API
-       * order and never lexical ID sort.
-       */
-      return Array.from(
-        byId.values()
-      )
-        .sort(
-          (
-            left,
-            right
-          ) => {
-            if (
-              left.id ===
-                currentId &&
-              right.id !==
-                currentId
-            ) {
-              return -1;
-            }
-
-            if (
-              right.id ===
-                currentId &&
-              left.id !==
-                currentId
-            ) {
-              return 1;
-            }
-
-            return (
-              right.releasedAt -
-              left.releasedAt
-            );
-          }
-        )
-        .map(
-          (entry) =>
-            entry.id
-        );
+      return rangeForPreset(
+        compareB.period
+      );
     }, [
-      releaseCatalog,
-      profileVersion,
-      profileVersionFilter,
+      compareB.period,
+      compareB
+        .appliedCustomRange,
     ]);
+
+  const releaseOptions =
+    useMemo(
+      () =>
+        computeReleaseOptions({
+          releaseCatalog,
+
+          currentProfileVersionId:
+            profileVersion?.id,
+
+          selectedProfileVersionFilter:
+            profileVersionFilter,
+        }),
+      [
+        releaseCatalog,
+        profileVersion,
+        profileVersionFilter,
+      ]
+    );
+
+  const compareBReleaseOptions =
+    useMemo(
+      () =>
+        computeReleaseOptions({
+          releaseCatalog,
+
+          currentProfileVersionId:
+            profileVersion?.id,
+
+          selectedProfileVersionFilter:
+            compareB.profileVersionFilter,
+        }),
+      [
+        releaseCatalog,
+        profileVersion,
+        compareB.profileVersionFilter,
+      ]
+    );
 
   const runtimeFiltersActive =
     profileVariantFilter !==
@@ -4116,84 +4794,158 @@ export default function AdminAnalytics({
     );
 
 
-  const boundaryOptions =
+  /**
+   * Compare's Dashboard B always uses the authoritative Profile
+   * Variant catalog directly (it is populated independently of
+   * Dashboard A's own selection) rather than mirroring the
+   * non-authoritative membershipFilterOptions() fallback above,
+   * which exists for contexts that never wire in
+   * activeProfileVariantId/activeProfileTargeting at all.
+   */
+  const compareBProfileVariantOptions =
+    useMemo(
+      () =>
+        normalizedProfileVariantCatalog.map(
+          (
+            variant
+          ) =>
+            variant.profileVariantId
+        ),
+      [
+        normalizedProfileVariantCatalog,
+      ]
+    );
+
+  const compareBSelectedVariant =
+    useMemo(
+      () =>
+        compareB.profileVariantFilter ===
+        "all"
+          ? null
+          : normalizedProfileVariantCatalog.find(
+              (
+                variant
+              ) =>
+                variant
+                  ?.profileVariantId ===
+                compareB.profileVariantFilter
+            ) ||
+            null,
+      [
+        normalizedProfileVariantCatalog,
+        compareB.profileVariantFilter,
+      ]
+    );
+
+  const compareBProfileTargetingLocationOptions =
     useMemo(
       () => {
-        const all =
-          Array.isArray(
-            boundaryCatalog
-          )
-            ? boundaryCatalog
-            : [];
+        if (
+          compareBSelectedVariant
+        ) {
+          return [
+            compareBSelectedVariant
+              .targeting
+              .location,
+          ];
+        }
 
-        /**
-         * Only boundaries that actually belong to the
-         * selected Profile Version appear. "All" keeps the
-         * full cross-release history for manual analysis.
-         */
-        const scoped =
-          profileVersionFilter ===
+        const eligible =
+          compareB.profileTargetingJobRoleFilter ===
           "all"
-            ? all
-            : all.filter(
+            ? normalizedProfileVariantCatalog
+            : normalizedProfileVariantCatalog.filter(
                 (
-                  boundary
+                  variant
                 ) =>
-                  resolveBoundaryProfileVersion(
-                    boundary,
-                    releaseCatalog
-                  ) ===
-                  profileVersionFilter
+                  variant
+                    ?.targeting
+                    ?.jobRole ===
+                  compareB.profileTargetingJobRoleFilter
               );
 
-        /**
-         * Ordering rule: full timestamp descending, never
-         * incidental API order.
-         */
-        return [
-          ...scoped,
-        ].sort(
-          (
-            left,
-            right
-          ) => {
-            const leftAt =
-              Number(
-                left
-                  ?.effectiveAt
-              );
-
-            const rightAt =
-              Number(
-                right
-                  ?.effectiveAt
-              );
-
-            const leftTime =
-              Number.isFinite(
-                leftAt
-              )
-                ? leftAt
-                : Number.NEGATIVE_INFINITY;
-
-            const rightTime =
-              Number.isFinite(
-                rightAt
-              )
-                ? rightAt
-                : Number.NEGATIVE_INFINITY;
-
-            return (
-              rightTime -
-              leftTime
-            );
-          }
+        return uniqueProfileTargetingValues(
+          eligible,
+          "location"
         );
       },
+      [
+        compareBSelectedVariant,
+        normalizedProfileVariantCatalog,
+        compareB.profileTargetingJobRoleFilter,
+      ]
+    );
+
+  const compareBProfileTargetingJobRoleOptions =
+    useMemo(
+      () => {
+        if (
+          compareBSelectedVariant
+        ) {
+          return [
+            compareBSelectedVariant
+              .targeting
+              .jobRole,
+          ];
+        }
+
+        const eligible =
+          compareB.profileTargetingLocationFilter ===
+          "all"
+            ? normalizedProfileVariantCatalog
+            : normalizedProfileVariantCatalog.filter(
+                (
+                  variant
+                ) =>
+                  variant
+                    ?.targeting
+                    ?.location ===
+                  compareB.profileTargetingLocationFilter
+              );
+
+        return uniqueProfileTargetingValues(
+          eligible,
+          "jobRole"
+        );
+      },
+      [
+        compareBSelectedVariant,
+        normalizedProfileVariantCatalog,
+        compareB.profileTargetingLocationFilter,
+      ]
+    );
+
+
+  const boundaryOptions =
+    useMemo(
+      () =>
+        computeBoundaryOptions({
+          boundaryCatalog,
+          releaseCatalog,
+
+          profileVersionFilter,
+        }),
       [
         boundaryCatalog,
         releaseCatalog,
         profileVersionFilter,
+      ]
+    );
+
+  const compareBBoundaryOptions =
+    useMemo(
+      () =>
+        computeBoundaryOptions({
+          boundaryCatalog,
+          releaseCatalog,
+
+          profileVersionFilter:
+            compareB.profileVersionFilter,
+        }),
+      [
+        boundaryCatalog,
+        releaseCatalog,
+        compareB.profileVersionFilter,
       ]
     );
 
@@ -4237,6 +4989,154 @@ export default function AdminAnalytics({
             }
           )
         : boundaryFilter;
+
+  const canonicalStateA =
+    useMemo(
+      () =>
+        canonicalAnalyticsDashboardState(
+          {
+            profileVersionFilter,
+            boundaryFilter,
+            profileVariantFilter,
+            profileTargetingLocationFilter,
+            profileTargetingJobRoleFilter,
+            trafficClassificationFilter,
+
+            rangeFrom:
+              range.from,
+
+            rangeTo:
+              range.to,
+          }
+        ),
+      [
+        profileVersionFilter,
+        boundaryFilter,
+        profileVariantFilter,
+        profileTargetingLocationFilter,
+        profileTargetingJobRoleFilter,
+        trafficClassificationFilter,
+        range,
+      ]
+    );
+
+  const canonicalStateB =
+    useMemo(
+      () =>
+        canonicalAnalyticsDashboardState(
+          {
+            profileVersionFilter:
+              compareB.profileVersionFilter,
+
+            boundaryFilter:
+              compareB.boundaryFilter,
+
+            profileVariantFilter:
+              compareB.profileVariantFilter,
+
+            profileTargetingLocationFilter:
+              compareB.profileTargetingLocationFilter,
+
+            profileTargetingJobRoleFilter:
+              compareB.profileTargetingJobRoleFilter,
+
+            trafficClassificationFilter:
+              compareB.trafficClassificationFilter,
+
+            rangeFrom:
+              compareBRange.from,
+
+            rangeTo:
+              compareBRange.to,
+          }
+        ),
+      [
+        compareB,
+        compareBRange,
+      ]
+    );
+
+  const compareBMatchesA =
+    canonicalStateA ===
+    canonicalStateB;
+
+  const runCompareB =
+    useCallback(
+      async () => {
+        if (
+          canonicalStateA ===
+          canonicalStateB
+        ) {
+          setCompareBError(
+            "Dashboard B exactly matches Dashboard A. Change at least one field to compare."
+          );
+
+          return;
+        }
+
+        setCompareBLoading(
+          true
+        );
+
+        setCompareBError(
+          ""
+        );
+
+        try {
+          const result =
+            await queryAnalyticsAgg(
+              {
+                profileVersionId:
+                  compareB.profileVersionFilter,
+
+                profileVariantId:
+                  compareB.profileVariantFilter,
+
+                profileTargetingLocation:
+                  compareB.profileTargetingLocationFilter,
+
+                profileTargetingJobRole:
+                  compareB.profileTargetingJobRoleFilter,
+
+                trafficClassification:
+                  compareB.trafficClassificationFilter,
+
+                boundaryId:
+                  compareB.boundaryFilter,
+
+                from:
+                  compareBRange.from,
+
+                to:
+                  compareBRange.to,
+              }
+            );
+
+          setCompareBData(
+            result
+          );
+        } catch (
+          e
+        ) {
+          setCompareBError(
+            String(
+              e?.message ||
+              e
+            )
+          );
+        } finally {
+          setCompareBLoading(
+            false
+          );
+        }
+      },
+      [
+        canonicalStateA,
+        canonicalStateB,
+        compareB,
+        compareBRange,
+      ]
+    );
 
   const loadAnalyticsMetadata =
     useCallback(
@@ -5170,6 +6070,262 @@ export default function AdminAnalytics({
     );
 
 
+  const applyCompareBProfileVersionFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+        if (
+          next ===
+          "all"
+        ) {
+          patchCompareB({
+            profileVersionFilter:
+              "all",
+
+            boundaryFilter:
+              "all",
+          });
+
+          return;
+        }
+
+        const options =
+          computeBoundaryOptions({
+            boundaryCatalog,
+            releaseCatalog,
+
+            profileVersionFilter:
+              next,
+          });
+
+        patchCompareB({
+          profileVersionFilter:
+            next,
+
+          boundaryFilter:
+            options[0]
+              ?.boundaryId ||
+            "all",
+        });
+      },
+      [
+        boundaryCatalog,
+        releaseCatalog,
+        patchCompareB,
+      ]
+    );
+
+
+  const applyCompareBProfileVariantFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+        if (
+          next ===
+          "all"
+        ) {
+          patchCompareB({
+            profileVariantFilter:
+              "all",
+
+            profileTargetingLocationFilter:
+              "all",
+
+            profileTargetingJobRoleFilter:
+              "all",
+          });
+
+          return;
+        }
+
+        const variant =
+          normalizedProfileVariantCatalog.find(
+            (
+              item
+            ) =>
+              item
+                ?.profileVariantId ===
+              next
+          );
+
+        if (!variant) {
+          return;
+        }
+
+        patchCompareB({
+          profileVariantFilter:
+            next,
+
+          profileTargetingLocationFilter:
+            variant
+              .targeting
+              .location,
+
+          profileTargetingJobRoleFilter:
+            variant
+              .targeting
+              .jobRole,
+        });
+      },
+      [
+        normalizedProfileVariantCatalog,
+        patchCompareB,
+      ]
+    );
+
+
+  const applyCompareBProfileTargetingLocationFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+        if (
+          compareB.profileVariantFilter !==
+          "all"
+        ) {
+          patchCompareB({
+            profileTargetingLocationFilter:
+              next,
+          });
+
+          return;
+        }
+
+        if (
+          next ===
+          "all"
+        ) {
+          patchCompareB({
+            profileTargetingLocationFilter:
+              "all",
+          });
+
+          return;
+        }
+
+        const currentRole =
+          compareB.profileTargetingJobRoleFilter;
+
+        const patch = {
+          profileTargetingLocationFilter:
+            next,
+        };
+
+        if (
+          currentRole !==
+            "all" &&
+          !hasProfileTargetingPair(
+            normalizedProfileVariantCatalog,
+            next,
+            currentRole
+          )
+        ) {
+          patch.profileTargetingJobRoleFilter =
+            "all";
+        }
+
+        patchCompareB(
+          patch
+        );
+      },
+      [
+        compareB.profileVariantFilter,
+        compareB.profileTargetingJobRoleFilter,
+        normalizedProfileVariantCatalog,
+        patchCompareB,
+      ]
+    );
+
+
+  const applyCompareBProfileTargetingJobRoleFilter =
+    useCallback(
+      (
+        nextValue
+      ) => {
+        const next =
+          cleanAnalyticsFilterValue(
+            nextValue
+          ) ||
+          "all";
+
+        if (
+          compareB.profileVariantFilter !==
+          "all"
+        ) {
+          patchCompareB({
+            profileTargetingJobRoleFilter:
+              next,
+          });
+
+          return;
+        }
+
+        if (
+          next ===
+          "all"
+        ) {
+          patchCompareB({
+            profileTargetingJobRoleFilter:
+              "all",
+          });
+
+          return;
+        }
+
+        const currentLocation =
+          compareB.profileTargetingLocationFilter;
+
+        const patch = {
+          profileTargetingJobRoleFilter:
+            next,
+        };
+
+        if (
+          currentLocation !==
+            "all" &&
+          !hasProfileTargetingPair(
+            normalizedProfileVariantCatalog,
+            currentLocation,
+            next
+          )
+        ) {
+          patch.profileTargetingLocationFilter =
+            "all";
+        }
+
+        patchCompareB(
+          patch
+        );
+      },
+      [
+        compareB.profileVariantFilter,
+        compareB.profileTargetingLocationFilter,
+        normalizedProfileVariantCatalog,
+        patchCompareB,
+      ]
+    );
+
+
   const clearRuntimeFilters =
     useCallback(() => {
       setProfileVariantFilter(
@@ -5708,6 +6864,20 @@ export default function AdminAnalytics({
                   >
                     Compare previous
                   </SegButton>
+
+                  <SegButton
+                    active={
+                      compareOpen
+                    }
+                    onClick={() =>
+                      setCompareOpen(
+                        (value) =>
+                          !value
+                      )
+                    }
+                  >
+                    Compare
+                  </SegButton>
                 </div>
 
                 {period ===
@@ -5773,6 +6943,520 @@ export default function AdminAnalytics({
                           customError
                         }
                       </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {compareOpen ? (
+                  <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/40 dark:bg-purple-500/5 p-4 space-y-4">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        Compare dashboards
+                      </div>
+
+                      <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        Dashboard A is the current filter state above. Configure an independent Dashboard B below — any combination is allowed except one that exactly reproduces Dashboard A.
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 p-4 space-y-1.5 text-xs">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">
+                          Dashboard A (current)
+                        </div>
+
+                        <div>
+                          Profile Version:{" "}
+                          <span className="font-mono">
+                            {profileVersionFilter}
+                          </span>
+                        </div>
+
+                        <div>
+                          Boundary / Date-Time:{" "}
+                          <span className="font-mono">
+                            {selectedFromLabel}
+                          </span>
+                        </div>
+
+                        <div>
+                          Profile Variant:{" "}
+                          <span className="font-mono">
+                            {profileVariantFilter}
+                          </span>
+                        </div>
+
+                        <div>
+                          Target Location:{" "}
+                          <span className="font-mono">
+                            {profileTargetingLocationFilter}
+                          </span>
+                        </div>
+
+                        <div>
+                          Target Job Role:{" "}
+                          <span className="font-mono">
+                            {profileTargetingJobRoleFilter}
+                          </span>
+                        </div>
+
+                        <div>
+                          Traffic:{" "}
+                          <span className="font-mono">
+                            {trafficClassificationFilter}
+                          </span>
+                        </div>
+
+                        <div>
+                          Date window:{" "}
+                          <span className="font-mono">
+                            {formatRangeLabel(
+                              range
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 p-4 space-y-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Dashboard B
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {PERIODS.map(
+                            (
+                              item
+                            ) => (
+                              <SegButton
+                                key={
+                                  item.id
+                                }
+                                active={
+                                  compareB.period ===
+                                  item.id
+                                }
+                                onClick={() =>
+                                  patchCompareB(
+                                    {
+                                      period:
+                                        item.id,
+                                    }
+                                  )
+                                }
+                              >
+                                {
+                                  item.label
+                                }
+                              </SegButton>
+                            )
+                          )}
+                        </div>
+
+                        {compareB.period ===
+                        "custom" ? (
+                          <div className="flex gap-2">
+                            <input
+                              type="date"
+                              aria-label="Compare B start date"
+                              value={
+                                compareB.customFrom
+                              }
+                              onChange={(
+                                e
+                              ) =>
+                                patchCompareB(
+                                  {
+                                    customFrom:
+                                      e
+                                        .target
+                                        .value,
+
+                                    appliedCustomRange:
+                                      {
+                                        from: e
+                                          .target
+                                          .value,
+
+                                        to: compareB.customTo,
+                                      },
+                                  }
+                                )
+                              }
+                              className="flex-1 h-10 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                            />
+
+                            <input
+                              type="date"
+                              aria-label="Compare B end date"
+                              value={
+                                compareB.customTo
+                              }
+                              onChange={(
+                                e
+                              ) =>
+                                patchCompareB(
+                                  {
+                                    customTo:
+                                      e
+                                        .target
+                                        .value,
+
+                                    appliedCustomRange:
+                                      {
+                                        from: compareB.customFrom,
+
+                                        to: e
+                                          .target
+                                          .value,
+                                      },
+                                  }
+                                )
+                              }
+                              className="flex-1 h-10 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                            />
+                          </div>
+                        ) : null}
+
+                        <label className="block">
+                          <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                            Profile Version
+                          </div>
+
+                          <select
+                            aria-label="Compare B Profile Version"
+                            value={
+                              compareB.profileVersionFilter
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              applyCompareBProfileVersionFilter(
+                                e
+                                  .target
+                                  .value
+                              )
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                          >
+                            <option value="all">
+                              All legacy releases
+                            </option>
+
+                            {compareBReleaseOptions.map(
+                              (
+                                id
+                              ) => (
+                                <option
+                                  key={
+                                    id
+                                  }
+                                  value={
+                                    id
+                                  }
+                                >
+                                  {
+                                    id
+                                  }
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+
+                        <label className="block">
+                          <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                            Boundary / Date-Time
+                          </div>
+
+                          <select
+                            aria-label="Compare B Boundary"
+                            value={
+                              compareB.boundaryFilter
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              patchCompareB(
+                                {
+                                  boundaryFilter:
+                                    e
+                                      .target
+                                      .value,
+                                }
+                              )
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                          >
+                            <option value="all">
+                              All history
+                            </option>
+
+                            {compareBBoundaryOptions.map(
+                              (
+                                boundary
+                              ) => (
+                                <option
+                                  key={
+                                    boundary.boundaryId
+                                  }
+                                  value={
+                                    boundary.boundaryId
+                                  }
+                                >
+                                  {boundaryOptionLabel(
+                                    boundary,
+                                    releaseCatalog,
+                                    {
+                                      showProfileVersion:
+                                        compareB.profileVersionFilter ===
+                                        "all",
+                                    }
+                                  )}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+
+                        <label className="block">
+                          <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                            Profile Variant
+                          </div>
+
+                          <select
+                            aria-label="Compare B Profile Variant"
+                            value={
+                              compareB.profileVariantFilter
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              applyCompareBProfileVariantFilter(
+                                e
+                                  .target
+                                  .value
+                              )
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                          >
+                            <option value="all">
+                              All Profile Variants
+                            </option>
+
+                            {compareBProfileVariantOptions.map(
+                              (
+                                id
+                              ) => (
+                                <option
+                                  key={
+                                    id
+                                  }
+                                  value={
+                                    id
+                                  }
+                                >
+                                  {
+                                    id
+                                  }
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block">
+                            <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                              Target location
+                            </div>
+
+                            <select
+                              aria-label="Compare B Target location"
+                              value={
+                                compareB.profileTargetingLocationFilter
+                              }
+                              disabled={
+                                compareB.profileVariantFilter !==
+                                "all"
+                              }
+                              onChange={(
+                                e
+                              ) =>
+                                applyCompareBProfileTargetingLocationFilter(
+                                  e
+                                    .target
+                                    .value
+                                )
+                              }
+                              className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                            >
+                              <option value="all">
+                                All
+                              </option>
+
+                              {compareBProfileTargetingLocationOptions.map(
+                                (
+                                  loc
+                                ) => (
+                                  <option
+                                    key={
+                                      loc
+                                    }
+                                    value={
+                                      loc
+                                    }
+                                  >
+                                    {
+                                      loc
+                                    }
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+
+                          <label className="block">
+                            <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                              Target job role
+                            </div>
+
+                            <select
+                              aria-label="Compare B Target job role"
+                              value={
+                                compareB.profileTargetingJobRoleFilter
+                              }
+                              disabled={
+                                compareB.profileVariantFilter !==
+                                "all"
+                              }
+                              onChange={(
+                                e
+                              ) =>
+                                applyCompareBProfileTargetingJobRoleFilter(
+                                  e
+                                    .target
+                                    .value
+                                )
+                              }
+                              className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none disabled:opacity-50"
+                            >
+                              <option value="all">
+                                All
+                              </option>
+
+                              {compareBProfileTargetingJobRoleOptions.map(
+                                (
+                                  role
+                                ) => (
+                                  <option
+                                    key={
+                                      role
+                                    }
+                                    value={
+                                      role
+                                    }
+                                  >
+                                    {
+                                      role
+                                    }
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+                        </div>
+
+                        <label className="block">
+                          <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                            Traffic
+                          </div>
+
+                          <select
+                            aria-label="Compare B Traffic"
+                            value={
+                              compareB.trafficClassificationFilter
+                            }
+                            onChange={(
+                              e
+                            ) =>
+                              patchCompareB(
+                                {
+                                  trafficClassificationFilter:
+                                    e
+                                      .target
+                                      .value,
+                                }
+                              )
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                          >
+                            {TRAFFIC_FILTERS.map(
+                              (
+                                item
+                              ) => (
+                                <option
+                                  key={
+                                    item.id
+                                  }
+                                  value={
+                                    item.id
+                                  }
+                                >
+                                  {
+                                    item.label
+                                  }
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </label>
+
+                        <button
+                          type="button"
+                          disabled={
+                            compareBLoading ||
+                            compareBMatchesA
+                          }
+                          onClick={
+                            runCompareB
+                          }
+                          className={cx(
+                            "h-10 px-4 rounded-xl border text-xs font-semibold transition w-full",
+                            "border-purple-500/40 bg-purple-600 text-white hover:bg-purple-700",
+                            "disabled:opacity-50 disabled:cursor-not-allowed"
+                          )}
+                        >
+                          {compareBLoading
+                            ? "Comparing…"
+                            : "Run comparison"}
+                        </button>
+
+                        {compareBMatchesA ? (
+                          <div className="text-xs text-amber-600 dark:text-amber-400">
+                            Dashboard B exactly matches Dashboard A. Change at least one field to compare.
+                          </div>
+                        ) : null}
+
+                        {compareBError &&
+                        !compareBMatchesA ? (
+                          <div className="text-xs text-red-600 dark:text-red-400">
+                            {
+                              compareBError
+                            }
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {compareBData ? (
+                      <CompareResultsTable
+                        aData={
+                          data
+                        }
+                        bData={
+                          compareBData
+                        }
+                      />
                     ) : null}
                   </div>
                 ) : null}
