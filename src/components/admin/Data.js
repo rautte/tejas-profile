@@ -30,6 +30,25 @@ import {
 } from "../../data/App";
 
 import {
+  EDITABLE_SCALAR_KINDS,
+  ScalarField,
+} from "./data-editor/ScalarField";
+
+import {
+  TagEditor,
+} from "./data-editor/TagEditor";
+
+import {
+  ArrayItemControls,
+} from "./data-editor/ArrayItemControls";
+
+import {
+  createEmptyCollectionItem,
+  moveArrayIndex,
+  removeArrayIndex,
+} from "./data-editor/arrayUtils";
+
+import {
   cx,
 } from "../../utils/cx";
 
@@ -168,25 +187,6 @@ function formatDateTime(
 }
 
 
-/**
- * Read-only field metadata → value renderer.
- *
- * Deliberately generic over every kind in PROFILE_EDITOR_FIELD_KINDS
- * so new sections/fields need no new renderer code — only editing
- * (a later phase) needs per-kind interactive controls.
- */
-const EDITABLE_SCALAR_KINDS =
-  new Set([
-    "text",
-    "textarea",
-    "number",
-    "boolean",
-    "url",
-    "email",
-    "phone",
-  ]);
-
-
 const DRAFT_STATUS_LABELS =
   {
     [PROFILE_DRAFT_STATUS.CLEAN]:
@@ -231,152 +231,12 @@ const DRAFT_STATUS_BADGE_CLASS =
   };
 
 
-const EDITABLE_INPUT_CLASS =
-  "w-full h-9 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-white/10 px-3 text-xs text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-purple-500/30";
-
-
 /**
- * Only plain scalar kinds are live-editable in this phase.
- * Collections, assets, and nested objects stay read-only here —
- * that's the Reusable Editor Component System / Section Editors
- * phases, not this one.
+ * Read-only field metadata → value renderer, with an editable
+ * escape hatch for plain scalar kinds once a draft is active.
+ * Deliberately generic over every kind in PROFILE_EDITOR_FIELD_KINDS
+ * so new sections/fields need no new renderer code.
  */
-function EditableScalarField({
-  field,
-  value,
-  onChange,
-}) {
-  if (
-    field.kind ===
-    "textarea"
-  ) {
-    return (
-      <textarea
-        rows={
-          3
-        }
-        value={
-          value ??
-          ""
-        }
-        onChange={(
-          e
-        ) =>
-          onChange(
-            e
-              .target
-              .value
-          )
-        }
-        className={cx(
-          EDITABLE_INPUT_CLASS,
-          "h-auto py-2"
-        )}
-      />
-    );
-  }
-
-  if (
-    field.kind ===
-    "boolean"
-  ) {
-    return (
-      <label className="inline-flex items-center gap-2 text-xs text-gray-800 dark:text-gray-200">
-        <input
-          type="checkbox"
-          checked={Boolean(
-            value
-          )}
-          onChange={(
-            e
-          ) =>
-            onChange(
-              e
-                .target
-                .checked
-            )
-          }
-        />
-
-        {value
-          ? "Yes"
-          : "No"}
-      </label>
-    );
-  }
-
-  if (
-    field.kind ===
-    "number"
-  ) {
-    return (
-      <input
-        type="number"
-        value={
-          value ??
-          ""
-        }
-        onChange={(
-          e
-        ) =>
-          onChange(
-            e
-              .target
-              .value ===
-            ""
-              ? ""
-              : Number(
-                  e
-                    .target
-                    .value
-                )
-          )
-        }
-        className={
-          EDITABLE_INPUT_CLASS
-        }
-      />
-    );
-  }
-
-  const inputType =
-    field.kind ===
-    "url"
-      ? "url"
-      : field.kind ===
-        "email"
-        ? "email"
-        : field.kind ===
-          "phone"
-          ? "tel"
-          : "text";
-
-  return (
-    <input
-      type={
-        inputType
-      }
-      value={
-        value ??
-        ""
-      }
-      onChange={(
-        e
-      ) =>
-        onChange(
-          e
-            .target
-            .value
-        )
-      }
-      className={
-        EDITABLE_INPUT_CLASS
-      }
-    />
-  );
-}
-
-
 function ScalarFieldValue({
   field,
   value,
@@ -391,12 +251,34 @@ function ScalarFieldValue({
     )
   ) {
     return (
-      <EditableScalarField
+      <ScalarField
         field={
           field
         }
         value={
           value
+        }
+        onChange={
+          onChange
+        }
+      />
+    );
+  }
+
+  if (
+    field.kind ===
+      "string-list" &&
+    typeof onChange ===
+      "function"
+  ) {
+    return (
+      <TagEditor
+        items={
+          Array.isArray(
+            value
+          )
+            ? value
+            : []
         }
         onChange={
           onChange
@@ -624,6 +506,159 @@ function ScalarFieldValue({
 }
 
 
+/**
+ * Renders one collection's items (each composed from FieldRow) plus
+ * add/remove/move-up/move-down controls when editable. Shared
+ * between a top-level Content group (Experience, Education, ...)
+ * and a nested field-level collection (e.g. hero.rotatingTitles) so
+ * the array-mutation logic exists exactly once.
+ */
+function CollectionEditor({
+  items,
+  itemFields,
+  itemKey,
+  assets,
+  arrayPath,
+  onFieldChange,
+  itemClassName =
+    "rounded-lg border border-gray-200/70 dark:border-white/10 p-3 space-y-2",
+  emptyLabel =
+    "No entries.",
+}) {
+  const editable =
+    typeof onFieldChange ===
+    "function";
+
+  function updateArray(
+    nextItems
+  ) {
+    onFieldChange(
+      arrayPath,
+      nextItems
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.length ===
+      0 ? (
+        <div className="text-xs text-gray-400 dark:text-gray-500">
+          {
+            emptyLabel
+          }
+        </div>
+      ) : (
+        items.map(
+          (
+            item,
+            index
+          ) => (
+            <div
+              key={
+                item?.[
+                  itemKey
+                ] ??
+                index
+              }
+              className={
+                itemClassName
+              }
+            >
+              {itemFields.map(
+                (
+                  itemField
+                ) => (
+                  <FieldRow
+                    key={
+                      itemField.path
+                    }
+                    field={
+                      itemField
+                    }
+                    containerValue={
+                      item
+                    }
+                    assets={
+                      assets
+                    }
+                    pathPrefix={[
+                      ...arrayPath,
+                      index,
+                    ]}
+                    onFieldChange={
+                      editable
+                        ? onFieldChange
+                        : undefined
+                    }
+                  />
+                )
+              )}
+
+              {editable ? (
+                <ArrayItemControls
+                  index={
+                    index
+                  }
+                  count={
+                    items.length
+                  }
+                  onMoveUp={() =>
+                    updateArray(
+                      moveArrayIndex(
+                        items,
+                        index,
+                        -1
+                      )
+                    )
+                  }
+                  onMoveDown={() =>
+                    updateArray(
+                      moveArrayIndex(
+                        items,
+                        index,
+                        1
+                      )
+                    )
+                  }
+                  onRemove={() =>
+                    updateArray(
+                      removeArrayIndex(
+                        items,
+                        index
+                      )
+                    )
+                  }
+                />
+              ) : null}
+            </div>
+          )
+        )
+      )}
+
+      {editable ? (
+        <button
+          type="button"
+          onClick={() =>
+            updateArray(
+              [
+                ...items,
+                createEmptyCollectionItem(
+                  itemFields,
+                  itemKey
+                ),
+              ]
+            )
+          }
+          className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline"
+        >
+          + Add entry
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+
 function FieldRow({
   field,
   containerValue,
@@ -718,53 +753,26 @@ function FieldRow({
           )
         </div>
 
-        {items.length ===
-        0 ? (
-          <div className="text-xs text-gray-400 dark:text-gray-500">
-            No entries.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {items.map(
-              (
-                item,
-                index
-              ) => (
-                <div
-                  key={
-                    item?.[
-                      field
-                        .itemKey
-                    ] ??
-                    index
-                  }
-                  className="rounded-lg border border-gray-200/70 dark:border-white/10 p-3 space-y-2"
-                >
-                  {field.itemFields.map(
-                    (
-                      itemField
-                    ) => (
-                      <FieldRow
-                        key={
-                          itemField.path
-                        }
-                        field={
-                          itemField
-                        }
-                        containerValue={
-                          item
-                        }
-                        assets={
-                          assets
-                        }
-                      />
-                    )
-                  )}
-                </div>
-              )
-            )}
-          </div>
-        )}
+        <CollectionEditor
+          items={
+            items
+          }
+          itemFields={
+            field.itemFields
+          }
+          itemKey={
+            field.itemKey
+          }
+          assets={
+            assets
+          }
+          arrayPath={
+            fullPath
+          }
+          onFieldChange={
+            onFieldChange
+          }
+        />
       </div>
     );
   }
@@ -840,57 +848,47 @@ function GroupPanel({
         : [];
 
     return (
-      <div className="space-y-4">
-        {items.length ===
-        0 ? (
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            No entries in this section yet.
-          </div>
-        ) : (
-          items.map(
-            (
-              item,
-              index
-            ) => (
-              <div
-                key={
-                  item?.[
-                    group
-                      .itemKey
-                  ] ??
-                  index
-                }
-                className={cx(
-                  CARD_SURFACE,
-                  CARD_ROUNDED_2XL,
-                  "p-4 space-y-2"
-                )}
-              >
-                {group.itemFields.map(
-                  (
-                    field
-                  ) => (
-                    <FieldRow
-                      key={
-                        field.path
-                      }
-                      field={
-                        field
-                      }
-                      containerValue={
-                        item
-                      }
-                      assets={
-                        variant
-                          ?.assets
-                      }
-                    />
-                  )
-                )}
-              </div>
-            )
+      <div className="space-y-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          {
+            group.label
+          }{" "}
+          (
+          {
+            items.length
+          }
           )
-        )}
+        </div>
+
+        <CollectionEditor
+          items={
+            items
+          }
+          itemFields={
+            group.itemFields
+          }
+          itemKey={
+            group.itemKey
+          }
+          assets={
+            variant
+              ?.assets
+          }
+          arrayPath={
+            topLevelContentKey(
+              group
+            )
+          }
+          onFieldChange={
+            onFieldChange
+          }
+          itemClassName={cx(
+            CARD_SURFACE,
+            CARD_ROUNDED_2XL,
+            "p-4 space-y-2"
+          )}
+          emptyLabel="No entries in this section yet."
+        />
       </div>
     );
   }

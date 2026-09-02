@@ -774,3 +774,472 @@ test(
     ).toBeNull();
   }
 );
+
+
+test(
+  "editing a draft allows adding a new record to a top-level collection and editing its fields",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Experience",
+        }
+      )
+    );
+
+    await screen.findByDisplayValue(
+      "Acme Corp"
+    );
+
+    expect(
+      screen.getByText(
+        "Experience (1)"
+      )
+    ).toBeInTheDocument();
+
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "+ Add entry",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "Experience (2)"
+      )
+    ).toBeInTheDocument();
+
+
+    const companyInputs =
+      screen.getAllByDisplayValue(
+        ""
+      );
+
+    // The newly added item's blank Company field.
+    fireEvent.change(
+      companyInputs[0],
+      {
+        target: {
+          value:
+            "Newco",
+        },
+      }
+    );
+
+    expect(
+      screen.getByDisplayValue(
+        "Newco"
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "removing an item from a collection drops it from the draft",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Experience",
+        }
+      )
+    );
+
+    await screen.findByDisplayValue(
+      "Acme Corp"
+    );
+
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Remove entry",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByDisplayValue(
+            "Acme Corp"
+          )
+        ).not.toBeInTheDocument();
+      }
+    );
+
+    expect(
+      screen.getByText(
+        "No entries in this section yet."
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "reordering collection items with move up/down swaps their order",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(
+              {
+                experience:
+                  [
+                    {
+                      company:
+                        "Acme Corp",
+
+                      role:
+                        "Backend Engineer",
+
+                      employmentType:
+                        "",
+
+                      duration:
+                        "",
+
+                      location:
+                        "",
+
+                      highlights:
+                        [],
+
+                      tags:
+                        [],
+                    },
+
+                    {
+                      company:
+                        "Globex Corp",
+
+                      role:
+                        "Platform Engineer",
+
+                      employmentType:
+                        "",
+
+                      duration:
+                        "",
+
+                      location:
+                        "",
+
+                      highlights:
+                        [],
+
+                      tags:
+                        [],
+                    },
+                  ],
+              }
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Experience",
+        }
+      )
+    );
+
+    await screen.findByDisplayValue(
+      "Acme Corp"
+    );
+
+
+    function currentOrder() {
+      return screen
+        .getAllByDisplayValue(
+          /Corp$/
+        )
+        .map(
+          (
+            el
+          ) =>
+            el.value
+        );
+    }
+
+    expect(
+      currentOrder()
+    ).toEqual(
+      [
+        "Acme Corp",
+        "Globex Corp",
+      ]
+    );
+
+
+    fireEvent.click(
+      screen.getAllByRole(
+        "button",
+        {
+          name:
+            "Move entry down",
+        }
+      )[0]
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          currentOrder()
+        ).toEqual(
+          [
+            "Globex Corp",
+            "Acme Corp",
+          ]
+        );
+      }
+    );
+  }
+);
+
+
+test(
+  "editing a draft makes a string-list field editable via TagEditor, supporting add and remove",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Experience",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "Built X"
+    );
+
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            'Remove "Built X"',
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByText(
+            "Built X"
+          )
+        ).not.toBeInTheDocument();
+      }
+    );
+
+    expect(
+      screen.getByText(
+        "Shipped Y"
+      )
+    ).toBeInTheDocument();
+
+
+    // Highlights renders before Tags in the item's field order, and
+    // both are string-list fields sharing this placeholder.
+    const tagInput =
+      screen.getAllByPlaceholderText(
+        "Add an entry…"
+      )[0];
+
+    fireEvent.change(
+      tagInput,
+      {
+        target: {
+          value:
+            "Led migration",
+        },
+      }
+    );
+
+    fireEvent.click(
+      screen.getAllByRole(
+        "button",
+        {
+          name:
+            "Add",
+        }
+      )[0]
+    );
+
+    expect(
+      await screen.findByText(
+        "Led migration"
+      )
+    ).toBeInTheDocument();
+  }
+);
