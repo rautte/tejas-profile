@@ -65,6 +65,16 @@ const DIVIDER_CLASS =
   "mt-6 h-px w-full bg-gray-200/80 dark:bg-white/10";
 
 
+// Historical fixed order of the resume's own sections, used whenever
+// a variant has no owner-set content.resume.sectionOrder yet.
+const RESUME_SECTION_ORDER_DEFAULT = [
+  "experience",
+  "education",
+  "projects",
+  "skills",
+];
+
+
 // Pill layout for Resume chips
 const RESUME_PILL_CLASS =
   "inline-flex items-center gap-2 border border-indigo-100/80 dark:border-white/10";
@@ -346,6 +356,46 @@ export default function Resume({
       : {};
 
 
+  // Order of the resume's own internal sections (Experience,
+  // Education, Projects, Skills). Owner-editable from Admin -> Data;
+  // falls back to the historical fixed order when a variant predates
+  // this field, so already-published content renders unchanged.
+  const resumeSectionOrder =
+    useMemo(
+      () => {
+        const declared =
+          Array.isArray(
+            resume.sectionOrder
+          )
+            ? resume.sectionOrder.filter(
+                (key) =>
+                  RESUME_SECTION_ORDER_DEFAULT.includes(
+                    key
+                  )
+              )
+            : [];
+
+        const missing =
+          RESUME_SECTION_ORDER_DEFAULT.filter(
+            (key) =>
+              !declared.includes(
+                key
+              )
+          );
+
+        return declared.length
+          ? [
+              ...declared,
+              ...missing,
+            ]
+          : RESUME_SECTION_ORDER_DEFAULT;
+      },
+      [
+        resume.sectionOrder,
+      ]
+    );
+
+
   const websiteUrl =
     useMemo(
       () =>
@@ -457,6 +507,381 @@ export default function Resume({
   );
 
 
+  // Renders one of the resume's own internal sections by key, so
+  // resumeSectionOrder can place them in actual DOM order (not just
+  // visual order) -- keyboard/tab order and screen readers follow
+  // this, so a real CSS `order` trick would desync sighted vs.
+  // assistive-tech reading order.
+  function renderResumeSection(
+    key
+  ) {
+    switch (
+      key
+    ) {
+      case "experience":
+        return (
+          <SectionCard title="Professional Experience">
+            <div className="space-y-0">
+
+              {
+                experience.map(
+                  (
+                    item,
+                    index
+                  ) => (
+                    <div
+                      key={
+                        `${item.company}-${item.dates}`
+                      }
+                      className="pb-6"
+                    >
+                      <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
+
+                        <div className="text-left">
+
+                          <div className="font-semibold text-gray-900 dark:text-gray-100">
+                            {
+                              item.title
+                            }
+                            {" • "}
+                            {
+                              item.company
+                            }
+                          </div>
+
+
+                          <div className="text-sm text-gray-600 dark:text-gray-300">
+                            {
+                              item.location
+                            }
+                          </div>
+
+                        </div>
+
+
+                        <div className="text-left md:text-right text-xs text-gray-500 dark:text-gray-400">
+                          {
+                            item.dates
+                          }
+                        </div>
+
+                      </div>
+
+
+                      <div className="mt-3 flex justify-center">
+                        <ul className={BULLET_LIST_CLASS}>
+                          {
+                            item
+                              .bullets
+                              .map(
+                                (
+                                  bullet,
+                                  bulletIndex
+                                ) => (
+                                  <li
+                                    key={
+                                      bulletIndex
+                                    }
+                                    className={
+                                      BULLET_ITEM_CLASS
+                                    }
+                                  >
+                                    {
+                                      bullet
+                                    }
+                                  </li>
+                                )
+                              )
+                          }
+                        </ul>
+                      </div>
+
+
+                      {
+                        index !==
+                          experience.length -
+                            1 && (
+                          <div
+                            className={
+                              DIVIDER_CLASS
+                            }
+                          />
+                        )
+                      }
+
+                    </div>
+                  )
+                )
+              }
+
+            </div>
+          </SectionCard>
+        );
+
+      case "education":
+        return (
+          <SectionCard title="Education">
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+              {
+                education.map(
+                  (item) => (
+                    <div
+                      key={
+                        `${item.school}-${item.date}`
+                      }
+                      className="px-1 py-1"
+                    >
+                      <div className="text-left font-semibold text-gray-900 dark:text-gray-100">
+                        {
+                          item.school
+                        }
+                      </div>
+
+
+                      <div className="text-left text-sm text-gray-600 dark:text-gray-300 mt-1">
+                        {
+                          item.degree
+                        }
+                        {" • "}
+                        {
+                          item.program
+                        }
+                      </div>
+
+
+                      <div className="text-left text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        {
+                          item.location
+                        }
+                        {" • "}
+                        {
+                          item.date
+                        }
+                      </div>
+
+                    </div>
+                  )
+                )
+              }
+
+            </div>
+          </SectionCard>
+        );
+
+      case "projects":
+        return (
+          <SectionCard title="Relevant Projects">
+
+            <div className="space-y-0">
+
+              {
+                projects.map(
+                  (
+                    project,
+                    index
+                  ) => {
+                    const codeLabFrom =
+                      getCodeLabFrom(
+                        project.name
+                      );
+
+
+                    return (
+                      <div
+                        key={
+                          `${project.name}-${project.dates}`
+                        }
+                        className="pb-6"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
+
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+
+                            <span className="text-left font-semibold text-gray-900 dark:text-gray-100">
+                              {
+                                project.name
+                              }
+                            </span>
+
+
+                            {
+                              codeLabFrom && (
+                                <a
+                                  href={
+                                    `#/code-lab?from=${codeLabFrom}`
+                                  }
+                                  className={
+                                    CODE_SNIPPETS_CLASS
+                                  }
+                                  data-analytics={
+                                    CTA_IDS
+                                      .RESUME_CODE_SNIPPETS
+                                  }
+                                >
+                                  Code Snippets
+                                </a>
+                              )
+                            }
+
+                          </div>
+
+
+                          <div className="text-left md:text-right text-xs text-gray-500 dark:text-gray-400">
+                            {
+                              project.dates
+                            }
+                          </div>
+
+                        </div>
+
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {
+                            project
+                              .stack
+                              .map(
+                                (item) => (
+                                  <Pill
+                                    key={
+                                      item
+                                    }
+                                    variant="grayStatic"
+                                    className={
+                                      RESUME_PILL_CLASS
+                                    }
+                                  >
+                                    {
+                                      item
+                                    }
+                                  </Pill>
+                                )
+                              )
+                          }
+                        </div>
+
+
+                        <div className="mt-3 flex justify-center">
+                          <ul className={BULLET_LIST_CLASS}>
+                            {
+                              project
+                                .bullets
+                                .map(
+                                  (
+                                    bullet,
+                                    bulletIndex
+                                  ) => (
+                                    <li
+                                      key={
+                                        bulletIndex
+                                      }
+                                      className={
+                                        BULLET_ITEM_CLASS
+                                      }
+                                    >
+                                      {
+                                        bullet
+                                      }
+                                    </li>
+                                  )
+                                )
+                            }
+                          </ul>
+                        </div>
+
+
+                        {
+                          index !==
+                            projects.length -
+                              1 && (
+                            <div
+                              className={
+                                DIVIDER_CLASS
+                              }
+                            />
+                          )
+                        }
+
+                      </div>
+                    );
+                  }
+                )
+              }
+
+            </div>
+          </SectionCard>
+        );
+
+      case "skills":
+        return (
+          <SectionCard title="Technical Skills">
+
+            <div className="flex justify-center">
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[97%]">
+
+                {
+                  Object.entries(
+                    skills
+                  ).map(
+                    ([
+                      group,
+                      items,
+                    ]) => (
+                      <div
+                        key={
+                          group
+                        }
+                        className="px-4 py-2"
+                      >
+                        <div className="text-left font-semibold text-gray-900 dark:text-gray-100">
+                          {
+                            group
+                          }
+                        </div>
+
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+
+                          {
+                            items.map(
+                              (item) => (
+                                <Pill
+                                  key={
+                                    item
+                                  }
+                                  variant="grayStatic"
+                                  className={
+                                    RESUME_PILL_CLASS
+                                  }
+                                >
+                                  {
+                                    item
+                                  }
+                                </Pill>
+                              )
+                            )
+                          }
+
+                        </div>
+
+                      </div>
+                    )
+                  )
+                }
+
+              </div>
+            </div>
+          </SectionCard>
+        );
+
+      default:
+        return null;
+    }
+  }
+
+
   return (
     <section className="py-0 px-4 transition-colors">
       <SectionHeader
@@ -469,7 +894,7 @@ export default function Resume({
 
       <div className="max-w-5xl mx-auto space-y-6">
 
-        {/* 1) Quick Info */}
+        {/* Quick Info -- always first, not part of the reorderable set */}
         <SectionCard
           title="Quick Info"
           action={
@@ -662,358 +1087,27 @@ export default function Resume({
         </SectionCard>
 
 
-        {/* 2) Experience */}
-        <SectionCard title="Professional Experience">
-          <div className="space-y-0">
-
-            {
-              experience.map(
-                (
-                  item,
-                  index
-                ) => (
-                  <div
-                    key={
-                      `${item.company}-${item.dates}`
-                    }
-                    className="pb-6"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
-
-                      <div className="text-left">
-
-                        <div className="font-semibold text-gray-900 dark:text-gray-100">
-                          {
-                            item.title
-                          }
-                          {" • "}
-                          {
-                            item.company
-                          }
-                        </div>
-
-
-                        <div className="text-sm text-gray-600 dark:text-gray-300">
-                          {
-                            item.location
-                          }
-                        </div>
-
-                      </div>
-
-
-                      <div className="text-left md:text-right text-xs text-gray-500 dark:text-gray-400">
-                        {
-                          item.dates
-                        }
-                      </div>
-
-                    </div>
-
-
-                    <div className="mt-3 flex justify-center">
-                      <ul className={BULLET_LIST_CLASS}>
-                        {
-                          item
-                            .bullets
-                            .map(
-                              (
-                                bullet,
-                                bulletIndex
-                              ) => (
-                                <li
-                                  key={
-                                    bulletIndex
-                                  }
-                                  className={
-                                    BULLET_ITEM_CLASS
-                                  }
-                                >
-                                  {
-                                    bullet
-                                  }
-                                </li>
-                              )
-                            )
-                        }
-                      </ul>
-                    </div>
-
-
-                    {
-                      index !==
-                        experience.length -
-                          1 && (
-                        <div
-                          className={
-                            DIVIDER_CLASS
-                          }
-                        />
-                      )
-                    }
-
-                  </div>
-                )
-              )
-            }
-
-          </div>
-        </SectionCard>
-
-
-        {/* 3) Education */}
-        <SectionCard title="Education">
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-            {
-              education.map(
-                (item) => (
-                  <div
-                    key={
-                      `${item.school}-${item.date}`
-                    }
-                    className="px-1 py-1"
-                  >
-                    <div className="text-left font-semibold text-gray-900 dark:text-gray-100">
-                      {
-                        item.school
-                      }
-                    </div>
-
-
-                    <div className="text-left text-sm text-gray-600 dark:text-gray-300 mt-1">
-                      {
-                        item.degree
-                      }
-                      {" • "}
-                      {
-                        item.program
-                      }
-                    </div>
-
-
-                    <div className="text-left text-xs text-gray-500 dark:text-gray-400 mt-2">
-                      {
-                        item.location
-                      }
-                      {" • "}
-                      {
-                        item.date
-                      }
-                    </div>
-
-                  </div>
-                )
-              )
-            }
-
-          </div>
-        </SectionCard>
-
-
-        {/* 4) Projects */}
-        <SectionCard title="Relevant Projects">
-
-          <div className="space-y-0">
-
-            {
-              projects.map(
-                (
-                  project,
-                  index
-                ) => {
-                  const codeLabFrom =
-                    getCodeLabFrom(
-                      project.name
-                    );
-
-
-                  return (
-                    <div
-                      key={
-                        `${project.name}-${project.dates}`
-                      }
-                      className="pb-6"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-baseline md:justify-between gap-1">
-
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-
-                          <span className="text-left font-semibold text-gray-900 dark:text-gray-100">
-                            {
-                              project.name
-                            }
-                          </span>
-
-
-                          {
-                            codeLabFrom && (
-                              <a
-                                href={
-                                  `#/code-lab?from=${codeLabFrom}`
-                                }
-                                className={
-                                  CODE_SNIPPETS_CLASS
-                                }
-                                data-analytics={
-                                  CTA_IDS
-                                    .RESUME_CODE_SNIPPETS
-                                }
-                              >
-                                Code Snippets
-                              </a>
-                            )
-                          }
-
-                        </div>
-
-
-                        <div className="text-left md:text-right text-xs text-gray-500 dark:text-gray-400">
-                          {
-                            project.dates
-                          }
-                        </div>
-
-                      </div>
-
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {
-                          project
-                            .stack
-                            .map(
-                              (item) => (
-                                <Pill
-                                  key={
-                                    item
-                                  }
-                                  variant="grayStatic"
-                                  className={
-                                    RESUME_PILL_CLASS
-                                  }
-                                >
-                                  {
-                                    item
-                                  }
-                                </Pill>
-                              )
-                            )
-                        }
-                      </div>
-
-
-                      <div className="mt-3 flex justify-center">
-                        <ul className={BULLET_LIST_CLASS}>
-                          {
-                            project
-                              .bullets
-                              .map(
-                                (
-                                  bullet,
-                                  bulletIndex
-                                ) => (
-                                  <li
-                                    key={
-                                      bulletIndex
-                                    }
-                                    className={
-                                      BULLET_ITEM_CLASS
-                                    }
-                                  >
-                                    {
-                                      bullet
-                                    }
-                                  </li>
-                                )
-                              )
-                          }
-                        </ul>
-                      </div>
-
-
-                      {
-                        index !==
-                          projects.length -
-                            1 && (
-                          <div
-                            className={
-                              DIVIDER_CLASS
-                            }
-                          />
-                        )
-                      }
-
-                    </div>
-                  );
+        {/* Experience/Education/Projects/Skills, in the owner-declared
+            (or historical default) order -- real DOM order, not a
+            CSS `order` visual-only reorder, so tab order and screen
+            readers match what's on screen. */}
+        {
+          resumeSectionOrder.map(
+            (
+              key
+            ) => (
+              <React.Fragment
+                key={
+                  key
                 }
-              )
-            }
-
-          </div>
-        </SectionCard>
-
-
-        {/* 5) Technical Skills */}
-        <SectionCard title="Technical Skills">
-
-          <div className="flex justify-center">
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-[97%]">
-
-              {
-                Object.entries(
-                  skills
-                ).map(
-                  ([
-                    group,
-                    items,
-                  ]) => (
-                    <div
-                      key={
-                        group
-                      }
-                      className="px-4 py-2"
-                    >
-                      <div className="text-left font-semibold text-gray-900 dark:text-gray-100">
-                        {
-                          group
-                        }
-                      </div>
-
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-
-                        {
-                          items.map(
-                            (item) => (
-                              <Pill
-                                key={
-                                  item
-                                }
-                                variant="grayStatic"
-                                className={
-                                  RESUME_PILL_CLASS
-                                }
-                              >
-                                {
-                                  item
-                                }
-                              </Pill>
-                            )
-                          )
-                        }
-
-                      </div>
-
-                    </div>
-                  )
-                )
-              }
-
-            </div>
-          </div>
-        </SectionCard>
+              >
+                {renderResumeSection(
+                  key
+                )}
+              </React.Fragment>
+            )
+          )
+        }
 
       </div>
 

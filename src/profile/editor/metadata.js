@@ -808,6 +808,21 @@ export const PROFILE_EDITOR_METADATA =
         kind:
           "object",
 
+        // Which of this group's fields are internally reorderable
+        // (the resume's own Experience/Education/Projects/Skills
+        // blocks), and where their display order is stored. This is
+        // separate from -- and much narrower than -- site-wide
+        // section structure (Structure tab), which stays read-only.
+        reorderableFieldGroups: [
+          "experience",
+          "education",
+          "projects",
+          "skills",
+        ],
+
+        fieldOrderPath:
+          "sectionOrder",
+
         fields: [
           {
             path:

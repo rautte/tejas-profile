@@ -1503,3 +1503,183 @@ test(
     );
   }
 );
+
+
+test(
+  "editing a draft lets the Resume page's own Experience/Education/Projects/Skills sections be reordered independently of the site's Structure",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(
+              {
+                resume:
+                  {
+                    pdfAssetId:
+                      "resume.primary",
+
+                    header:
+                      {
+                        name:
+                          "Tejas Raut",
+                      },
+
+                    experience:
+                      [
+                        {
+                          company:
+                            "Acme Corp",
+
+                          title:
+                            "Engineer",
+
+                          location:
+                            "Remote",
+
+                          dates:
+                            "2023 - 2025",
+
+                          bullets:
+                            [],
+                        },
+                      ],
+
+                    education:
+                      [
+                        {
+                          school:
+                            "State University",
+
+                          location:
+                            "",
+
+                          date:
+                            "",
+
+                          degree:
+                            "",
+
+                          program:
+                            "",
+                        },
+                      ],
+
+                    skills:
+                      {},
+
+                    projects:
+                      [
+                        {
+                          name:
+                            "Portfolio",
+
+                          dates:
+                            "",
+
+                          stack:
+                            [],
+
+                          bullets:
+                            [],
+                        },
+                      ],
+                  },
+              }
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Resume",
+        }
+      )
+    );
+
+    function resumeSectionOrder() {
+      return screen
+        .getAllByText(
+          /^Resume (Experience|Education|Projects) \(1\)$/
+        )
+        .map(
+          (
+            el
+          ) =>
+            el.textContent
+        );
+    }
+
+    await waitFor(
+      () => {
+        expect(
+          resumeSectionOrder()
+        ).toEqual(
+          [
+            "Resume Experience (1)",
+            "Resume Education (1)",
+            "Resume Projects (1)",
+          ]
+        );
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Move the Resume Education section up",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          resumeSectionOrder()
+        ).toEqual(
+          [
+            "Resume Education (1)",
+            "Resume Experience (1)",
+            "Resume Projects (1)",
+          ]
+        );
+      }
+    );
+  }
+);

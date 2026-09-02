@@ -84,6 +84,8 @@ const FIELD_KEYS =
     "options",
     "fields",
     "itemFields",
+    "reorderableFieldGroups",
+    "fieldOrderPath",
   ]);
 
 
@@ -281,6 +283,72 @@ function validateField(
     errors.push(
       `${path}.itemFields is only valid for collection editors.`
     );
+  }
+
+
+  if (
+    field.reorderableFieldGroups !==
+      undefined ||
+    field.fieldOrderPath !==
+      undefined
+  ) {
+    if (
+      field.kind !==
+        "object"
+    ) {
+      errors.push(
+        `${path}.reorderableFieldGroups/fieldOrderPath are only valid for object editors.`
+      );
+    }
+
+    if (
+      !nonEmpty(
+        field.fieldOrderPath
+      )
+    ) {
+      errors.push(
+        `${path}.fieldOrderPath must be a non-empty string when reorderableFieldGroups is set.`
+      );
+    }
+
+    const knownPaths =
+      new Set(
+        (
+          Array.isArray(
+            field.fields
+          )
+            ? field.fields
+            : []
+        ).map(
+          (
+            sub
+          ) =>
+            sub?.path
+        )
+      );
+
+    if (
+      !Array.isArray(
+        field.reorderableFieldGroups
+      ) ||
+      field.reorderableFieldGroups.length ===
+        0 ||
+      field.reorderableFieldGroups.some(
+        (
+          key
+        ) =>
+          !nonEmpty(
+            key
+          ) ||
+          !knownPaths.has(
+            key
+          )
+      )
+    ) {
+      errors.push(
+        `${path}.reorderableFieldGroups must reference existing sibling field paths.`
+      );
+    }
   }
 
 

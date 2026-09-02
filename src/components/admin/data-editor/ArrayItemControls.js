@@ -49,16 +49,19 @@ export function ArrayItemControls({
         ↓ Move down
       </button>
 
-      <button
-        type="button"
-        onClick={
-          onRemove
-        }
-        className="text-xs text-red-600 dark:text-red-400 hover:underline"
-        aria-label={`Remove ${itemLabel}`}
-      >
-        Remove
-      </button>
+      {typeof onRemove ===
+        "function" && (
+        <button
+          type="button"
+          onClick={
+            onRemove
+          }
+          className="text-xs text-red-600 dark:text-red-400 hover:underline"
+          aria-label={`Remove ${itemLabel}`}
+        >
+          Remove
+        </button>
+      )}
     </div>
   );
 }

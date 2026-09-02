@@ -914,12 +914,129 @@ function GroupPanel({
     );
   }
 
+  const reorderableFieldPaths =
+    Array.isArray(
+      group.reorderableFieldGroups
+    )
+      ? group.reorderableFieldGroups
+      : [];
+
+  const hasReorderableFields =
+    reorderableFieldPaths.length >
+      0 &&
+    Boolean(
+      group.fieldOrderPath
+    );
+
+  const allFields =
+    group.fields ||
+    [];
+
+  const fixedFields =
+    hasReorderableFields
+      ? allFields.filter(
+          (
+            field
+          ) =>
+            !reorderableFieldPaths.includes(
+              field.path
+            )
+        )
+      : allFields;
+
+  const orderableFieldsByPath =
+    hasReorderableFields
+      ? new Map(
+          allFields
+            .filter(
+              (
+                field
+              ) =>
+                reorderableFieldPaths.includes(
+                  field.path
+                )
+            )
+            .map(
+              (
+                field
+              ) => [
+                field.path,
+                field,
+              ]
+            )
+        )
+      : new Map();
+
+  const declaredOrder =
+    hasReorderableFields &&
+    Array.isArray(
+      containerValue?.[
+        group
+          .fieldOrderPath
+      ]
+    )
+      ? containerValue[
+          group
+            .fieldOrderPath
+        ].filter(
+          (
+            key
+          ) =>
+            orderableFieldsByPath.has(
+              key
+            )
+        )
+      : [];
+
+  const missingFromDeclared =
+    reorderableFieldPaths.filter(
+      (
+        key
+      ) =>
+        !declaredOrder.includes(
+          key
+        )
+    );
+
+  const effectiveOrder =
+    declaredOrder.length
+      ? [
+          ...declaredOrder,
+          ...missingFromDeclared,
+        ]
+      : reorderableFieldPaths;
+
+  const editable =
+    typeof onFieldChange ===
+    "function";
+
+  function moveSection(
+    path,
+    direction
+  ) {
+    const index =
+      effectiveOrder.indexOf(
+        path
+      );
+
+    onFieldChange(
+      [
+        ...topLevelContentKey(
+          group
+        ),
+        group.fieldOrderPath,
+      ],
+      moveArrayIndex(
+        effectiveOrder,
+        index,
+        direction
+      )
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {(
-        group.fields ||
-        []
-      ).map(
+      {fixedFields.map(
         (
           field
         ) => (
@@ -948,6 +1065,81 @@ function GroupPanel({
           />
         )
       )}
+
+      {hasReorderableFields &&
+        effectiveOrder.map(
+          (
+            path,
+            index
+          ) => {
+            const field =
+              orderableFieldsByPath.get(
+                path
+              );
+
+            if (!field) {
+              return null;
+            }
+
+            return (
+              <div
+                key={
+                  path
+                }
+                className={cx(
+                  CARD_SURFACE,
+                  CARD_ROUNDED_2XL,
+                  "p-4 space-y-2"
+                )}
+              >
+                <FieldRow
+                  field={
+                    field
+                  }
+                  containerValue={
+                    containerValue
+                  }
+                  assets={
+                    variant
+                      ?.assets
+                  }
+                  pathPrefix={
+                    topLevelContentKey(
+                      group
+                    )
+                  }
+                  onFieldChange={
+                    onFieldChange
+                  }
+                />
+
+                {editable && (
+                  <ArrayItemControls
+                    index={
+                      index
+                    }
+                    count={
+                      effectiveOrder.length
+                    }
+                    onMoveUp={() =>
+                      moveSection(
+                        path,
+                        -1
+                      )
+                    }
+                    onMoveDown={() =>
+                      moveSection(
+                        path,
+                        1
+                      )
+                    }
+                    itemLabel={`the ${field.label} section`}
+                  />
+                )}
+              </div>
+            );
+          }
+        )}
     </div>
   );
 }

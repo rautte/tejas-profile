@@ -5,6 +5,15 @@ export const RESUME_DATA = {
   pdfAssetId:
     "resume.primary",
 
+  // Order the resume's own internal sections render in. Owner-editable
+  // from Admin -> Data; this is the historical fixed order.
+  sectionOrder: [
+    "experience",
+    "education",
+    "projects",
+    "skills",
+  ],
+
   header: {
     name: "Tejas Rajendra Raut",
     location: "Pune, India",
