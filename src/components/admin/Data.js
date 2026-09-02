@@ -233,6 +233,45 @@ const DRAFT_STATUS_BADGE_CLASS =
   };
 
 
+function isPlainRecord(
+  value
+) {
+  return Boolean(
+    value &&
+    typeof value ===
+      "object" &&
+    !Array.isArray(
+      value
+    )
+  );
+}
+
+
+/**
+ * A short tag-style value (Tags, Technology, Skills, ...). Rounded
+ * just enough to read as a tag, not full-pill -- a full-pill shape
+ * looks broken once its text wraps to a second line, which is
+ * exactly what happens for the longer entries this same chip
+ * renders (a multi-word technology name, a longer skill label).
+ */
+function TagChip({
+  value,
+}) {
+  return (
+    <span className="inline-block rounded-lg border border-indigo-200/70 dark:border-indigo-400/20 bg-indigo-50/70 dark:bg-indigo-500/10 px-2.5 py-1 text-[11px] text-indigo-800 dark:text-indigo-300 break-words">
+      {typeof value ===
+      "object"
+        ? JSON.stringify(
+            value
+          )
+        : String(
+            value
+          )}
+    </span>
+  );
+}
+
+
 /**
  * Read-only field metadata → value renderer, with an editable
  * escape hatch for plain scalar kinds once a draft is active.
@@ -443,9 +482,7 @@ function ScalarFieldValue({
 
   if (
     field.kind ===
-      "string-list" ||
-    field.kind ===
-      "record-string-list"
+    "string-list"
   ) {
     const items =
       Array.isArray(
@@ -472,21 +509,86 @@ function ScalarFieldValue({
             item,
             index
           ) => (
-            <span
+            <TagChip
               key={
                 index
               }
-              className="rounded-full border border-gray-200/70 dark:border-white/10 bg-gray-50/70 dark:bg-white/5 px-2 py-0.5 text-[11px]"
+              value={
+                item
+              }
+            />
+          )
+        )}
+      </div>
+    );
+  }
+
+  if (
+    field.kind ===
+    "record-string-list"
+  ) {
+    const groups =
+      isPlainRecord(
+        value
+      )
+        ? Object.entries(
+            value
+          )
+        : [];
+
+    if (
+      groups.length ===
+      0
+    ) {
+      return (
+        <span className="text-gray-400 dark:text-gray-500">
+          —
+        </span>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        {groups.map(
+          ([
+            groupName,
+            groupItems,
+          ]) => (
+            <div
+              key={
+                groupName
+              }
             >
-              {typeof item ===
-              "object"
-                ? JSON.stringify(
-                    item
+              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                {
+                  groupName
+                }
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  Array.isArray(
+                    groupItems
                   )
-                : String(
-                    item
-                  )}
-            </span>
+                    ? groupItems
+                    : []
+                ).map(
+                  (
+                    item,
+                    index
+                  ) => (
+                    <TagChip
+                      key={
+                        index
+                      }
+                      value={
+                        item
+                      }
+                    />
+                  )
+                )}
+              </div>
+            </div>
           )
         )}
       </div>

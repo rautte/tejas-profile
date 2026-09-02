@@ -1966,3 +1966,98 @@ test(
     ).toBeInTheDocument();
   }
 );
+
+
+test(
+  "Resume Skills (a record-string-list) renders its grouped tags instead of appearing empty",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(
+              {
+                resume:
+                  {
+                    pdfAssetId:
+                      "resume.primary",
+
+                    header:
+                      {
+                        name:
+                          "Tejas Raut",
+                      },
+
+                    skills:
+                      {
+                        Cloud:
+                          [
+                            "AWS",
+                            "GCP",
+                          ],
+
+                        Languages:
+                          [
+                            "Python",
+                          ],
+                      },
+                  },
+              }
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Resume",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "Cloud"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "AWS"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "GCP"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "Languages"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "Python"
+      )
+    ).toBeInTheDocument();
+  }
+);

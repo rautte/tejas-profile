@@ -151,7 +151,7 @@ export function TagEditor({
                 key={
                   index
                 }
-                className="flex items-center gap-2 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2 py-1"
+                className="flex items-center gap-2 rounded-lg border border-indigo-200/70 dark:border-indigo-400/20 bg-indigo-50/40 dark:bg-indigo-500/5 px-2 py-1.5"
               >
                 <input
                   type="text"
@@ -168,7 +168,7 @@ export function TagEditor({
                         .value
                     )
                   }
-                  className="flex-1 h-7 rounded-md border border-transparent bg-transparent px-1 text-xs text-gray-800 dark:text-gray-200 outline-none focus:border-purple-500/40 focus:bg-white/80 dark:focus:bg-white/10"
+                  className="flex-1 h-7 rounded-md border border-transparent bg-transparent px-1 text-xs text-indigo-900 dark:text-indigo-200 outline-none focus:border-purple-500/40 focus:bg-white/80 dark:focus:bg-white/10"
                 />
 
                 <button
