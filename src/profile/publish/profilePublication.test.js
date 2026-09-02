@@ -620,5 +620,122 @@ describe(
         );
       }
     );
+
+
+    test(
+      "reuses already-materialized assetUploads without reading bytes or requiring a catalog, and retargeting alone still changes contentHash",
+      async () => {
+        const sourcePublication =
+          await buildProfilePublicationPackage({
+            draft:
+              publishableDraft(),
+
+            profileVariantId:
+              "prv_source_for_retargeting",
+
+            createdAt:
+              "2026-08-21T13:00:00.000Z",
+
+            readAssetBytes:
+              readRepoAssetBytes,
+
+            hashOptions:
+              HASH_OPTIONS,
+          });
+
+
+        const retargetedDraft =
+          createProfileDraft({
+            draftId:
+              "draft_retargeted",
+
+            targeting: {
+              location:
+                "Austin, TX",
+
+              jobRole:
+                "Platform Engineer",
+            },
+
+            content:
+              sourcePublication
+                .variant
+                .content,
+
+            createdAt:
+              "2026-09-01T09:00:00.000Z",
+          });
+
+
+        const failingReader =
+          () => {
+            throw new Error(
+              "readAssetBytes must not be called when assetUploads is supplied."
+            );
+          };
+
+
+        const retargetedPublication =
+          await buildProfilePublicationPackage({
+            draft:
+              retargetedDraft,
+
+            profileVariantId:
+              "prv_retargeted",
+
+            assetUploads:
+              sourcePublication
+                .variant
+                .assets,
+
+            readAssetBytes:
+              failingReader,
+
+            createdAt:
+              "2026-09-01T09:00:00.000Z",
+
+            hashOptions:
+              HASH_OPTIONS,
+          });
+
+
+        expect(
+          validateProfileVariantDocument(
+            retargetedPublication.variant
+          ).valid
+        ).toBe(true);
+
+
+        expect(
+          retargetedPublication
+            .variant
+            .assets
+        ).toEqual(
+          sourcePublication
+            .variant
+            .assets
+        );
+
+
+        expect(
+          retargetedPublication
+            .variant
+            .content
+        ).toEqual(
+          sourcePublication
+            .variant
+            .content
+        );
+
+
+        expect(
+          retargetedPublication
+            .contentHash
+        ).not.toBe(
+          sourcePublication
+            .contentHash
+        );
+      }
+    );
   }
 );

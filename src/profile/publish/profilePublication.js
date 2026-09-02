@@ -58,21 +58,34 @@ export async function buildProfilePublicationPackage(
 
     readAssetBytes,
 
+    /**
+     * Already-materialized asset descriptors (id/kind/objectKey/
+     * sha256/contentType), for callers reusing an already-published
+     * Profile Variant's unchanged content + assets under new
+     * targeting. When supplied, byte-level re-materialization is
+     * skipped entirely.
+     */
+    assetUploads,
+
     hashOptions,
   } = {}
 ) {
-  const assetUploads =
-    await materializePublishedProfileAssets({
-      content:
-        draft?.content,
+  const resolvedAssetUploads =
+    Array.isArray(
+      assetUploads
+    )
+      ? assetUploads
+      : await materializePublishedProfileAssets({
+          content:
+            draft?.content,
 
-      catalog:
-        assetCatalog,
+          catalog:
+            assetCatalog,
 
-      readAssetBytes,
+          readAssetBytes,
 
-      hashOptions,
-    });
+          hashOptions,
+        });
 
 
   const variant =
@@ -82,7 +95,7 @@ export async function buildProfilePublicationPackage(
       profileVariantId,
 
       assets:
-        assetUploads,
+        resolvedAssetUploads,
 
       provenance,
 
@@ -146,6 +159,7 @@ export async function buildProfilePublicationPackage(
 
     manifestUpload,
 
-    assetUploads,
+    assetUploads:
+      resolvedAssetUploads,
   };
 }

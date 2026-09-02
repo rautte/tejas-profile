@@ -1,0 +1,896 @@
+// src/components/admin/ProfileVariantPublicationPanel.js
+
+import {
+  useState,
+} from "react";
+
+import {
+  createProfileDraft,
+  evaluateProfileDraftReadiness,
+} from "../../profile/draft";
+
+import {
+  buildProfilePublicationPackage,
+  publishProfilePublication,
+} from "../../profile/publish";
+
+import {
+  getProfileVariant,
+} from "../../utils/snapshots/snapshotsApi";
+
+import {
+  cx,
+} from "../../utils/cx";
+
+import {
+  CARD_ROUNDED_2XL,
+  CARD_SURFACE,
+} from "../../utils/ui";
+
+
+function cleanString(
+  value
+) {
+  return String(
+    value || ""
+  ).trim();
+}
+
+
+function generateProfileVariantId() {
+  const random =
+    typeof crypto !==
+      "undefined" &&
+    typeof crypto
+      .randomUUID ===
+      "function"
+      ? crypto
+          .randomUUID()
+          .replace(
+            /-/g,
+            ""
+          )
+          .slice(
+            0,
+            10
+          )
+      : Math.random()
+          .toString(16)
+          .slice(2, 12);
+
+  return `prv_${Date.now().toString(36)}_${random}`;
+}
+
+
+function MetadataRow({
+  label,
+  value,
+  mono = false,
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[150px_minmax(0,1fr)] gap-1 sm:gap-3">
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+        {label}
+      </div>
+
+      <div
+        className={cx(
+          "text-xs text-gray-800 dark:text-gray-200 break-words",
+          mono
+            ? "font-mono"
+            : ""
+        )}
+      >
+        {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+
+export default function ProfileVariantPublicationPanel({
+  activeProfileVariantId =
+    "",
+}) {
+  const [
+    sourceId,
+    setSourceId,
+  ] =
+    useState(
+      activeProfileVariantId
+    );
+
+  const [
+    sourceVariant,
+    setSourceVariant,
+  ] =
+    useState(null);
+
+  const [
+    sourceBusy,
+    setSourceBusy,
+  ] =
+    useState(false);
+
+  const [
+    sourceError,
+    setSourceError,
+  ] =
+    useState("");
+
+  const [
+    newVariantId,
+    setNewVariantId,
+  ] =
+    useState(() =>
+      generateProfileVariantId()
+    );
+
+  const [
+    newLocation,
+    setNewLocation,
+  ] =
+    useState("");
+
+  const [
+    newJobRole,
+    setNewJobRole,
+  ] =
+    useState("");
+
+  const [
+    validation,
+    setValidation,
+  ] =
+    useState(null);
+
+  const [
+    publishBusy,
+    setPublishBusy,
+  ] =
+    useState(false);
+
+  const [
+    publishError,
+    setPublishError,
+  ] =
+    useState("");
+
+  const [
+    publishResult,
+    setPublishResult,
+  ] =
+    useState(null);
+
+  const resetDownstreamState = () => {
+    setValidation(
+      null
+    );
+
+    setPublishError(
+      ""
+    );
+
+    setPublishResult(
+      null
+    );
+  };
+
+
+  const loadSourceVariant =
+    async () => {
+      const requestedId =
+        cleanString(
+          sourceId
+        );
+
+
+      if (
+        !requestedId
+      ) {
+        setSourceError(
+          "Enter a published Profile Variant ID to reuse its content."
+        );
+
+        return;
+      }
+
+
+      setSourceBusy(
+        true
+      );
+
+      setSourceError(
+        ""
+      );
+
+      setSourceVariant(
+        null
+      );
+
+      resetDownstreamState();
+
+
+      try {
+        const result =
+          await getProfileVariant(
+            requestedId
+          );
+
+        const loadedId =
+          cleanString(
+            result
+              ?.variant
+              ?.profileVariantId
+          );
+
+
+        if (
+          !loadedId
+        ) {
+          throw new Error(
+            "Profile Variant response is missing profileVariantId."
+          );
+        }
+
+
+        setSourceVariant(
+          result.variant
+        );
+
+        setNewLocation(
+          cleanString(
+            result
+              ?.variant
+              ?.targeting
+              ?.location
+          )
+        );
+
+        setNewJobRole(
+          cleanString(
+            result
+              ?.variant
+              ?.targeting
+              ?.jobRole
+          )
+        );
+      } catch (
+        error
+      ) {
+        setSourceError(
+          String(
+            error
+              ?.message ||
+            error
+          )
+        );
+      } finally {
+        setSourceBusy(
+          false
+        );
+      }
+    };
+
+
+  const validateTargeting =
+    () => {
+      setPublishError(
+        ""
+      );
+
+      setPublishResult(
+        null
+      );
+
+
+      if (
+        !sourceVariant
+      ) {
+        setValidation({
+          valid:
+            false,
+
+          errors: [
+            "Load a source Profile Variant before validating.",
+          ],
+        });
+
+        return;
+      }
+
+
+      const id =
+        cleanString(
+          newVariantId
+        );
+
+      const location =
+        cleanString(
+          newLocation
+        );
+
+      const jobRole =
+        cleanString(
+          newJobRole
+        );
+
+
+      const errors =
+        [];
+
+
+      if (!id) {
+        errors.push(
+          "New Profile Variant ID is required."
+        );
+      }
+
+      if (
+        id &&
+        id ===
+          cleanString(
+            sourceVariant
+              ?.profileVariantId
+          )
+      ) {
+        errors.push(
+          "New Profile Variant ID must differ from the source Profile Variant ID."
+        );
+      }
+
+      if (!location) {
+        errors.push(
+          "Target location is required."
+        );
+      }
+
+      if (!jobRole) {
+        errors.push(
+          "Target job role is required."
+        );
+      }
+
+
+      if (
+        errors.length >
+        0
+      ) {
+        setValidation({
+          valid:
+            false,
+
+          errors,
+        });
+
+        return;
+      }
+
+
+      try {
+        const draft =
+          createProfileDraft({
+            draftId:
+              `draft_${id}`,
+
+            baseProfileVariantId:
+              sourceVariant.profileVariantId,
+
+            targeting: {
+              location,
+              jobRole,
+            },
+
+            content:
+              sourceVariant.content,
+          });
+
+        const readiness =
+          evaluateProfileDraftReadiness(
+            draft
+          );
+
+
+        if (
+          !readiness.publishable
+        ) {
+          setValidation({
+            valid:
+              false,
+
+            errors:
+              readiness
+                .errors
+                .length >
+              0
+                ? readiness.errors
+                : [
+                    `Missing targeting: ${readiness.missingTargeting.join(
+                      ", "
+                    )}.`,
+                  ],
+          });
+
+          return;
+        }
+
+
+        setValidation({
+          valid:
+            true,
+
+          draft,
+
+          errors:
+            [],
+        });
+      } catch (
+        error
+      ) {
+        setValidation({
+          valid:
+            false,
+
+          errors: [
+            String(
+              error
+                ?.message ||
+              error
+            ),
+          ],
+        });
+      }
+    };
+
+
+  const publishNewVariant =
+    async () => {
+      if (
+        !validation
+          ?.valid ||
+        !validation.draft ||
+        !sourceVariant
+      ) {
+        return;
+      }
+
+
+      setPublishBusy(
+        true
+      );
+
+      setPublishError(
+        ""
+      );
+
+      setPublishResult(
+        null
+      );
+
+
+      try {
+        const publication =
+          await buildProfilePublicationPackage({
+            draft:
+              validation.draft,
+
+            profileVariantId:
+              cleanString(
+                newVariantId
+              ),
+
+            provenance:
+              sourceVariant.provenance ||
+              {},
+
+            assetUploads:
+              sourceVariant.assets ||
+              [],
+
+            readAssetBytes:
+              () => {
+                throw new Error(
+                  "Reused Profile Variant content requires every asset to already exist in storage."
+                );
+              },
+          });
+
+
+        const result =
+          await publishProfilePublication(
+            {
+              publication,
+
+              readAssetBytes:
+                () => {
+                  throw new Error(
+                    "Reused Profile Variant content requires every asset to already exist in storage."
+                  );
+                },
+            }
+          );
+
+
+        setPublishResult(
+          result
+        );
+      } catch (
+        error
+      ) {
+        setPublishError(
+          String(
+            error
+              ?.message ||
+            error
+          )
+        );
+      } finally {
+        setPublishBusy(
+          false
+        );
+      }
+    };
+
+
+  const sourceTargetingLabel =
+    [
+      cleanString(
+        sourceVariant
+          ?.targeting
+          ?.location
+      ),
+
+      cleanString(
+        sourceVariant
+          ?.targeting
+          ?.jobRole
+      ),
+    ]
+      .filter(
+        Boolean
+      )
+      .join(
+        " · "
+      );
+
+
+  return (
+    <div
+      className={cx(
+        CARD_SURFACE,
+        CARD_ROUNDED_2XL
+      )}
+    >
+      <div className="px-6 py-4 border-b border-gray-200/70 dark:border-white/10">
+        <h3 className="text-left font-epilogue text-lg font-semibold text-gray-900 dark:text-gray-100">
+          Publish new Profile Variant
+        </h3>
+
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-3xl">
+          Reuse an already-published Profile Variant's content under new targeting.
+          This publishes a new immutable Profile Variant; it does not activate it or trigger a deployment.
+        </p>
+      </div>
+
+
+      <div className="px-6 py-5 space-y-5">
+        <div className="space-y-2">
+          <label
+            htmlFor="profile-variant-publication-source-id"
+            className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+          >
+            Source Profile Variant ID
+          </label>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              id="profile-variant-publication-source-id"
+              value={
+                sourceId
+              }
+              onChange={(
+                e
+              ) => {
+                setSourceId(
+                  e.target
+                    .value
+                );
+
+                setSourceVariant(
+                  null
+                );
+
+                resetDownstreamState();
+              }}
+              placeholder="prv_..."
+              disabled={
+                sourceBusy ||
+                publishBusy
+              }
+              className={cx(
+                "flex-1 h-10 rounded-xl border px-3 text-sm outline-none",
+                "border-gray-200/70 dark:border-white/10",
+                "bg-white/80 dark:bg-white/10",
+                "text-gray-900 dark:text-gray-100",
+                "placeholder:text-gray-400 dark:placeholder:text-gray-500",
+                "focus:ring-2 focus:ring-purple-500/30"
+              )}
+            />
+
+            <button
+              type="button"
+              onClick={
+                loadSourceVariant
+              }
+              disabled={
+                sourceBusy ||
+                publishBusy ||
+                !cleanString(
+                  sourceId
+                )
+              }
+              className={cx(
+                "h-10 px-4 rounded-xl border text-xs font-semibold transition",
+                "border-purple-500/40 bg-purple-600 text-white hover:bg-purple-700",
+                "disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              {sourceBusy
+                ? "Loading…"
+                : "Load source content"}
+            </button>
+          </div>
+
+          {sourceError ? (
+            <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+              {sourceError}
+            </div>
+          ) : null}
+        </div>
+
+
+        {sourceVariant ? (
+          <div className="rounded-xl border border-gray-200/70 dark:border-white/10 bg-gray-50/70 dark:bg-white/5 p-4 space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Source content
+            </div>
+
+            <MetadataRow
+              label="Profile Variant ID"
+              value={
+                sourceVariant.profileVariantId
+              }
+              mono
+            />
+
+            <MetadataRow
+              label="Current targeting"
+              value={
+                sourceTargetingLabel
+              }
+            />
+          </div>
+        ) : null}
+
+
+        {sourceVariant ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label
+                  htmlFor="profile-variant-publication-location"
+                  className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+                >
+                  New target location
+                </label>
+
+                <input
+                  id="profile-variant-publication-location"
+                  value={
+                    newLocation
+                  }
+                  onChange={(
+                    e
+                  ) => {
+                    setNewLocation(
+                      e.target
+                        .value
+                    );
+
+                    resetDownstreamState();
+                  }}
+                  disabled={
+                    publishBusy
+                  }
+                  className={cx(
+                    "w-full h-10 rounded-xl border px-3 text-sm outline-none",
+                    "border-gray-200/70 dark:border-white/10",
+                    "bg-white/80 dark:bg-white/10",
+                    "text-gray-900 dark:text-gray-100",
+                    "focus:ring-2 focus:ring-purple-500/30"
+                  )}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="profile-variant-publication-job-role"
+                  className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+                >
+                  New target job role
+                </label>
+
+                <input
+                  id="profile-variant-publication-job-role"
+                  value={
+                    newJobRole
+                  }
+                  onChange={(
+                    e
+                  ) => {
+                    setNewJobRole(
+                      e.target
+                        .value
+                    );
+
+                    resetDownstreamState();
+                  }}
+                  disabled={
+                    publishBusy
+                  }
+                  className={cx(
+                    "w-full h-10 rounded-xl border px-3 text-sm outline-none",
+                    "border-gray-200/70 dark:border-white/10",
+                    "bg-white/80 dark:bg-white/10",
+                    "text-gray-900 dark:text-gray-100",
+                    "focus:ring-2 focus:ring-purple-500/30"
+                  )}
+                />
+              </div>
+            </div>
+
+
+            <div className="space-y-2">
+              <label
+                htmlFor="profile-variant-publication-new-id"
+                className="block text-xs font-semibold text-gray-700 dark:text-gray-300"
+              >
+                New Profile Variant ID
+              </label>
+
+              <input
+                id="profile-variant-publication-new-id"
+                value={
+                  newVariantId
+                }
+                onChange={(
+                  e
+                ) => {
+                  setNewVariantId(
+                    e.target
+                      .value
+                  );
+
+                  resetDownstreamState();
+                }}
+                disabled={
+                  publishBusy
+                }
+                className={cx(
+                  "w-full h-10 rounded-xl border px-3 text-sm font-mono outline-none",
+                  "border-gray-200/70 dark:border-white/10",
+                  "bg-white/80 dark:bg-white/10",
+                  "text-gray-900 dark:text-gray-100",
+                  "focus:ring-2 focus:ring-purple-500/30"
+                )}
+              />
+            </div>
+
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={
+                  validateTargeting
+                }
+                disabled={
+                  publishBusy
+                }
+                className={cx(
+                  "h-10 px-4 rounded-xl border text-xs font-semibold transition",
+                  "border-gray-300/70 dark:border-white/10",
+                  "bg-gray-50/80 dark:bg-white/10",
+                  "text-gray-800 dark:text-gray-100",
+                  "hover:bg-gray-100 dark:hover:bg-white/15",
+                  "disabled:opacity-60"
+                )}
+              >
+                Validate
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  publishNewVariant
+                }
+                disabled={
+                  publishBusy ||
+                  !validation
+                    ?.valid
+                }
+                className={cx(
+                  "h-10 px-4 rounded-xl border text-xs font-semibold transition",
+                  "border-emerald-500/40 bg-emerald-600 text-white hover:bg-emerald-700",
+                  "disabled:opacity-60 disabled:cursor-not-allowed"
+                )}
+              >
+                {publishBusy
+                  ? "Publishing…"
+                  : "Publish new Profile Variant"}
+              </button>
+            </div>
+
+
+            {validation &&
+            !validation.valid ? (
+              <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+                {validation.errors.join(
+                  " "
+                )}
+              </div>
+            ) : null}
+
+            {validation
+              ?.valid ? (
+              <div className="text-xs text-emerald-700 dark:text-emerald-300">
+                Ready to publish.
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+
+        {publishError ? (
+          <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+            {publishError}
+          </div>
+        ) : null}
+
+
+        {publishResult ? (
+          <div className="rounded-xl border border-emerald-200/70 dark:border-emerald-400/20 bg-emerald-50/50 dark:bg-emerald-500/5 p-4 space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              Published
+            </div>
+
+            <MetadataRow
+              label="New Profile Variant ID"
+              value={
+                publishResult.profileVariantId
+              }
+              mono
+            />
+
+            <MetadataRow
+              label="Content hash"
+              value={
+                publishResult.contentHash
+              }
+              mono
+            />
+
+            <p className="text-xs text-gray-600 dark:text-gray-400 pt-1">
+              Not yet active. Paste{" "}
+              <span className="font-mono">
+                {
+                  publishResult.profileVariantId
+                }
+              </span>{" "}
+              into Profile activation below to activate it.
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
