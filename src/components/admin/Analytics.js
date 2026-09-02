@@ -37,6 +37,10 @@ import {
 } from "../../utils/snapshots/controlPlaneCatalogApi";
 
 import {
+  loadCompleteProfileVariantCatalog,
+} from "../../utils/snapshots/profileVariantCatalog";
+
+import {
   canonicalJsonStringify,
 } from "../../utils/profileVariant";
 
@@ -4060,98 +4064,6 @@ function hasProfileTargetingPair(
           ?.jobRole
       ) ===
         cleanJobRole
-  );
-}
-
-
-async function loadCompleteProfileVariantCatalog(
-  loadPage
-) {
-  if (
-    typeof loadPage !==
-    "function"
-  ) {
-    throw new Error(
-      "Profile Variant catalog loader is unavailable."
-    );
-  }
-
-
-  const variants =
-    [];
-
-  const seenTokens =
-    new Set();
-
-  let nextToken =
-    undefined;
-
-
-  for (
-    let page = 0;
-    page < 100;
-    page += 1
-  ) {
-    const result =
-      await loadPage({
-        limit:
-          50,
-
-        ...(nextToken
-          ? {
-              nextToken,
-            }
-          : {}),
-      });
-
-
-    if (
-      Array.isArray(
-        result
-          ?.variants
-      )
-    ) {
-      variants.push(
-        ...result
-          .variants
-      );
-    }
-
-
-    const next =
-      cleanAnalyticsFilterValue(
-        result
-          ?.nextToken
-      );
-
-
-    if (!next) {
-      return variants;
-    }
-
-
-    if (
-      seenTokens.has(
-        next
-      )
-    ) {
-      throw new Error(
-        "Profile Variant catalog pagination repeated a nextToken."
-      );
-    }
-
-
-    seenTokens.add(
-      next
-    );
-
-    nextToken =
-      next;
-  }
-
-
-  throw new Error(
-    "Profile Variant catalog exceeded the pagination safety limit."
   );
 }
 

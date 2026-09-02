@@ -1,6 +1,7 @@
 // src/components/admin/ProfileVariantPublicationPanel.js
 
 import {
+  useEffect,
   useState,
 } from "react";
 
@@ -17,6 +18,15 @@ import {
 import {
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
+
+import {
+  listProfileVariants,
+} from "../../utils/snapshots/controlPlaneCatalogApi";
+
+import {
+  loadCompleteProfileVariantCatalog,
+  uniqueProfileTargetingValuesFromCatalog,
+} from "../../utils/snapshots/profileVariantCatalog";
 
 import {
   cx,
@@ -62,6 +72,76 @@ function generateProfileVariantId() {
 }
 
 
+function slugify(
+  value
+) {
+  return String(
+    value || ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      "_"
+    )
+    .replace(
+      /^_+|_+$/g,
+      ""
+    );
+}
+
+
+function compactUtcTimestamp() {
+  return new Date()
+    .toISOString()
+    .replace(
+      /[-:]/g,
+      ""
+    )
+    .replace(
+      /\.\d{3}Z$/,
+      "Z"
+    );
+}
+
+
+/**
+ * Suggests prv_<location>_<jobRole>_<timestamp>, matching the
+ * existing hand-authored Profile Variant ID convention (e.g.
+ * prv_bangalore_backend_infra_20260830T141157Z). Only a suggestion:
+ * the owner can freely overwrite it, and once they do this stops
+ * being recomputed for them.
+ */
+function suggestProfileVariantId({
+  location,
+  jobRole,
+}) {
+  const parts =
+    [
+      slugify(
+        location
+      ),
+
+      slugify(
+        jobRole
+      ),
+    ].filter(
+      Boolean
+    );
+
+  if (
+    parts.length ===
+    0
+  ) {
+    return null;
+  }
+
+  return `prv_${parts.join(
+    "_"
+  )}_${compactUtcTimestamp()}`;
+}
+
+
 function MetadataRow({
   label,
   value,
@@ -91,6 +171,9 @@ function MetadataRow({
 export default function ProfileVariantPublicationPanel({
   activeProfileVariantId =
     "",
+
+  loadProfileVariants =
+    listProfileVariants,
 }) {
   const [
     sourceId,
@@ -127,6 +210,12 @@ export default function ProfileVariantPublicationPanel({
     );
 
   const [
+    newVariantIdTouched,
+    setNewVariantIdTouched,
+  ] =
+    useState(false);
+
+  const [
     newLocation,
     setNewLocation,
   ] =
@@ -137,6 +226,18 @@ export default function ProfileVariantPublicationPanel({
     setNewJobRole,
   ] =
     useState("");
+
+  const [
+    knownLocations,
+    setKnownLocations,
+  ] =
+    useState([]);
+
+  const [
+    knownJobRoles,
+    setKnownJobRoles,
+  ] =
+    useState([]);
 
   const [
     validation,
@@ -161,6 +262,104 @@ export default function ProfileVariantPublicationPanel({
     setPublishResult,
   ] =
     useState(null);
+
+
+  useEffect(
+    () => {
+      let cancelled =
+        false;
+
+      (async () => {
+        try {
+          const catalog =
+            await loadCompleteProfileVariantCatalog(
+              loadProfileVariants
+            );
+
+          if (
+            cancelled
+          ) {
+            return;
+          }
+
+          setKnownLocations(
+            uniqueProfileTargetingValuesFromCatalog(
+              catalog,
+              "location"
+            )
+          );
+
+          setKnownJobRoles(
+            uniqueProfileTargetingValuesFromCatalog(
+              catalog,
+              "jobRole"
+            )
+          );
+        } catch {
+          /**
+           * Autocomplete is a convenience, not a correctness
+           * requirement. Fail closed to no suggestions rather
+           * than block publication on a catalog read error.
+           */
+          if (
+            !cancelled
+          ) {
+            setKnownLocations(
+              []
+            );
+
+            setKnownJobRoles(
+              []
+            );
+          }
+        }
+      })();
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [
+      loadProfileVariants,
+    ]
+  );
+
+
+  useEffect(
+    () => {
+      if (
+        newVariantIdTouched
+      ) {
+        return;
+      }
+
+      const suggested =
+        suggestProfileVariantId(
+          {
+            location:
+              newLocation,
+
+            jobRole:
+              newJobRole,
+          }
+        );
+
+      if (
+        suggested
+      ) {
+        setNewVariantId(
+          suggested
+        );
+      }
+    },
+    [
+      newLocation,
+      newJobRole,
+      newVariantIdTouched,
+    ]
+  );
+
 
   const resetDownstreamState = () => {
     setValidation(
@@ -209,6 +408,10 @@ export default function ProfileVariantPublicationPanel({
       );
 
       resetDownstreamState();
+
+      setNewVariantIdTouched(
+        false
+      );
 
 
       try {
@@ -686,6 +889,7 @@ export default function ProfileVariantPublicationPanel({
 
                 <input
                   id="profile-variant-publication-location"
+                  list="profile-variant-publication-known-locations"
                   value={
                     newLocation
                   }
@@ -710,6 +914,23 @@ export default function ProfileVariantPublicationPanel({
                     "focus:ring-2 focus:ring-purple-500/30"
                   )}
                 />
+
+                <datalist id="profile-variant-publication-known-locations">
+                  {knownLocations.map(
+                    (
+                      location
+                    ) => (
+                      <option
+                        key={
+                          location
+                        }
+                        value={
+                          location
+                        }
+                      />
+                    )
+                  )}
+                </datalist>
               </div>
 
               <div className="space-y-2">
@@ -722,6 +943,7 @@ export default function ProfileVariantPublicationPanel({
 
                 <input
                   id="profile-variant-publication-job-role"
+                  list="profile-variant-publication-known-job-roles"
                   value={
                     newJobRole
                   }
@@ -746,6 +968,23 @@ export default function ProfileVariantPublicationPanel({
                     "focus:ring-2 focus:ring-purple-500/30"
                   )}
                 />
+
+                <datalist id="profile-variant-publication-known-job-roles">
+                  {knownJobRoles.map(
+                    (
+                      jobRole
+                    ) => (
+                      <option
+                        key={
+                          jobRole
+                        }
+                        value={
+                          jobRole
+                        }
+                      />
+                    )
+                  )}
+                </datalist>
               </div>
             </div>
 
@@ -771,6 +1010,10 @@ export default function ProfileVariantPublicationPanel({
                       .value
                   );
 
+                  setNewVariantIdTouched(
+                    true
+                  );
+
                   resetDownstreamState();
                 }}
                 disabled={
@@ -784,6 +1027,12 @@ export default function ProfileVariantPublicationPanel({
                   "focus:ring-2 focus:ring-purple-500/30"
                 )}
               />
+
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                {newVariantIdTouched
+                  ? "Edited manually — no longer auto-updates from location/job role."
+                  : "Auto-suggested from location + job role. Edit it to override."}
+              </div>
             </div>
 
 

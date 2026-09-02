@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 
 import ProfileVariantPublicationPanel from "./ProfileVariantPublicationPanel";
@@ -45,6 +46,23 @@ jest.mock(
 
 const SOURCE_ID =
   "prv_source";
+
+
+function stubLoadProfileVariants(
+  variants = []
+) {
+  return jest
+    .fn()
+    .mockResolvedValue({
+      ok:
+        true,
+
+      variants,
+
+      nextToken:
+        null,
+    });
+}
 
 
 function sourceResponse() {
@@ -159,6 +177,7 @@ describe(
             activeProfileVariantId={
               SOURCE_ID
             }
+            loadProfileVariants={stubLoadProfileVariants()}
           />
         );
 
@@ -190,7 +209,9 @@ describe(
       "blocks validation when the new target location is cleared",
       async () => {
         render(
-          <ProfileVariantPublicationPanel />
+          <ProfileVariantPublicationPanel
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
         );
 
 
@@ -277,7 +298,9 @@ describe(
 
 
         render(
-          <ProfileVariantPublicationPanel />
+          <ProfileVariantPublicationPanel
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
         );
 
 
@@ -436,7 +459,9 @@ describe(
 
 
         render(
-          <ProfileVariantPublicationPanel />
+          <ProfileVariantPublicationPanel
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
         );
 
 
@@ -475,6 +500,217 @@ describe(
             /profileVariantId already exists with different immutable content\./
           )
         ).toBeInTheDocument();
+      }
+    );
+
+
+    test(
+      "auto-suggests a new Profile Variant ID from location + job role, following the prv_<location>_<jobRole>_<timestamp> convention, and keeps it in sync until manually edited",
+      async () => {
+        render(
+          <ProfileVariantPublicationPanel
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
+        );
+
+
+        await loadSource();
+
+
+        const idInput =
+          screen.getByLabelText(
+            "New Profile Variant ID"
+          );
+
+
+        await waitFor(
+          () => {
+            expect(
+              idInput.value
+            ).toMatch(
+              /^prv_bangalore_india_backend_infrastructure_engineer_\d{8}T\d{6}Z$/
+            );
+          }
+        );
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target location"
+          ),
+          {
+            target: {
+              value:
+                "Austin, TX",
+            },
+          }
+        );
+
+
+        await waitFor(
+          () => {
+            expect(
+              idInput.value
+            ).toMatch(
+              /^prv_austin_tx_backend_infrastructure_engineer_\d{8}T\d{6}Z$/
+            );
+          }
+        );
+      }
+    );
+
+
+    test(
+      "manually editing the Profile Variant ID stops it from auto-updating when location/job role change afterward",
+      async () => {
+        render(
+          <ProfileVariantPublicationPanel
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
+        );
+
+
+        await loadSource();
+
+
+        const idInput =
+          screen.getByLabelText(
+            "New Profile Variant ID"
+          );
+
+
+        fireEvent.change(
+          idInput,
+          {
+            target: {
+              value:
+                "prv_my_custom_id",
+            },
+          }
+        );
+
+
+        expect(
+          screen.getByText(
+            "Edited manually — no longer auto-updates from location/job role."
+          )
+        ).toBeInTheDocument();
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target location"
+          ),
+          {
+            target: {
+              value:
+                "Austin, TX",
+            },
+          }
+        );
+
+
+        expect(
+          idInput.value
+        ).toBe(
+          "prv_my_custom_id"
+        );
+      }
+    );
+
+
+    test(
+      "offers previously-used location and job role values as autocomplete suggestions",
+      async () => {
+        const { container } =
+          render(
+            <ProfileVariantPublicationPanel
+              loadProfileVariants={stubLoadProfileVariants(
+                [
+                  {
+                    profileVariantId:
+                      "prv_a",
+
+                    targeting: {
+                      location:
+                        "Austin, TX",
+
+                      jobRole:
+                        "Platform Engineer",
+                    },
+                  },
+
+                  {
+                    profileVariantId:
+                      "prv_b",
+
+                    targeting: {
+                      location:
+                        "Pune, India",
+
+                      jobRole:
+                        "AI Engineer",
+                    },
+                  },
+                ]
+              )}
+            />
+          );
+
+
+        await loadSource();
+
+
+        await waitFor(
+          () => {
+            const locationOptions =
+              Array.from(
+                container.querySelectorAll(
+                  "#profile-variant-publication-known-locations option"
+                )
+              ).map(
+                (
+                  option
+                ) =>
+                  option.value
+              );
+
+            expect(
+              locationOptions
+            ).toEqual(
+              expect.arrayContaining(
+                [
+                  "Austin, TX",
+                  "Pune, India",
+                ]
+              )
+            );
+          }
+        );
+
+
+        const jobRoleOptions =
+          Array.from(
+            container.querySelectorAll(
+              "#profile-variant-publication-known-job-roles option"
+            )
+          ).map(
+            (
+              option
+            ) =>
+              option.value
+          );
+
+        expect(
+          jobRoleOptions
+        ).toEqual(
+          expect.arrayContaining(
+            [
+              "Platform Engineer",
+              "AI Engineer",
+            ]
+          )
+        );
       }
     );
   }
