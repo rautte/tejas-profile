@@ -243,8 +243,15 @@ function ScalarFieldValue({
   assets,
   onChange,
 }) {
+  // System-generated identifiers (Project ID, Snippet ID, ...) stay
+  // display-only even while a draft is active, regardless of kind.
+  const effectiveOnChange =
+    field.readOnly
+      ? undefined
+      : onChange;
+
   if (
-    typeof onChange ===
+    typeof effectiveOnChange ===
       "function" &&
     EDITABLE_SCALAR_KINDS.has(
       field.kind
@@ -259,7 +266,7 @@ function ScalarFieldValue({
           value
         }
         onChange={
-          onChange
+          effectiveOnChange
         }
       />
     );
@@ -268,7 +275,7 @@ function ScalarFieldValue({
   if (
     field.kind ===
       "string-list" &&
-    typeof onChange ===
+    typeof effectiveOnChange ===
       "function"
   ) {
     return (
@@ -281,7 +288,7 @@ function ScalarFieldValue({
             : []
         }
         onChange={
-          onChange
+          effectiveOnChange
         }
       />
     );
@@ -351,6 +358,20 @@ function ScalarFieldValue({
           </div>
         )}
       </div>
+    );
+  }
+
+  if (
+    field.kind ===
+      "code" &&
+    value
+  ) {
+    return (
+      <pre className="text-[11px] font-mono whitespace-pre-wrap break-words text-gray-700 dark:text-gray-300">
+        {String(
+          value
+        )}
+      </pre>
     );
   }
 

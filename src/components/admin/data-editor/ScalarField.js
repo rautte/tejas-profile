@@ -14,6 +14,8 @@ export const EDITABLE_SCALAR_KINDS =
     "url",
     "email",
     "phone",
+    "select",
+    "code",
   ]);
 
 
@@ -57,6 +59,95 @@ export function ScalarField({
         className={cx(
           EDITABLE_INPUT_CLASS,
           "h-auto py-2"
+        )}
+      />
+    );
+  }
+
+  if (
+    field.kind ===
+    "select"
+  ) {
+    const options =
+      Array.isArray(
+        field.options
+      )
+        ? field.options
+        : [];
+
+    return (
+      <select
+        value={
+          value ??
+          ""
+        }
+        onChange={(
+          e
+        ) =>
+          onChange(
+            e
+              .target
+              .value
+          )
+        }
+        className={
+          EDITABLE_INPUT_CLASS
+        }
+      >
+        <option value="">
+          —
+        </option>
+
+        {options.map(
+          (
+            option
+          ) => (
+            <option
+              key={
+                option
+              }
+              value={
+                option
+              }
+            >
+              {
+                option
+              }
+            </option>
+          )
+        )}
+      </select>
+    );
+  }
+
+  if (
+    field.kind ===
+    "code"
+  ) {
+    return (
+      <textarea
+        rows={
+          10
+        }
+        spellCheck={
+          false
+        }
+        value={
+          value ??
+          ""
+        }
+        onChange={(
+          e
+        ) =>
+          onChange(
+            e
+              .target
+              .value
+          )
+        }
+        className={cx(
+          EDITABLE_INPUT_CLASS,
+          "h-auto py-2 font-mono whitespace-pre"
         )}
       />
     );

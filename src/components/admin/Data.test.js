@@ -1177,7 +1177,7 @@ test(
       )
     );
 
-    await screen.findByText(
+    await screen.findByDisplayValue(
       "Built X"
     );
 
@@ -1195,7 +1195,7 @@ test(
     await waitFor(
       () => {
         expect(
-          screen.queryByText(
+          screen.queryByDisplayValue(
             "Built X"
           )
         ).not.toBeInTheDocument();
@@ -1203,7 +1203,7 @@ test(
     );
 
     expect(
-      screen.getByText(
+      screen.getByDisplayValue(
         "Shipped Y"
       )
     ).toBeInTheDocument();
@@ -1237,9 +1237,269 @@ test(
     );
 
     expect(
-      await screen.findByText(
+      await screen.findByDisplayValue(
         "Led migration"
       )
     ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "editing a draft keeps read-only system IDs display-only and makes Project Status a constrained dropdown",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(
+              {
+                projects:
+                  [
+                    {
+                      id:
+                        "proj_1",
+
+                      title:
+                        "Portfolio Site",
+
+                      description:
+                        "",
+
+                      techStack:
+                        [],
+
+                      domain:
+                        "",
+
+                      industry:
+                        "",
+
+                      demo:
+                        "",
+
+                      github:
+                        "",
+
+                      status:
+                        "Deployed",
+                    },
+                  ],
+              }
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Projects",
+        }
+      )
+    );
+
+    // Still plain text, not an editable input — proves field.readOnly
+    // is enforced even while a draft is active.
+    expect(
+      await screen.findByText(
+        "proj_1"
+      )
+    ).toBeInTheDocument();
+
+    const statusSelect =
+      screen.getByDisplayValue(
+        "Deployed"
+      );
+
+    expect(
+      statusSelect.tagName
+    ).toBe(
+      "SELECT"
+    );
+
+    fireEvent.change(
+      statusSelect,
+      {
+        target: {
+          value:
+            "In-Progress",
+        },
+      }
+    );
+
+    expect(
+      screen.getByDisplayValue(
+        "In-Progress"
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "editing a draft makes the Code Lab snippet body editable",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(
+              {
+                codeLab:
+                  [
+                    {
+                      id:
+                        "snippet_1",
+
+                      title:
+                        "Binary search",
+
+                      lang:
+                        "python",
+
+                      from:
+                        "",
+
+                      why:
+                        "",
+
+                      code:
+                        "def f(x):\n    return x",
+
+                      technology:
+                        [],
+                    },
+                  ],
+              }
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Code Lab",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "snippet_1"
+    );
+
+    // getByDisplayValue's default normalizer collapses embedded
+    // newlines, so an exact multiline match needs the textarea
+    // looked up directly rather than through that text matcher.
+    function findCodeTextarea() {
+      return screen
+        .getAllByRole(
+          "textbox"
+        )
+        .find(
+          (
+            el
+          ) =>
+            el.tagName ===
+              "TEXTAREA" &&
+            el.value.includes(
+              "def f(x):"
+            )
+        );
+    }
+
+    const codeBox =
+      findCodeTextarea();
+
+    expect(
+      codeBox
+    ).toBeTruthy();
+
+    expect(
+      codeBox.value
+    ).toBe(
+      "def f(x):\n    return x"
+    );
+
+    fireEvent.change(
+      codeBox,
+      {
+        target: {
+          value:
+            "def f(x):\n    return x + 1",
+        },
+      }
+    );
+
+    expect(
+      findCodeTextarea().value
+    ).toBe(
+      "def f(x):\n    return x + 1"
+    );
   }
 );

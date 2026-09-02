@@ -115,6 +115,24 @@ export function TagEditor({
     );
   }
 
+  function editAt(
+    index,
+    nextValue
+  ) {
+    onChange(
+      values.map(
+        (
+          existing,
+          i
+        ) =>
+          i ===
+          index
+            ? nextValue
+            : existing
+      )
+    );
+  }
+
   return (
     <div className="space-y-2">
       {values.length ===
@@ -135,11 +153,23 @@ export function TagEditor({
                 }
                 className="flex items-center gap-2 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-2 py-1"
               >
-                <span className="flex-1 text-xs text-gray-800 dark:text-gray-200 break-words">
-                  {
+                <input
+                  type="text"
+                  value={
                     value
                   }
-                </span>
+                  onChange={(
+                    e
+                  ) =>
+                    editAt(
+                      index,
+                      e
+                        .target
+                        .value
+                    )
+                  }
+                  className="flex-1 h-7 rounded-md border border-transparent bg-transparent px-1 text-xs text-gray-800 dark:text-gray-200 outline-none focus:border-purple-500/40 focus:bg-white/80 dark:focus:bg-white/10"
+                />
 
                 <button
                   type="button"
