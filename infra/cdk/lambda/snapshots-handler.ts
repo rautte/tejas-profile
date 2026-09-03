@@ -21,16 +21,20 @@ import {
 
 import {
   DynamoDBClient,
+  DeleteItemCommand,
+  GetItemCommand,
   PutItemCommand,
   QueryCommand,
 } from "@aws-sdk/client-dynamodb";
 
 import {
+  marshall,
   unmarshall,
 } from "@aws-sdk/util-dynamodb";
 
 import {
   createHash,
+  randomInt,
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
@@ -43,7 +47,13 @@ import {
 import {
   SecretsManagerClient,
   GetSecretValueCommand,
+  PutSecretValueCommand,
 } from "@aws-sdk/client-secrets-manager";
+
+import {
+  SESv2Client,
+  SendEmailCommand,
+} from "@aws-sdk/client-sesv2";
 
 import {
   base64Sha256ToHex,
@@ -137,6 +147,9 @@ const dynamodb =
 const secretsManager =
   new SecretsManagerClient({});
 
+const sesClient =
+  new SESv2Client({});
+
 const SNAPSHOTS_BUCKET =
   process.env.SNAPSHOTS_BUCKET!;
 
@@ -201,6 +214,36 @@ const OWNER_SESSION_SIGNING_KEY_SECRET_ID =
   "";
 
 
+// Separate from OWNER_TOKEN_SECRET_ID (the CI/machine master
+// credential) so a human rotating their login passcode can never
+// break CI/CD, which authenticates with the master credential
+// directly and never sees this one.
+const OWNER_LOGIN_PASSCODE_SECRET_ID =
+  process.env
+    .OWNER_LOGIN_PASSCODE_SECRET_ID ||
+  "";
+
+const OWNER_PASSCODE_VERIFICATION_TABLE =
+  process.env
+    .OWNER_PASSCODE_VERIFICATION_TABLE ||
+  "";
+
+const OWNER_NOTIFICATION_EMAIL =
+  process.env
+    .OWNER_NOTIFICATION_EMAIL ||
+  "";
+
+
+const TEST_OWNER_LOGIN_PASSCODE =
+  process.env.NODE_ENV === "test"
+    ? String(
+        process.env
+          .OWNER_LOGIN_PASSCODE ||
+        ""
+      ).trim()
+    : "";
+
+
 const TEST_OWNER_SESSION_SIGNING_KEY =
   process.env.NODE_ENV ===
     "test"
@@ -238,6 +281,22 @@ let cachedOwnerSessionSigningKey:
   string |
   null =
   null;
+
+// Short TTL (unlike the caches above): this value can be rotated by
+// the owner at any time via Settings, and a warm Lambda instance
+// should not keep accepting the old passcode indefinitely.
+let cachedOwnerLoginPasscode:
+  string |
+  null =
+  null;
+
+let cachedOwnerLoginPasscodeAtMs =
+  0;
+
+const OWNER_LOGIN_PASSCODE_CACHE_MS =
+  5 *
+  60 *
+  1000;
 
 const DEPLOY_HISTORY_KEY = process.env.DEPLOY_HISTORY_KEY || "deploy/history.json";
 
@@ -518,6 +577,73 @@ async function getOwnerToken() {
 
 
   return token;
+}
+
+
+async function getOwnerLoginPasscode() {
+  if (
+    TEST_OWNER_LOGIN_PASSCODE
+  ) {
+    return TEST_OWNER_LOGIN_PASSCODE;
+  }
+
+
+  const now =
+    Date.now();
+
+
+  if (
+    cachedOwnerLoginPasscode &&
+    now -
+      cachedOwnerLoginPasscodeAtMs <
+      OWNER_LOGIN_PASSCODE_CACHE_MS
+  ) {
+    return cachedOwnerLoginPasscode;
+  }
+
+
+  if (
+    !OWNER_LOGIN_PASSCODE_SECRET_ID
+  ) {
+    throw new Error(
+      "OWNER_LOGIN_PASSCODE_SECRET_ID not configured"
+    );
+  }
+
+
+  const out =
+    await secretsManager.send(
+      new GetSecretValueCommand({
+        SecretId:
+          OWNER_LOGIN_PASSCODE_SECRET_ID,
+      })
+    );
+
+
+  const passcode =
+    String(
+      out.SecretString ||
+      ""
+    ).trim();
+
+
+  if (
+    !passcode
+  ) {
+    throw new Error(
+      "Owner login passcode secret is empty"
+    );
+  }
+
+
+  cachedOwnerLoginPasscode =
+    passcode;
+
+  cachedOwnerLoginPasscodeAtMs =
+    now;
+
+
+  return passcode;
 }
 
 
@@ -2955,20 +3081,20 @@ export async function handler(event: Event) {
     }
 
 
-    let expectedMaster:
+    let expectedPasscode:
       string;
 
 
     try {
-      expectedMaster =
-        await getOwnerToken();
+      expectedPasscode =
+        await getOwnerLoginPasscode();
     } catch (e: any) {
       console.error(
-        "Owner session master credential load failed",
+        "Owner session login passcode load failed",
         {
           secretConfigured:
             Boolean(
-              OWNER_TOKEN_SECRET_ID
+              OWNER_LOGIN_PASSCODE_SECRET_ID
             ),
 
           error:
@@ -2997,7 +3123,7 @@ export async function handler(event: Event) {
     if (
       !secretsMatch(
         passcode,
-        expectedMaster
+        expectedPasscode
       )
     ) {
       return json(
@@ -3135,6 +3261,570 @@ export async function handler(event: Event) {
       },
       corsOrigin
     );
+  }
+
+
+  // -----------------------------
+  // POST /owner/passcode/request-change
+  //
+  // Only reachable by an already-authenticated owner (auth.ok above).
+  // Emails a one-time 6-digit code to the fixed, pre-verified owner
+  // notification address -- never a caller-supplied address, so this
+  // can't be used to redirect the code anywhere else.
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/owner/passcode/request-change"
+    )
+  ) {
+    if (
+      !OWNER_PASSCODE_VERIFICATION_TABLE ||
+      !OWNER_NOTIFICATION_EMAIL
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Owner passcode change is not configured",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const pendingPk =
+      `OWNER_PASSCODE_CHANGE#${STAGE}`;
+
+
+    try {
+      const existing =
+        await dynamodb.send(
+          new GetItemCommand({
+            TableName:
+              OWNER_PASSCODE_VERIFICATION_TABLE,
+
+            Key:
+              marshall(
+                {
+                  pk:
+                    pendingPk,
+
+                  sk:
+                    "PENDING",
+                }
+              ),
+          })
+        );
+
+
+      const existingRecord =
+        existing.Item
+          ? unmarshall(
+              existing.Item
+            )
+          : null;
+
+
+      if (
+        existingRecord &&
+        Date.now() -
+          Date.parse(
+            existingRecord.createdAt ||
+            0
+          ) <
+          60_000
+      ) {
+        return json(
+          429,
+          {
+            ok:
+              false,
+
+            error:
+              "A code was already sent recently. Please wait a minute before requesting another.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      const code =
+        String(
+          randomInt(
+            0,
+            1_000_000
+          )
+        ).padStart(
+          6,
+          "0"
+        );
+
+
+      const codeHash =
+        createHash(
+          "sha256"
+        )
+          .update(
+            code,
+            "utf8"
+          )
+          .digest(
+            "hex"
+          );
+
+
+      const nowIso =
+        new Date().toISOString();
+
+
+      const ttlEpochSeconds =
+        Math.floor(
+          Date.now() /
+            1000
+        ) +
+        10 *
+          60;
+
+
+      await dynamodb.send(
+        new PutItemCommand({
+          TableName:
+            OWNER_PASSCODE_VERIFICATION_TABLE,
+
+          Item:
+            marshall(
+              {
+                pk:
+                  pendingPk,
+
+                sk:
+                  "PENDING",
+
+                codeHash,
+
+                createdAt:
+                  nowIso,
+
+                attempts:
+                  0,
+
+                ttl:
+                  ttlEpochSeconds,
+              }
+            ),
+        })
+      );
+
+
+      await sesClient.send(
+        new SendEmailCommand(
+          {
+            FromEmailAddress:
+              OWNER_NOTIFICATION_EMAIL,
+
+            Destination: {
+              ToAddresses: [
+                OWNER_NOTIFICATION_EMAIL,
+              ],
+            },
+
+            Content: {
+              Simple: {
+                Subject: {
+                  Data: `[tejas-profile ${STAGE}] Owner passcode change code`,
+                },
+
+                Body: {
+                  Text: {
+                    Data:
+                      `Your one-time code to change the tejas-profile ${STAGE} owner login passcode is:\n\n${code}\n\nThis code expires in 10 minutes. If you did not request this, no action is needed -- your passcode has not changed.`,
+                  },
+                },
+              },
+            },
+          }
+        )
+      );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+
+          expiresInSeconds:
+            600,
+        },
+        corsOrigin
+      );
+    } catch (e: any) {
+      console.error(
+        "Owner passcode change-code request failed",
+        {
+          error:
+            String(
+              e?.message ||
+              e
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Unable to send a passcode change code right now",
+        },
+        corsOrigin
+      );
+    }
+  }
+
+
+  // -----------------------------
+  // POST /owner/passcode/confirm-change
+  //
+  // body:
+  // {
+  //   code,
+  //   newPasscode
+  // }
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/owner/passcode/confirm-change"
+    )
+  ) {
+    if (
+      !OWNER_PASSCODE_VERIFICATION_TABLE ||
+      !OWNER_LOGIN_PASSCODE_SECRET_ID
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Owner passcode change is not configured",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload:
+      any = {};
+
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const code =
+      String(
+        payload.code ||
+        ""
+      ).trim();
+
+    const newPasscode =
+      String(
+        payload.newPasscode ||
+        ""
+      ).trim();
+
+
+    if (
+      !code
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "Verification code is required",
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      newPasscode.length <
+      12
+    ) {
+      return json(
+        400,
+        {
+          ok:
+            false,
+
+          error:
+            "New passcode must be at least 12 characters",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const pendingPk =
+      `OWNER_PASSCODE_CHANGE#${STAGE}`;
+
+
+    try {
+      const existing =
+        await dynamodb.send(
+          new GetItemCommand({
+            TableName:
+              OWNER_PASSCODE_VERIFICATION_TABLE,
+
+            Key:
+              marshall(
+                {
+                  pk:
+                    pendingPk,
+
+                  sk:
+                    "PENDING",
+                }
+              ),
+          })
+        );
+
+
+      const pending =
+        existing.Item
+          ? unmarshall(
+              existing.Item
+            )
+          : null;
+
+
+      if (
+        !pending
+      ) {
+        return json(
+          400,
+          {
+            ok:
+              false,
+
+            error:
+              "No pending passcode change request. Request a new code first.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      if (
+        Number(
+          pending.attempts
+        ) >=
+        5
+      ) {
+        await dynamodb.send(
+          new DeleteItemCommand(
+            {
+              TableName:
+                OWNER_PASSCODE_VERIFICATION_TABLE,
+
+              Key:
+                marshall(
+                  {
+                    pk:
+                      pendingPk,
+
+                    sk:
+                      "PENDING",
+                  }
+                ),
+            }
+          )
+        );
+
+
+        return json(
+          429,
+          {
+            ok:
+              false,
+
+            error:
+              "Too many incorrect attempts. Request a new code.",
+          },
+          corsOrigin
+        );
+      }
+
+
+      const codeHash =
+        createHash(
+          "sha256"
+        )
+          .update(
+            code,
+            "utf8"
+          )
+          .digest(
+            "hex"
+          );
+
+
+      const codeMatches =
+        secretsMatch(
+          codeHash,
+          String(
+            pending.codeHash ||
+            ""
+          )
+        );
+
+
+      if (
+        !codeMatches
+      ) {
+        await dynamodb.send(
+          new PutItemCommand(
+            {
+              TableName:
+                OWNER_PASSCODE_VERIFICATION_TABLE,
+
+              Item:
+                marshall(
+                  {
+                    ...pending,
+
+                    attempts:
+                      Number(
+                        pending.attempts
+                      ) +
+                      1,
+                  }
+                ),
+            }
+          )
+        );
+
+
+        return json(
+          401,
+          {
+            ok:
+              false,
+
+            error:
+              "Incorrect code",
+          },
+          corsOrigin
+        );
+      }
+
+
+      await secretsManager.send(
+        new PutSecretValueCommand(
+          {
+            SecretId:
+              OWNER_LOGIN_PASSCODE_SECRET_ID,
+
+            SecretString:
+              newPasscode,
+          }
+        )
+      );
+
+
+      cachedOwnerLoginPasscode =
+        null;
+
+      cachedOwnerLoginPasscodeAtMs =
+        0;
+
+
+      await dynamodb.send(
+        new DeleteItemCommand(
+          {
+            TableName:
+              OWNER_PASSCODE_VERIFICATION_TABLE,
+
+            Key:
+              marshall(
+                {
+                  pk:
+                    pendingPk,
+
+                  sk:
+                    "PENDING",
+                }
+              ),
+          }
+        )
+      );
+
+
+      return json(
+        200,
+        {
+          ok:
+            true,
+        },
+        corsOrigin
+      );
+    } catch (e: any) {
+      console.error(
+        "Owner passcode change confirmation failed",
+        {
+          error:
+            String(
+              e?.message ||
+              e
+            ),
+        }
+      );
+
+
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Unable to change the owner passcode right now",
+        },
+        corsOrigin
+      );
+    }
   }
 
 

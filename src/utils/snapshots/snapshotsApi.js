@@ -703,3 +703,107 @@ export async function purgeSnapshot(key) {
   if (!res.ok || !json.ok) throw new Error(json.error || "purge failed");
   return json; // { ok:true, key, deleted }
 }
+
+
+/**
+ * Sends a one-time code to the pre-verified owner notification
+ * email, starting an owner passcode change. Requires an already
+ * -authenticated owner session (or the master credential).
+ */
+export async function requestOwnerPasscodeChange() {
+  const base =
+    mustHaveApi();
+
+  const res =
+    await fetch(
+      `${base}/owner/passcode/request-change`,
+      {
+        method:
+          "POST",
+
+        headers:
+          headers(),
+
+        body:
+          "{}",
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Requesting a passcode change code failed (${res.status})`
+    );
+  }
+
+  return json;
+}
+
+
+/**
+ * Confirms an owner passcode change with the emailed code and the
+ * new passcode. The new passcode is sent once, over HTTPS, and is
+ * never persisted server-side except as the rotated secret itself.
+ */
+export async function confirmOwnerPasscodeChange({
+  code,
+  newPasscode,
+}) {
+  const base =
+    mustHaveApi();
+
+  const res =
+    await fetch(
+      `${base}/owner/passcode/confirm-change`,
+      {
+        method:
+          "POST",
+
+        headers:
+          headers(),
+
+        body:
+          JSON.stringify(
+            {
+              code,
+              newPasscode,
+            }
+          ),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Confirming the passcode change failed (${res.status})`
+    );
+  }
+
+  return json;
+}

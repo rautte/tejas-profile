@@ -92,6 +92,31 @@ export class SnapshotsStack extends cdk.Stack {
         );
 
 
+    // Separate from ownerTokenSecret (the CI/machine master
+    // credential, used directly as x-owner-token). This is the
+    // human login passcode, rotatable from Settings via an
+    // email-verified change flow -- CI/CD never sees or uses it.
+    const ownerLoginPasscodeSecretName =
+      `tejas-profile/${props.stage}/owner-login-passcode`;
+
+
+    const ownerLoginPasscodeSecret =
+      secretsmanager.Secret
+        .fromSecretNameV2(
+          this,
+          "OwnerLoginPasscodeSecret",
+          ownerLoginPasscodeSecretName
+        );
+
+
+    // Same address for DEV and PROD -- one owner, one inbox.
+    // Also the verified SES sending identity (sandbox mode requires
+    // both sides of a send to be verified; using one address for
+    // both sidesteps needing SES production access).
+    const ownerNotificationEmail =
+      "tejasraut197@outlook.com";
+
+
     // -----------------------------
     // 1) Snapshots bucket (JSON snapshots + trash)
     // -----------------------------
@@ -591,6 +616,68 @@ export class SnapshotsStack extends cdk.Stack {
 
 
     // -----------------------------
+    // Owner Passcode Verification table
+    //
+    // A single pending record per stage:
+    //   OWNER_PASSCODE_CHANGE#<stage> / PENDING
+    //
+    // Holds only a SHA-256 hash of the one-time email code (never
+    // the code itself), an attempt counter, and a TTL so an
+    // unconfirmed request expires on its own.
+    // -----------------------------
+    const ownerPasscodeVerificationTableName =
+      `tejas-profile-${props.stage}-owner-passcode-verification`;
+
+    const ownerPasscodeVerificationTable =
+      new dynamodb.Table(
+        this,
+        "OwnerPasscodeVerificationTable",
+        {
+          tableName:
+            ownerPasscodeVerificationTableName,
+
+          partitionKey: {
+            name:
+              "pk",
+
+            type:
+              dynamodb
+                .AttributeType
+                .STRING,
+          },
+
+          sortKey: {
+            name:
+              "sk",
+
+            type:
+              dynamodb
+                .AttributeType
+                .STRING,
+          },
+
+          billingMode:
+            dynamodb
+              .BillingMode
+              .PAY_PER_REQUEST,
+
+          timeToLiveAttribute:
+            "ttl",
+
+          removalPolicy:
+            props.stage ===
+            "prod"
+              ? cdk
+                  .RemovalPolicy
+                  .RETAIN
+              : cdk
+                  .RemovalPolicy
+                  .DESTROY,
+        }
+      );
+
+
+    // -----------------------------
     // Profile Activation table
     //
     // Stores:
@@ -976,6 +1063,17 @@ export class SnapshotsStack extends cdk.Stack {
           ownerSessionSigningKeySecret
             .secretName,
 
+        OWNER_LOGIN_PASSCODE_SECRET_ID:
+          ownerLoginPasscodeSecret
+            .secretName,
+
+        OWNER_PASSCODE_VERIFICATION_TABLE:
+          ownerPasscodeVerificationTable
+            .tableName,
+
+        OWNER_NOTIFICATION_EMAIL:
+          ownerNotificationEmail,
+
         SNAPSHOTS_PREFIX:
           "snapshots/",
 
@@ -1213,6 +1311,67 @@ export class SnapshotsStack extends cdk.Stack {
 
     analyticsEdgeTokenSecret.grantRead(
       analyticsFn
+    );
+
+    // Only fn (the human owner-passcode-change endpoints) ever
+    // touches this secret -- read to check a login attempt, write
+    // to actually rotate it once a code is confirmed.
+    ownerLoginPasscodeSecret
+      .grantRead(
+        fn
+      );
+
+    ownerLoginPasscodeSecret
+      .grantWrite(
+        fn
+      );
+
+    // Explicit minimal actions (matching the handler's actual
+    // GetItem/PutItem/DeleteItem usage) rather than
+    // grantReadWriteData(), which also grants Scan/BatchGetItem/
+    // DescribeTable/etc. this endpoint never uses.
+    //
+    // A dedicated Policy (not fn.addToRolePolicy, which merges into
+    // fn's single auto-managed default policy) so it can never be
+    // folded into -- or accidentally drop -- an unrelated existing
+    // statement there.
+    new iam.Policy(
+      this,
+      "OwnerPasscodeVerificationTablePolicy",
+      {
+        statements: [
+          new iam.PolicyStatement(
+            {
+              actions: [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:DeleteItem",
+              ],
+
+              resources: [
+                ownerPasscodeVerificationTable
+                  .tableArn,
+              ],
+            }
+          ),
+        ],
+      }
+    ).attachToRole(
+      fn.role!
+    );
+
+    fn.addToRolePolicy(
+      new iam.PolicyStatement(
+        {
+          actions: [
+            "ses:SendEmail",
+          ],
+
+          resources: [
+            `arn:aws:ses:${this.region}:${this.account}:identity/${ownerNotificationEmail}`,
+          ],
+        }
+      )
     );
 
     // -----------------------------

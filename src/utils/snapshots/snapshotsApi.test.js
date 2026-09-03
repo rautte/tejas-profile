@@ -462,5 +462,214 @@ describe(
         );
       }
     );
+
+
+    test(
+      "requestOwnerPasscodeChange posts to the request-change endpoint with the owner session header",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response(
+            {
+              body: {
+                ok:
+                  true,
+
+                expiresInSeconds:
+                  600,
+              },
+            }
+          )
+        );
+
+        const {
+          requestOwnerPasscodeChange,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+        const result =
+          await requestOwnerPasscodeChange();
+
+        expect(
+          result.expiresInSeconds
+        ).toBe(
+          600
+        );
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+        expect(
+          url
+        ).toBe(
+          "https://api.example.test/owner/passcode/request-change"
+        );
+
+        expect(
+          options.method
+        ).toBe(
+          "POST"
+        );
+
+        expect(
+          options
+            .headers[
+              "x-owner-token"
+            ]
+        ).toBe(
+          "owner-test-token"
+        );
+      }
+    );
+
+
+    test(
+      "requestOwnerPasscodeChange surfaces a rate-limit error",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response(
+            {
+              status:
+                429,
+
+              body: {
+                ok:
+                  false,
+
+                error:
+                  "Please wait a minute before requesting another.",
+              },
+            }
+          )
+        );
+
+        const {
+          requestOwnerPasscodeChange,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+        await expect(
+          requestOwnerPasscodeChange()
+        ).rejects.toThrow(
+          "Please wait a minute before requesting another."
+        );
+      }
+    );
+
+
+    test(
+      "confirmOwnerPasscodeChange posts the code and new passcode to the confirm-change endpoint",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response(
+            {
+              body: {
+                ok:
+                  true,
+              },
+            }
+          )
+        );
+
+        const {
+          confirmOwnerPasscodeChange,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+        await confirmOwnerPasscodeChange(
+          {
+            code:
+              "482913",
+
+            newPasscode:
+              "a-strong-new-passcode",
+          }
+        );
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+        expect(
+          url
+        ).toBe(
+          "https://api.example.test/owner/passcode/confirm-change"
+        );
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual(
+          {
+            code:
+              "482913",
+
+            newPasscode:
+              "a-strong-new-passcode",
+          }
+        );
+      }
+    );
+
+
+    test(
+      "confirmOwnerPasscodeChange surfaces an incorrect-code error",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response(
+            {
+              status:
+                401,
+
+              body: {
+                ok:
+                  false,
+
+                error:
+                  "Incorrect code",
+              },
+            }
+          )
+        );
+
+        const {
+          confirmOwnerPasscodeChange,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+        await expect(
+          confirmOwnerPasscodeChange(
+            {
+              code:
+                "000000",
+
+              newPasscode:
+                "a-strong-new-passcode",
+            }
+          )
+        ).rejects.toThrow(
+          "Incorrect code"
+        );
+      }
+    );
   }
 );

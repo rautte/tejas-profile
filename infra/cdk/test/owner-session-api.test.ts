@@ -3,8 +3,8 @@ import {
 } from "../lambda/owner-session-auth";
 
 
-const MASTER =
-  "owner-session-api-master-token";
+const LOGIN_PASSCODE =
+  "owner-session-api-login-passcode";
 
 
 const SIGNING_KEY =
@@ -73,8 +73,8 @@ describe(
         jest.resetModules();
 
         process.env
-          .OWNER_TOKEN =
-          MASTER;
+          .OWNER_LOGIN_PASSCODE =
+          LOGIN_PASSCODE;
 
         process.env
           .OWNER_SESSION_SIGNING_KEY =
@@ -100,7 +100,7 @@ describe(
     afterAll(
       () => {
         delete process.env
-          .OWNER_TOKEN;
+          .OWNER_LOGIN_PASSCODE;
 
         delete process.env
           .OWNER_SESSION_SIGNING_KEY;
@@ -115,13 +115,13 @@ describe(
 
 
     test(
-      "exchanges the master passcode for a short-lived signed session",
+      "exchanges the login passcode for a short-lived signed session",
       async () => {
         const response =
           await handler(
             event({
               passcode:
-                MASTER,
+                LOGIN_PASSCODE,
             })
           );
 
@@ -190,14 +190,14 @@ describe(
         expect(
           response.body
         ).not.toContain(
-          MASTER
+          LOGIN_PASSCODE
         );
       }
     );
 
 
     test(
-      "rejects an incorrect master passcode",
+      "rejects an incorrect login passcode",
       async () => {
         const response =
           await handler(
