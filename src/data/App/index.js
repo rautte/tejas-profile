@@ -5,7 +5,7 @@ import {
   DEFAULT_SECTION,
   PUBLIC_SECTION_ORDER,
   SIDEBAR_GROUPS as PUBLIC_SIDEBAR_GROUPS,
-} from "../structure";
+} from "../structure/index.js";
 
 export { DEFAULT_SECTION, PUBLIC_SECTION_ORDER };
 
