@@ -2170,6 +2170,28 @@ export class SnapshotsStack extends cdk.Stack {
     });
 
     httpApi.addRoutes({
+      path:
+        "/owner/passcode/request-change",
+
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+
+      integration,
+    });
+
+    httpApi.addRoutes({
+      path:
+        "/owner/passcode/confirm-change",
+
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+
+      integration,
+    });
+
+    httpApi.addRoutes({
       path: "/snapshots/list",
       methods: [apigwv2.HttpMethod.GET],
       integration,

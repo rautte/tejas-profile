@@ -1118,6 +1118,8 @@ describe(
         ).toEqual(
           expect.arrayContaining([
             "POST /owner/session",
+            "POST /owner/passcode/request-change",
+            "POST /owner/passcode/confirm-change",
             "POST /analytics/ingest",
             "GET /analytics/query",
             "GET /analytics/meta",
