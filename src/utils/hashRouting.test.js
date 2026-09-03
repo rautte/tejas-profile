@@ -150,6 +150,33 @@ describe(
       }
     );
 
+
+    test(
+      "honors an owner-declared default section, and still falls back to the platform default when none is given",
+      () => {
+        expect(
+          resolveSectionLabelFromHash(
+            "#/not-real",
+            {
+              fallbackToDefault: true,
+
+              defaultSection:
+                "Projects",
+            }
+          )
+        ).toBe("Projects");
+
+        expect(
+          resolveSectionLabelFromHash(
+            "#/not-real",
+            {
+              fallbackToDefault: true,
+            }
+          )
+        ).toBe("About Me");
+      }
+    );
+
     test(
       "canonicalizes Battleship invite hashes only for analytics",
       () => {

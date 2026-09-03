@@ -136,6 +136,15 @@ export function resolveSectionLabelFromHash(
   hash,
   {
     fallbackToDefault = false,
+
+    /**
+     * Owner-editable default landing section (content.structure),
+     * already validated by resolveSiteStructure. Falls back to the
+     * platform's static DEFAULT_SECTION when not supplied, so every
+     * existing caller keeps its exact current behavior.
+     */
+    defaultSection =
+      DEFAULT_SECTION,
   } = {}
 ) {
   const raw =
@@ -156,7 +165,7 @@ export function resolveSectionLabelFromHash(
   }
 
   return fallbackToDefault
-    ? DEFAULT_SECTION
+    ? defaultSection
     : null;
 }
 

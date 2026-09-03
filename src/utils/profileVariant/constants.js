@@ -64,6 +64,29 @@ export const PROFILE_CONTENT_FIELDS =
  *
  * This keeps structural validation centralized.
  */
+/**
+ * Optional, additive content fields.
+ *
+ * Unlike PROFILE_CONTENT_FIELDS, these are never required -- a
+ * document that predates a given optional field is still valid;
+ * absence just means "use the platform default" at the read site.
+ * This is how new content capabilities ship without bumping
+ * CURRENT_PROFILE_CONTENT_SCHEMA_VERSION: only a BREAKING change
+ * (removing/retyping/requiring something new) needs that.
+ */
+export const PROFILE_CONTENT_OPTIONAL_FIELDS =
+  Object.freeze([
+    "structure",
+  ]);
+
+
+export const PROFILE_CONTENT_OPTIONAL_FIELD_TYPES =
+  Object.freeze({
+    structure:
+      "object",
+  });
+
+
 export const PROFILE_CONTENT_FIELD_TYPES =
   Object.freeze({
     hero:

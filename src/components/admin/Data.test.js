@@ -2061,3 +2061,222 @@ test(
     ).toBeInTheDocument();
   }
 );
+
+
+test(
+  "editing a draft allows reordering, recategorizing, hiding, and showing sections in Structure",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Names, order & visibility",
+        }
+      )
+    );
+
+    function categoryOrder() {
+      return screen
+        .getAllByRole(
+          "combobox"
+        )
+        .map(
+          (
+            el
+          ) =>
+            el.getAttribute(
+              "aria-label"
+            )
+        );
+    }
+
+    await waitFor(
+      () => {
+        expect(
+          categoryOrder()[0]
+        ).toBe(
+          "About Me category"
+        );
+      }
+    );
+
+    expect(
+      categoryOrder()[1]
+    ).toBe(
+      "Experience category"
+    );
+
+    expect(
+      screen.getByText(
+        "Default landing section"
+      )
+    ).toBeInTheDocument();
+
+
+    // Reorder: move Experience above About Me.
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Move Experience up",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          categoryOrder()[0]
+        ).toBe(
+          "Experience category"
+        );
+      }
+    );
+
+    expect(
+      categoryOrder()[1]
+    ).toBe(
+      "About Me category"
+    );
+
+
+    // Recategorize: Experience moves from Recruiter to Hiring Manager.
+    fireEvent.change(
+      screen.getByRole(
+        "combobox",
+        {
+          name:
+            "Experience category",
+        }
+      ),
+      {
+        target: {
+          value:
+            "hiringManager",
+        },
+      }
+    );
+
+    expect(
+      screen.getByRole(
+        "combobox",
+        {
+          name:
+            "Experience category",
+        }
+      ).value
+    ).toBe(
+      "hiringManager"
+    );
+
+
+    // Hide About Me (the current default section) -- default falls
+    // back to whichever section is now first (Experience).
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Hide About Me",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByRole(
+            "combobox",
+            {
+              name:
+                "About Me category",
+            }
+          )
+        ).not.toBeInTheDocument();
+      }
+    );
+
+    expect(
+      screen.getByText(
+        "Hidden from public navigation"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Show About Me",
+        }
+      )
+    ).toBeInTheDocument();
+
+
+    // Re-show it.
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Show About Me",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          screen.getByRole(
+            "combobox",
+            {
+              name:
+                "About Me category",
+            }
+          )
+        ).toBeInTheDocument();
+      }
+    );
+  }
+);

@@ -4,6 +4,8 @@ import {
   CURRENT_PROFILE_CONTENT_SCHEMA_VERSION,
   PROFILE_CONTENT_FIELD_TYPES,
   PROFILE_CONTENT_FIELDS,
+  PROFILE_CONTENT_OPTIONAL_FIELD_TYPES,
+  PROFILE_CONTENT_OPTIONAL_FIELDS,
   PROFILE_VARIANT_ASSET_KINDS,
   PROFILE_VARIANT_COMPATIBILITY,
   PROFILE_VARIANT_DOCUMENT_SCHEMA,
@@ -224,7 +226,10 @@ function validateCurrentContent(
     const key of
       unknownKeys(
         content,
-        PROFILE_CONTENT_FIELDS
+        [
+          ...PROFILE_CONTENT_FIELDS,
+          ...PROFILE_CONTENT_OPTIONAL_FIELDS,
+        ]
       )
   ) {
     errors.push(
@@ -253,6 +258,53 @@ function validateCurrentContent(
 
     const expected =
       PROFILE_CONTENT_FIELD_TYPES[
+        field
+      ];
+
+    const value =
+      content[field];
+
+    if (
+      expected === "array" &&
+      !Array.isArray(
+        value
+      )
+    ) {
+      errors.push(
+        `content.${field} must be an array.`
+      );
+    }
+
+    if (
+      expected === "object" &&
+      !isPlainObject(
+        value
+      )
+    ) {
+      errors.push(
+        `content.${field} must be an object.`
+      );
+    }
+  }
+
+  for (
+    const field of
+      PROFILE_CONTENT_OPTIONAL_FIELDS
+  ) {
+    if (
+      !Object.prototype
+        .hasOwnProperty
+        .call(
+          content,
+          field
+        )
+    ) {
+      // Optional: a document that predates this field is still valid.
+      continue;
+    }
+
+    const expected =
+      PROFILE_CONTENT_OPTIONAL_FIELD_TYPES[
         field
       ];
 

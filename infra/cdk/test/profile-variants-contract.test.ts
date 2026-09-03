@@ -328,5 +328,93 @@ describe(
         );
       }
     );
+
+
+    test(
+      "a Profile Variant without the optional content.structure field still validates",
+      () => {
+        const normalized =
+          normalizeAndValidateProfileVariantDocument(
+            validVariant()
+          );
+
+
+        expect(
+          normalized
+            .content
+            .structure
+        ).toBeUndefined();
+      }
+    );
+
+
+    test(
+      "a Profile Variant with a well-typed content.structure field validates",
+      () => {
+        const variant =
+          validVariant();
+
+        variant.content.structure = {
+          order: [
+            "About Me",
+          ],
+        };
+
+        variant.contentHash =
+          computeProfileVariantContentHash(
+            variant
+          );
+
+
+        const normalized =
+          normalizeAndValidateProfileVariantDocument(
+            variant
+          );
+
+
+        expect(
+          normalized
+            .content
+            .structure
+        ).toEqual(
+          {
+            order: [
+              "About Me",
+            ],
+          }
+        );
+      }
+    );
+
+
+    test(
+      "server rejects a mistyped content.structure field",
+      () => {
+        const variant =
+          validVariant();
+
+        variant.content.structure =
+          [
+            "not",
+            "an",
+            "object",
+          ];
+
+        variant.contentHash =
+          computeProfileVariantContentHash(
+            variant
+          );
+
+
+        expect(
+          () =>
+            normalizeAndValidateProfileVariantDocument(
+              variant
+            )
+        ).toThrow(
+          "content.structure must be an object"
+        );
+      }
+    );
   }
 );

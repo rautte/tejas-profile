@@ -47,11 +47,12 @@ import {
 } from "./utils/owner/ownerSession";
 
 import {
-  DEFAULT_SECTION,
-  SECTION_ORDER,
-  SIDEBAR_GROUPS,
   ADMIN_SECTION_ORDER,
 } from "./data/App";
+
+import {
+  resolveSiteStructure,
+} from "./data/structure";
 
 import {
   hashPathFromHash,
@@ -129,8 +130,6 @@ const ICONS = {
 };
 
 const ADMIN_LABELS = ADMIN_SECTION_ORDER;
-
-const LABELS = SECTION_ORDER;
 
 // ------------------------------
 // Theme (Option A): OS-default, override only for this session
@@ -226,6 +225,34 @@ function AppContent() {
       refreshActiveProfile,
   } =
     useProfileRuntime();
+
+  /**
+   * Owner-editable site structure (order/groups/default landing
+   * section), from Admin -> Data -> Structure. Falls back to the
+   * platform default whenever a Profile Variant has none of its
+   * own, including the very first render before any network call
+   * resolves (profileContent starts as the repository fallback).
+   */
+  const effectiveStructure = useMemo(
+    () =>
+      resolveSiteStructure(
+        profileContent
+          ?.structure
+      ),
+    [
+      profileContent,
+    ]
+  );
+
+  const LABELS = useMemo(
+    () => [
+      ...effectiveStructure.order,
+      ...ADMIN_SECTION_ORDER,
+    ],
+    [
+      effectiveStructure,
+    ]
+  );
 
   const [ownerPromptOpen, setOwnerPromptOpen] = useState(false);
 
@@ -349,7 +376,7 @@ function AppContent() {
         setIsOwner(false);
 
         setSelectedSection(
-          DEFAULT_SECTION
+          effectiveStructure.defaultSection
         );
 
         return;
@@ -362,7 +389,7 @@ function AppContent() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [effectiveStructure]);
 
 
   const submitOwnerPasscode =
@@ -822,12 +849,11 @@ function AppContent() {
         shortLabel: short[id] ?? id,
         icon: ICONS[id],
       }));
-  }, []);
+  }, [LABELS]);
 
-  const recruiterQuickLook = [DEFAULT_SECTION, ...SIDEBAR_GROUPS.recruiter];
-  const hiringManagerQuickLookBody = SIDEBAR_GROUPS.hiringManager;
-  const moreAboutMe = SIDEBAR_GROUPS.explore;
-  // const adminOnly = SIDEBAR_GROUPS.admin ?? [];
+  const recruiterQuickLook = [effectiveStructure.defaultSection, ...effectiveStructure.groups.recruiter];
+  const hiringManagerQuickLookBody = effectiveStructure.groups.hiringManager;
+  const moreAboutMe = effectiveStructure.groups.explore;
   const adminPinnedItems = isOwner ? ADMIN_LABELS.filter((l) => LABELS.includes(l)) : [];
 
   // ------------------------------
@@ -866,6 +892,7 @@ function AppContent() {
       window.location.hash,
       {
         fallbackToDefault: true,
+        defaultSection: effectiveStructure.defaultSection,
       }
     );
 
@@ -874,9 +901,9 @@ function AppContent() {
 
   useEffect(() => {
     if (!isOwner && ADMIN_LABELS.includes(selectedSection)) {
-      setSelectedSection(DEFAULT_SECTION);
+      setSelectedSection(effectiveStructure.defaultSection);
     }
-  }, [isOwner, selectedSection]);
+  }, [isOwner, selectedSection, effectiveStructure]);
 
   const [hashPath, setHashPath] =
     useState(() =>
@@ -1245,7 +1272,7 @@ function AppContent() {
       scroller.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [selectedSection, goTo]);
+  }, [selectedSection, goTo, LABELS]);
 
 
   // ------------------------------
@@ -1305,7 +1332,7 @@ function AppContent() {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [isMobile, isAdminSection, selectedSection, goTo]);
+  }, [isMobile, isAdminSection, selectedSection, goTo, LABELS]);
 
   // ------------------------------
   // Sidebar collapse
@@ -1353,7 +1380,7 @@ function AppContent() {
   // Hero collapse logic (unchanged)
   // ------------------------------
 
-  const PINNED_SET = useMemo(() => new Set(SIDEBAR_GROUPS.pinned), []);
+  const PINNED_SET = useMemo(() => new Set(effectiveStructure.groups.pinned), [effectiveStructure]);
   const skipNextPinnedExpand = useRef(false);
 
   const [sharedCollapsed, setSharedCollapsed] = useState(true);
@@ -1429,7 +1456,7 @@ function AppContent() {
     </button>
   );
 
-  const PINNED = SIDEBAR_GROUPS.pinned;
+  const PINNED = effectiveStructure.groups.pinned;
   const recruiterQuickLookBody = recruiterQuickLook.filter((i) => !PINNED.includes(i));
 
   const Group = ({ title, items, titleClassName = "", headerRight = null }) => (
@@ -1558,7 +1585,7 @@ function AppContent() {
                 );
 
                 setSelectedSection(
-                  DEFAULT_SECTION
+                  effectiveStructure.defaultSection
                 );
               }}
               className="

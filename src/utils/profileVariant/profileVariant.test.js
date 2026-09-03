@@ -4,6 +4,7 @@ import {
   CURRENT_PROFILE_CONTENT_SCHEMA_VERSION,
   PROFILE_VARIANT_COMPATIBILITY,
   PROFILE_VARIANT_DOCUMENT_SCHEMA,
+  createEmptyProfileContent,
   createProfileVariantDocument,
   migrateProfileVariantToCurrent,
   runProfileVariantMigrations,
@@ -513,6 +514,76 @@ describe(
           result.errors
         ).toContain(
           "content.funZone is required."
+        );
+      }
+    );
+
+    test(
+      "ProfileContent validation accepts content without the optional structure field",
+      () => {
+        const result =
+          validateProfileContent(
+            createEmptyProfileContent()
+          );
+
+        expect(
+          result.valid
+        ).toBe(
+          true
+        );
+      }
+    );
+
+    test(
+      "ProfileContent validation accepts a well-typed optional structure field",
+      () => {
+        const result =
+          validateProfileContent(
+            {
+              ...createEmptyProfileContent(),
+
+              structure: {
+                order: [
+                  "About Me",
+                ],
+              },
+            }
+          );
+
+        expect(
+          result.valid
+        ).toBe(
+          true
+        );
+      }
+    );
+
+    test(
+      "ProfileContent validation rejects a mistyped optional structure field",
+      () => {
+        const result =
+          validateProfileContent(
+            {
+              ...createEmptyProfileContent(),
+
+              structure: [
+                "not",
+                "an",
+                "object",
+              ],
+            }
+          );
+
+        expect(
+          result.valid
+        ).toBe(
+          false
+        );
+
+        expect(
+          result.errors
+        ).toContain(
+          "content.structure must be an object."
         );
       }
     );

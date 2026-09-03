@@ -26,6 +26,26 @@ const ID_RE =
   /^[A-Za-z0-9._:-]+$/;
 
 
+/**
+ * Optional, additive content fields.
+ *
+ * Unlike PROFILE_CONTENT_FIELD_TYPES, these are never required -- a
+ * manifest that predates a given optional field is still valid;
+ * absence just means "use the platform default" at the read site.
+ * This is how new content capabilities ship without bumping
+ * CURRENT_PROFILE_CONTENT_SCHEMA_VERSION: only a breaking change
+ * needs that.
+ */
+const PROFILE_CONTENT_OPTIONAL_FIELD_TYPES:
+  Record<
+    string,
+    "object" | "array"
+  > = {
+    structure:
+      "object",
+  };
+
+
 const PROFILE_CONTENT_FIELD_TYPES:
   Record<
     string,
@@ -735,6 +755,67 @@ function validateContent(
   }
 
 
+  const optionalFields =
+    Object.keys(
+      PROFILE_CONTENT_OPTIONAL_FIELD_TYPES
+    );
+
+
+  for (
+    const field of
+      optionalFields
+  ) {
+    if (
+      !Object.prototype
+        .hasOwnProperty
+        .call(
+          content,
+          field
+        )
+    ) {
+      // Optional: a manifest that predates this field is still valid.
+      continue;
+    }
+
+
+    const expectedType =
+      PROFILE_CONTENT_OPTIONAL_FIELD_TYPES[
+        field
+      ];
+
+    const value =
+      content[
+        field
+      ];
+
+
+    if (
+      expectedType ===
+        "array" &&
+      !Array.isArray(
+        value
+      )
+    ) {
+      errors.push(
+        `content.${field} must be an array.`
+      );
+    }
+
+
+    if (
+      expectedType ===
+        "object" &&
+      !isPlainObject(
+        value
+      )
+    ) {
+      errors.push(
+        `content.${field} must be an object.`
+      );
+    }
+  }
+
+
   for (
     const key of
       Object.keys(
@@ -743,6 +824,9 @@ function validateContent(
   ) {
     if (
       !expectedFields.includes(
+        key
+      ) &&
+      !optionalFields.includes(
         key
       )
     ) {

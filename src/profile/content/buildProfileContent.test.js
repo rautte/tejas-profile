@@ -22,6 +22,7 @@ import {
 
 import {
   PROFILE_CONTENT_FIELDS,
+  PROFILE_CONTENT_OPTIONAL_FIELDS,
   assertJsonCompatible,
   validateProfileContent,
 } from "../../utils/profileVariant";
@@ -59,7 +60,7 @@ describe(
 
 
     test(
-      "contains every canonical Profile Content field and no extra top-level fields",
+      "contains every canonical Profile Content field, plus the optional fields it authors, and no others",
       () => {
         const content =
           buildProfileContent();
@@ -69,7 +70,10 @@ describe(
             content
           )
         ).toEqual(
-          PROFILE_CONTENT_FIELDS
+          [
+            ...PROFILE_CONTENT_FIELDS,
+            ...PROFILE_CONTENT_OPTIONAL_FIELDS,
+          ]
         );
       }
     );

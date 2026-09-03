@@ -37,6 +37,10 @@ import {
 } from "../../data/resume";
 
 import {
+  defaultSiteStructure,
+} from "../../data/structure";
+
+import {
   SKILLS,
 } from "../../data/skills";
 
@@ -95,6 +99,9 @@ export function buildProfileContent() {
 
       contactLinks:
         FOOTER_LINKS,
+
+      structure:
+        defaultSiteStructure(),
     });
 
 

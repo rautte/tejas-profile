@@ -26,8 +26,13 @@ import {
 } from "../../profile/draft";
 
 import {
-  SIDEBAR_GROUPS,
+  PUBLIC_SECTION_ORDER,
 } from "../../data/App";
+
+import {
+  SITE_STRUCTURE_GROUP_IDS,
+  resolveSiteStructure,
+} from "../../data/structure";
 
 import {
   EDITABLE_SCALAR_KINDS,
@@ -1404,72 +1409,416 @@ function AssetsPanel({
 }
 
 
-function StructurePanel() {
+const STRUCTURE_GROUP_LABELS =
+  {
+    pinned:
+      "Pinned",
+
+    recruiter:
+      "Recruiter",
+
+    hiringManager:
+      "Hiring Manager",
+
+    explore:
+      "Explore",
+  };
+
+
+function structureSectionToGroup(
+  structure
+) {
+  const map =
+    new Map();
+
+  for (
+    const groupId of
+      SITE_STRUCTURE_GROUP_IDS
+  ) {
+    for (
+      const label of
+        structure
+          .groups[
+          groupId
+        ] ||
+        []
+    ) {
+      map.set(
+        label,
+        groupId
+      );
+    }
+  }
+
+  return map;
+}
+
+
+function StructurePanel({
+  structure,
+  onChange,
+}) {
+  const editable =
+    typeof onChange ===
+    "function";
+
+  const sectionToGroup =
+    structureSectionToGroup(
+      structure
+    );
+
+  const hiddenSections =
+    PUBLIC_SECTION_ORDER.filter(
+      (
+        label
+      ) =>
+        !structure.order.includes(
+          label
+        )
+    );
+
+  function commit(
+    nextRaw
+  ) {
+    onChange(
+      resolveSiteStructure(
+        nextRaw
+      )
+    );
+  }
+
+  function moveSection(
+    label,
+    direction
+  ) {
+    const index =
+      structure.order.indexOf(
+        label
+      );
+
+    commit(
+      {
+        ...structure,
+
+        order:
+          moveArrayIndex(
+            structure.order,
+            index,
+            direction
+          ),
+      }
+    );
+  }
+
+  function setSectionGroup(
+    label,
+    groupId
+  ) {
+    const nextGroups =
+      {};
+
+    for (
+      const gid of
+        SITE_STRUCTURE_GROUP_IDS
+    ) {
+      nextGroups[
+        gid
+      ] = (
+        structure
+          .groups[
+          gid
+        ] ||
+        []
+      ).filter(
+        (
+          existing
+        ) =>
+          existing !==
+          label
+      );
+    }
+
+    nextGroups[
+      groupId
+    ] = [
+      ...nextGroups[
+        groupId
+      ],
+      label,
+    ];
+
+    commit(
+      {
+        ...structure,
+
+        groups:
+          nextGroups,
+      }
+    );
+  }
+
+  function setDefaultSection(
+    label
+  ) {
+    commit(
+      {
+        ...structure,
+
+        defaultSection:
+          label,
+      }
+    );
+  }
+
+  function hideSection(
+    label
+  ) {
+    commit(
+      {
+        ...structure,
+
+        order:
+          structure.order.filter(
+            (
+              existing
+            ) =>
+              existing !==
+              label
+          ),
+      }
+    );
+  }
+
+  function showSection(
+    label
+  ) {
+    commit(
+      {
+        ...structure,
+
+        order: [
+          ...structure.order,
+          label,
+        ],
+      }
+    );
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-600 dark:text-gray-400 max-w-2xl">
-        Section order, grouping, and visibility are read-only for now — they
-        are not yet part of the published Profile schema. Owner-editable
-        structure arrives in a later phase.
+        {editable
+          ? "Reorder, recategorize, hide, or show sections of the public site's main navigation. This is separate from Resume's own internal section order."
+          : "Section order, grouping, and visibility for the public site's main navigation. Start a draft to edit."}
       </p>
 
-      <div className="space-y-3">
-        {Object.entries(
-          SIDEBAR_GROUPS
-        )
-          .filter(
-            (
-              [
-                groupKey,
-              ]
-            ) =>
-              groupKey !==
-              "admin"
-          )
-          .map(
-            (
-              [
-                groupKey,
-                sections,
-              ]
-            ) => (
-              <div
-                key={
-                  groupKey
+      <div
+        className={cx(
+          CARD_SURFACE,
+          CARD_ROUNDED_2XL,
+          "divide-y divide-gray-200/70 dark:divide-white/10"
+        )}
+      >
+        {structure.order.map(
+          (
+            label,
+            index
+          ) => (
+            <div
+              key={
+                label
+              }
+              className="p-4 flex flex-wrap items-center gap-3"
+            >
+              <div className="flex-1 min-w-[140px] text-sm font-semibold text-gray-800 dark:text-gray-200">
+                {
+                  label
                 }
-                className={cx(
-                  CARD_SURFACE,
-                  CARD_ROUNDED_2XL,
-                  "p-4"
-                )}
-              >
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
-                  {
-                    groupKey
-                  }
-                </div>
 
-                <ol className="space-y-1 text-sm text-gray-800 dark:text-gray-200 list-decimal list-inside">
-                  {sections.map(
+                {structure.defaultSection ===
+                label ? (
+                  <span className="ml-2 rounded-lg border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/70 dark:bg-purple-500/10 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:text-purple-300">
+                    Default landing section
+                  </span>
+                ) : null}
+              </div>
+
+              {editable ? (
+                <select
+                  aria-label={`${label} category`}
+                  value={
+                    sectionToGroup.get(
+                      label
+                    ) ||
+                    "explore"
+                  }
+                  onChange={(
+                    e
+                  ) =>
+                    setSectionGroup(
+                      label,
+                      e
+                        .target
+                        .value
+                    )
+                  }
+                  className="h-9 rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-white/10 px-2 text-xs text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-purple-500/30"
+                >
+                  {SITE_STRUCTURE_GROUP_IDS.map(
                     (
-                      section
+                      groupId
                     ) => (
-                      <li
+                      <option
                         key={
-                          section
+                          groupId
+                        }
+                        value={
+                          groupId
                         }
                       >
                         {
-                          section
+                          STRUCTURE_GROUP_LABELS[
+                            groupId
+                          ]
                         }
-                      </li>
+                      </option>
                     )
                   )}
-                </ol>
-              </div>
-            )
-          )}
+                </select>
+              ) : (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {STRUCTURE_GROUP_LABELS[
+                    sectionToGroup.get(
+                      label
+                    ) ||
+                      "explore"
+                  ]}
+                </span>
+              )}
+
+              {editable && (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={
+                      index ===
+                      0
+                    }
+                    onClick={() =>
+                      moveSection(
+                        label,
+                        -1
+                      )
+                    }
+                    className="text-xs text-gray-500 dark:text-gray-400 disabled:opacity-30 hover:text-purple-600 dark:hover:text-purple-300"
+                    aria-label={`Move ${label} up`}
+                  >
+                    ↑ Move up
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={
+                      index ===
+                      structure
+                        .order
+                        .length -
+                        1
+                    }
+                    onClick={() =>
+                      moveSection(
+                        label,
+                        1
+                      )
+                    }
+                    className="text-xs text-gray-500 dark:text-gray-400 disabled:opacity-30 hover:text-purple-600 dark:hover:text-purple-300"
+                    aria-label={`Move ${label} down`}
+                  >
+                    ↓ Move down
+                  </button>
+
+                  {structure.defaultSection !==
+                  label ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDefaultSection(
+                          label
+                        )
+                      }
+                      className="text-xs text-purple-600 dark:text-purple-300 hover:underline"
+                    >
+                      Set as default
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      hideSection(
+                        label
+                      )
+                    }
+                    className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                    aria-label={`Hide ${label}`}
+                  >
+                    Hide
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        )}
       </div>
+
+      {hiddenSections.length >
+      0 ? (
+        <div
+          className={cx(
+            CARD_SURFACE,
+            CARD_ROUNDED_2XL,
+            "p-4 space-y-2"
+          )}
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            Hidden from public navigation
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {hiddenSections.map(
+              (
+                label
+              ) => (
+                <div
+                  key={
+                    label
+                  }
+                  className="flex items-center gap-2 rounded-lg border border-gray-200/70 dark:border-white/10 bg-gray-50/70 dark:bg-white/5 px-2.5 py-1 text-xs text-gray-700 dark:text-gray-300"
+                >
+                  {
+                    label
+                  }
+
+                  {editable ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        showSection(
+                          label
+                        )
+                      }
+                      className="text-purple-600 dark:text-purple-300 hover:underline"
+                      aria-label={`Show ${label}`}
+                    >
+                      Show
+                    </button>
+                  ) : null}
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1777,6 +2126,20 @@ export default function AdminData({
       [
         variant,
         draft,
+      ]
+    );
+
+
+  const effectiveStructure =
+    useMemo(
+      () =>
+        resolveSiteStructure(
+          renderVariant
+            ?.content
+            ?.structure
+        ),
+      [
+        renderVariant,
       ]
     );
 
@@ -2206,7 +2569,24 @@ export default function AdminData({
             >
               {view ===
               "structure" ? (
-                <StructurePanel />
+                <StructurePanel
+                  structure={
+                    effectiveStructure
+                  }
+                  onChange={
+                    onFieldChange
+                      ? (
+                          nextStructure
+                        ) =>
+                          onFieldChange(
+                            [
+                              "structure",
+                            ],
+                            nextStructure
+                          )
+                      : undefined
+                  }
+                />
               ) : view ===
                 "assets" ? (
                 <AssetsPanel
