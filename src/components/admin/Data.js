@@ -56,6 +56,14 @@ import {
 import PublishReviewPanel from "./data-editor/PublishReviewPanel";
 
 import {
+  sha256BytesHex,
+} from "../../utils/profileVariant";
+
+import {
+  createContentAddressedProfileAssetObjectKey,
+} from "../../profile/publish";
+
+import {
   cx,
 } from "../../utils/cx";
 
@@ -71,6 +79,32 @@ function cleanString(
   return String(
     value || ""
   ).trim();
+}
+
+
+function randomAssetIdSuffix() {
+  if (
+    typeof crypto !==
+      "undefined" &&
+    typeof crypto
+      .randomUUID ===
+      "function"
+  ) {
+    return crypto
+      .randomUUID()
+      .replace(
+        /-/g,
+        ""
+      )
+      .slice(
+        0,
+        10
+      );
+  }
+
+  return Math.random()
+    .toString(16)
+    .slice(2, 12);
 }
 
 
@@ -277,6 +311,262 @@ function TagChip({
 }
 
 
+function formatByteSize(
+  bytes
+) {
+  const n =
+    Number(
+      bytes
+    ) ||
+    0;
+
+  if (
+    n <
+    1024
+  ) {
+    return `${n} B`;
+  }
+
+  if (
+    n <
+    1024 *
+      1024
+  ) {
+    return `${(
+      n /
+      1024
+    ).toFixed(
+      1
+    )} KB`;
+  }
+
+  return `${(
+    n /
+    (1024 *
+      1024)
+  ).toFixed(
+    1
+  )} MB`;
+}
+
+
+function AssetUploadControl({
+  hasExisting,
+  staged,
+  busy,
+  error,
+  onSelectFile,
+  onUndo,
+}) {
+  return (
+    <div className="mt-1 space-y-1">
+      <label className="inline-flex items-center gap-2 text-[11px] font-semibold text-purple-600 dark:text-purple-300 hover:underline cursor-pointer">
+        {busy
+          ? "Processing…"
+          : hasExisting
+            ? "Replace file"
+            : "Upload file"}
+
+        <input
+          type="file"
+          className="hidden"
+          disabled={
+            busy
+          }
+          onChange={(
+            e
+          ) => {
+            const file =
+              e.target
+                .files?.[0];
+
+            e.target.value =
+              "";
+
+            if (
+              file
+            ) {
+              onSelectFile(
+                file
+              );
+            }
+          }}
+        />
+      </label>
+
+      {staged ? (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-300">
+          <span>
+            New file staged: {staged.fileName} (
+            {formatByteSize(
+              staged.size
+            )}
+            ) -- uploaded when you publish.
+          </span>
+
+          <button
+            type="button"
+            onClick={
+              onUndo
+            }
+            className="text-red-600 dark:text-red-400 hover:underline"
+          >
+            Undo
+          </button>
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="text-[11px] text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+          {
+            error
+          }
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+function AssetFieldValue({
+  assetId,
+  assets,
+  onAssetUpload,
+  onUndoAssetUpload,
+  stagedAsset,
+}) {
+  const [
+    busy,
+    setBusy,
+  ] =
+    useState(
+      false
+    );
+
+  const [
+    error,
+    setError,
+  ] =
+    useState(
+      ""
+    );
+
+  const asset =
+    assetId
+      ? (
+          assets ||
+          []
+        ).find(
+          (
+            item
+          ) =>
+            item
+              ?.id ===
+            assetId
+        )
+      : null;
+
+  async function handleSelectFile(
+    file
+  ) {
+    setError(
+      ""
+    );
+
+    setBusy(
+      true
+    );
+
+    try {
+      await onAssetUpload(
+        file
+      );
+    } catch (
+      err
+    ) {
+      setError(
+        String(
+          err
+            ?.message ||
+          err
+        )
+      );
+    } finally {
+      setBusy(
+        false
+      );
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      {assetId ? (
+        <div className="font-mono text-xs text-gray-800 dark:text-gray-200 break-all">
+          {
+            assetId
+          }
+        </div>
+      ) : (
+        <span className="text-gray-400 dark:text-gray-500">
+          —
+        </span>
+      )}
+
+      {asset ? (
+        <div className="text-[11px] text-gray-500 dark:text-gray-400">
+          {
+            asset.kind
+          }{" "}
+          ·{" "}
+          {
+            asset.contentType
+          }{" "}
+          ·{" "}
+          <span className="font-mono">
+            {String(
+              asset.sha256 ||
+                ""
+            ).slice(
+              0,
+              12
+            )}
+            …
+          </span>
+        </div>
+      ) : assetId ? (
+        <div className="text-[11px] text-amber-600 dark:text-amber-400">
+          Referenced but not found among this variant's published assets.
+        </div>
+      ) : null}
+
+      {typeof onAssetUpload ===
+      "function" ? (
+        <AssetUploadControl
+          hasExisting={Boolean(
+            assetId
+          )}
+          staged={
+            stagedAsset
+          }
+          busy={
+            busy
+          }
+          error={
+            error
+          }
+          onSelectFile={
+            handleSelectFile
+          }
+          onUndo={
+            onUndoAssetUpload
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+
+
 /**
  * Read-only field metadata → value renderer, with an editable
  * escape hatch for plain scalar kinds once a draft is active.
@@ -288,6 +578,9 @@ function ScalarFieldValue({
   value,
   assets,
   onChange,
+  onAssetUpload,
+  onUndoAssetUpload,
+  stagedAsset,
 }) {
   // System-generated identifiers (Project ID, Snippet ID, ...) stay
   // display-only even while a draft is active, regardless of kind.
@@ -344,66 +637,28 @@ function ScalarFieldValue({
     field.kind ===
     "asset"
   ) {
-    const assetId =
-      cleanString(
-        value
-      );
-
-    if (!assetId) {
-      return (
-        <span className="text-gray-400 dark:text-gray-500">
-          —
-        </span>
-      );
-    }
-
-    const asset =
-      (
-        assets || []
-      ).find(
-        (
-          item
-        ) =>
-          item
-            ?.id ===
-          assetId
-      );
-
     return (
-      <div className="space-y-1">
-        <div className="font-mono text-xs text-gray-800 dark:text-gray-200 break-all">
-          {
-            assetId
-          }
-        </div>
-
-        {asset ? (
-          <div className="text-[11px] text-gray-500 dark:text-gray-400">
-            {
-              asset.kind
-            }{" "}
-            ·{" "}
-            {
-              asset.contentType
-            }{" "}
-            ·{" "}
-            <span className="font-mono">
-              {String(
-                asset.sha256 ||
-                  ""
-              ).slice(
-                0,
-                12
-              )}
-              …
-            </span>
-          </div>
-        ) : (
-          <div className="text-[11px] text-amber-600 dark:text-amber-400">
-            Referenced but not found among this variant's published assets.
-          </div>
+      <AssetFieldValue
+        assetId={cleanString(
+          value
         )}
-      </div>
+        assets={
+          assets
+        }
+        onAssetUpload={
+          field.readOnly
+            ? undefined
+            : onAssetUpload
+        }
+        onUndoAssetUpload={
+          field.readOnly
+            ? undefined
+            : onUndoAssetUpload
+        }
+        stagedAsset={
+          stagedAsset
+        }
+      />
     );
   }
 
@@ -650,6 +905,9 @@ function CollectionEditor({
   assets,
   arrayPath,
   onFieldChange,
+  onAssetUpload,
+  onUndoAssetUpload,
+  stagedAssets,
   itemClassName =
     "rounded-lg border border-gray-200/70 dark:border-white/10 p-3 space-y-2",
   emptyLabel =
@@ -719,6 +977,15 @@ function CollectionEditor({
                       editable
                         ? onFieldChange
                         : undefined
+                    }
+                    onAssetUpload={
+                      onAssetUpload
+                    }
+                    onUndoAssetUpload={
+                      onUndoAssetUpload
+                    }
+                    stagedAssets={
+                      stagedAssets
                     }
                   />
                 )
@@ -796,6 +1063,9 @@ function FieldRow({
   pathPrefix =
     [],
   onFieldChange,
+  onAssetUpload,
+  onUndoAssetUpload,
+  stagedAssets,
 }) {
   const value =
     getByPath(
@@ -847,6 +1117,15 @@ function FieldRow({
                 }
                 onFieldChange={
                   onFieldChange
+                }
+                onAssetUpload={
+                  onAssetUpload
+                }
+                onUndoAssetUpload={
+                  onUndoAssetUpload
+                }
+                stagedAssets={
+                  stagedAssets
                 }
               />
             )
@@ -902,10 +1181,26 @@ function FieldRow({
           onFieldChange={
             onFieldChange
           }
+          onAssetUpload={
+            onAssetUpload
+          }
+          onUndoAssetUpload={
+            onUndoAssetUpload
+          }
+          stagedAssets={
+            stagedAssets
+          }
         />
       </div>
     );
   }
+
+  const stagedAsset =
+    stagedAssets?.[
+      fullPath.join(
+        "."
+      )
+    ];
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-[180px_minmax(0,1fr)] gap-1 sm:gap-3">
@@ -937,6 +1232,29 @@ function FieldRow({
                   )
               : undefined
           }
+          onAssetUpload={
+            onAssetUpload
+              ? (
+                  file
+                ) =>
+                  onAssetUpload(
+                    fullPath,
+                    field,
+                    file
+                  )
+              : undefined
+          }
+          onUndoAssetUpload={
+            onUndoAssetUpload
+              ? () =>
+                  onUndoAssetUpload(
+                    fullPath
+                  )
+              : undefined
+          }
+          stagedAsset={
+            stagedAsset
+          }
         />
       </div>
     </div>
@@ -948,6 +1266,9 @@ function GroupPanel({
   group,
   variant,
   onFieldChange,
+  onAssetUpload,
+  onUndoAssetUpload,
+  stagedAssets,
 }) {
   if (!group) {
     return (
@@ -1011,6 +1332,15 @@ function GroupPanel({
           }
           onFieldChange={
             onFieldChange
+          }
+          onAssetUpload={
+            onAssetUpload
+          }
+          onUndoAssetUpload={
+            onUndoAssetUpload
+          }
+          stagedAssets={
+            stagedAssets
           }
           itemClassName={cx(
             CARD_SURFACE,
@@ -1171,6 +1501,15 @@ function GroupPanel({
             onFieldChange={
               onFieldChange
             }
+            onAssetUpload={
+              onAssetUpload
+            }
+            onUndoAssetUpload={
+              onUndoAssetUpload
+            }
+            stagedAssets={
+              stagedAssets
+            }
           />
         )
       )}
@@ -1219,6 +1558,15 @@ function GroupPanel({
                   }
                   onFieldChange={
                     onFieldChange
+                  }
+                  onAssetUpload={
+                    onAssetUpload
+                  }
+                  onUndoAssetUpload={
+                    onUndoAssetUpload
+                  }
+                  stagedAssets={
+                    stagedAssets
                   }
                 />
 
@@ -1347,6 +1695,10 @@ function collectAssetFieldRefs(
 function AssetsPanel({
   assetFieldRefs,
   variant,
+  onFieldChange,
+  onAssetUpload,
+  onUndoAssetUpload,
+  stagedAssets,
 }) {
   return (
     <div className="space-y-4">
@@ -1397,6 +1749,24 @@ function AssetsPanel({
                   assets={
                     variant
                       ?.assets
+                  }
+                  pathPrefix={topLevelContentKey(
+                    {
+                      path:
+                        ref.groupPath,
+                    }
+                  )}
+                  onFieldChange={
+                    onFieldChange
+                  }
+                  onAssetUpload={
+                    onAssetUpload
+                  }
+                  onUndoAssetUpload={
+                    onUndoAssetUpload
+                  }
+                  stagedAssets={
+                    stagedAssets
                   }
                 />
               </div>
@@ -2047,6 +2417,19 @@ export default function AdminData({
       null
     );
 
+  // Staged asset replacements/uploads, keyed by the dotted content
+  // path of the field they belong to (e.g. "resume.pdfAssetId").
+  // Transient, browser-memory only -- File/ArrayBuffer data isn't
+  // JSON-serializable, so this can never be part of the persisted
+  // draft. Lost on refresh, same as any other unsaved file picker.
+  const [
+    stagedAssets,
+    setStagedAssets,
+  ] =
+    useState(
+      {}
+    );
+
   function handlePublished(
     result
   ) {
@@ -2059,6 +2442,151 @@ export default function AdminData({
     setPublishSuccess(
       result
     );
+
+    setStagedAssets(
+      {}
+    );
+  }
+
+
+  async function handleAssetUpload(
+    fullPath,
+    field,
+    file
+  ) {
+    const pathKey =
+      fullPath.join(
+        "."
+      );
+
+    const currentAssetId =
+      cleanString(
+        fullPath.reduce(
+          (
+            acc,
+            key
+          ) =>
+            acc ==
+            null
+              ? undefined
+              : acc[
+                  key
+                ],
+          renderVariant
+            ?.content
+        )
+      );
+
+    const arrayBuffer =
+      await file.arrayBuffer();
+
+    const sha256 =
+      await sha256BytesHex(
+        arrayBuffer
+      );
+
+    const contentType =
+      file.type ||
+      "application/octet-stream";
+
+    const objectKey =
+      createContentAddressedProfileAssetObjectKey(
+        {
+          sha256,
+          contentType,
+        }
+      );
+
+    const wasNewlyMinted =
+      !currentAssetId;
+
+    const assetId =
+      currentAssetId ||
+      `${fullPath[0]}.${randomAssetIdSuffix()}`;
+
+    const kind =
+      Array.isArray(
+        field.assetKinds
+      ) &&
+      field
+        .assetKinds
+        .length
+        ? field
+            .assetKinds[0]
+        : "other";
+
+    setStagedAssets(
+      (
+        prev
+      ) => ({
+        ...prev,
+
+        [pathKey]: {
+          assetId,
+          fileName:
+            file.name,
+          size:
+            file.size,
+          contentType,
+          sha256,
+          objectKey,
+          kind,
+          arrayBuffer,
+          wasNewlyMinted,
+        },
+      })
+    );
+
+    if (
+      wasNewlyMinted
+    ) {
+      onFieldChange?.(
+        fullPath,
+        assetId
+      );
+    }
+  }
+
+
+  function handleUndoAssetUpload(
+    fullPath
+  ) {
+    const pathKey =
+      fullPath.join(
+        "."
+      );
+
+    const entry =
+      stagedAssets[
+        pathKey
+      ];
+
+    setStagedAssets(
+      (
+        prev
+      ) => {
+        const next =
+          {
+            ...prev,
+          };
+
+        delete next[
+          pathKey
+        ];
+
+        return next;
+      }
+    );
+
+    if (
+      entry
+        ?.wasNewlyMinted
+    ) {
+      onFieldChange?.(
+        fullPath,
+        ""
+      );
+    }
   }
 
 
@@ -2278,8 +2806,12 @@ export default function AdminData({
               </span>
 
               {draft &&
-              draftStatus ===
-                PROFILE_DRAFT_STATUS.READY ? (
+              (draftStatus ===
+                PROFILE_DRAFT_STATUS.READY ||
+                Object.keys(
+                  stagedAssets
+                ).length >
+                  0) ? (
                 <button
                   type="button"
                   onClick={() =>
@@ -2305,6 +2837,10 @@ export default function AdminData({
                       false
                     );
 
+                    setStagedAssets(
+                      {}
+                    );
+
                     discardDraft();
                   }}
                   className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
@@ -2318,6 +2854,10 @@ export default function AdminData({
                   onClick={() => {
                     setPublishSuccess(
                       null
+                    );
+
+                    setStagedAssets(
+                      {}
                     );
 
                     startDraft();
@@ -2357,9 +2897,13 @@ export default function AdminData({
 
                   <button
                     type="button"
-                    onClick={
-                      discardDraft
-                    }
+                    onClick={() => {
+                      setStagedAssets(
+                        {}
+                      );
+
+                      discardDraft();
+                    }}
                     className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline"
                   >
                     Discard
@@ -2421,6 +2965,9 @@ export default function AdminData({
             }
             baseVariant={
               variant
+            }
+            stagedAssets={
+              stagedAssets
             }
             onPublished={
               handlePublished
@@ -2596,6 +3143,22 @@ export default function AdminData({
                   variant={
                     renderVariant
                   }
+                  onFieldChange={
+                    onFieldChange
+                  }
+                  onAssetUpload={
+                    onFieldChange
+                      ? handleAssetUpload
+                      : undefined
+                  }
+                  onUndoAssetUpload={
+                    onFieldChange
+                      ? handleUndoAssetUpload
+                      : undefined
+                  }
+                  stagedAssets={
+                    stagedAssets
+                  }
                 />
               ) : (
                 <GroupPanel
@@ -2607,6 +3170,19 @@ export default function AdminData({
                   }
                   onFieldChange={
                     onFieldChange
+                  }
+                  onAssetUpload={
+                    onFieldChange
+                      ? handleAssetUpload
+                      : undefined
+                  }
+                  onUndoAssetUpload={
+                    onFieldChange
+                      ? handleUndoAssetUpload
+                      : undefined
+                  }
+                  stagedAssets={
+                    stagedAssets
                   }
                 />
               )}

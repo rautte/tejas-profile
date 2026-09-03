@@ -1,5 +1,10 @@
 // src/components/admin/Data.test.js
 
+const {
+  webcrypto,
+} =
+  require("crypto");
+
 import {
   fireEvent,
   render,
@@ -42,6 +47,13 @@ jest.mock(
 
     publishProfilePublication:
       jest.fn(),
+
+    createContentAddressedProfileAssetObjectKey:
+      jest
+        .requireActual(
+          "../../profile/publish"
+        )
+        .createContentAddressedProfileAssetObjectKey,
   })
 );
 
@@ -150,6 +162,18 @@ function mockVariant(
         },
       ],
 
+      // Present-but-empty, matching createEmptyProfileContent()'s
+      // defaults exactly -- otherwise createProfileDraft() silently
+      // fills these in when absent, making a freshly-started draft
+      // (with zero real edits) already differ from baseContent.
+      aboutMe: {},
+      skills: [],
+      projects: [],
+      codeLab: [],
+      funZone: {},
+      timeline: [],
+      contactLinks: [],
+
       ...overrides,
     },
 
@@ -173,6 +197,62 @@ function mockVariant(
     ],
   };
 }
+
+
+beforeAll(
+  () => {
+    // Asset upload hashes bytes via window.crypto.subtle, which
+    // jsdom does not provide -- polyfill with Node's real
+    // implementation so the exact production code path runs.
+    Object.defineProperty(
+      window,
+      "crypto",
+      {
+        value:
+          webcrypto,
+
+        configurable:
+          true,
+      }
+    );
+
+    // This jsdom version doesn't implement File.prototype.
+    // arrayBuffer() (a modern, widely-supported real-browser API) --
+    // polyfill it via the older, jsdom-supported FileReader so the
+    // exact production code path still runs under test.
+    if (
+      typeof File
+        .prototype
+        .arrayBuffer !==
+      "function"
+    ) {
+      File.prototype.arrayBuffer =
+        function () {
+          return new Promise(
+            (
+              resolve,
+              reject
+            ) => {
+              const reader =
+                new FileReader();
+
+              reader.onload = () =>
+                resolve(
+                  reader.result
+                );
+
+              reader.onerror =
+                reject;
+
+              reader.readAsArrayBuffer(
+                this
+              );
+            }
+          );
+        };
+    }
+  }
+);
 
 
 beforeEach(
@@ -2278,5 +2358,510 @@ test(
         ).toBeInTheDocument();
       }
     );
+  }
+);
+
+
+test(
+  "editing a draft lets the owner upload a file for a previously empty asset field, minting a new asset id",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "About Me",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "Profile Photo"
+    );
+
+    const file =
+      new File(
+        [
+          "fake image bytes",
+        ],
+        "photo.jpg",
+        {
+          type:
+            "image/jpeg",
+        }
+      );
+
+    fireEvent.change(
+      screen.getByLabelText(
+        "Upload file"
+      ),
+      {
+        target: {
+          files: [
+            file,
+          ],
+        },
+      }
+    );
+
+    expect(
+      await screen.findByText(
+        /New file staged: photo\.jpg/
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        /^aboutMe\./
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "editing a draft lets the owner replace an existing asset field's file, keeping the same asset id, and shows Publish even with no content change",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Resume",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "resume.primary"
+    );
+
+    expect(
+      screen.queryByRole(
+        "button",
+        {
+          name:
+            "Publish…",
+        }
+      )
+    ).not.toBeInTheDocument();
+
+    const file =
+      new File(
+        [
+          "PDF-BYTES-V2",
+        ],
+        "resume-new.pdf",
+        {
+          type:
+            "application/pdf",
+        }
+      );
+
+    fireEvent.change(
+      screen.getByLabelText(
+        "Replace file"
+      ),
+      {
+        target: {
+          files: [
+            file,
+          ],
+        },
+      }
+    );
+
+    expect(
+      await screen.findByText(
+        /New file staged: resume-new\.pdf/
+      )
+    ).toBeInTheDocument();
+
+    // Same asset id -- a replace, not a new asset.
+    expect(
+      screen.getByText(
+        "resume.primary"
+      )
+    ).toBeInTheDocument();
+
+    // No content field changed, but a staged upload alone still
+    // makes the draft publishable.
+    expect(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Publish…",
+        }
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "publishing with a staged asset replacement includes it in the asset manifest sent to the publish API",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    buildProfilePublicationPackage
+      .mockResolvedValue(
+        {
+          schema:
+            "tejas-profile.profile-publication-package",
+
+          variant: {
+            profileVariantId:
+              "prv_republished",
+          },
+        }
+      );
+
+    publishProfilePublication
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          profileVariantId:
+            "prv_republished",
+
+          contentHash:
+            "b".repeat(
+              64
+            ),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Resume",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "resume.primary"
+    );
+
+    const file =
+      new File(
+        [
+          "PDF-BYTES-V2",
+        ],
+        "resume-new.pdf",
+        {
+          type:
+            "application/pdf",
+        }
+      );
+
+    fireEvent.change(
+      screen.getByLabelText(
+        "Replace file"
+      ),
+      {
+        target: {
+          files: [
+            file,
+          ],
+        },
+      }
+    );
+
+    await screen.findByText(
+      /New file staged: resume-new\.pdf/
+    );
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Publish…",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        "1 file to upload"
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Confirm & publish",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          buildProfilePublicationPackage
+        ).toHaveBeenCalledTimes(
+          1
+        );
+      }
+    );
+
+    const call =
+      buildProfilePublicationPackage
+        .mock
+        .calls[0][0];
+
+    const replacedAsset =
+      call.assetUploads.find(
+        (
+          asset
+        ) =>
+          asset.id ===
+          "resume.primary"
+      );
+
+    expect(
+      replacedAsset
+    ).toBeTruthy();
+
+    expect(
+      replacedAsset.sha256
+    ).not.toBe(
+      RESUME_ASSET_SHA256
+    );
+
+    expect(
+      replacedAsset.objectKey
+    ).toContain(
+      "assets/sha256/"
+    );
+
+    // readAssetBytes must actually return the staged bytes when
+    // buildProfilePublicationPackage asks for them.
+    const bytes =
+      await call.readAssetBytes(
+        replacedAsset
+      );
+
+    expect(
+      Buffer.from(
+        bytes
+      ).toString(
+        "utf8"
+      )
+    ).toBe(
+      "PDF-BYTES-V2"
+    );
+  }
+);
+
+
+test(
+  "editing a draft lets the owner replace a file from the consolidated Documents & images tab too",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    await screen.findByRole(
+      "button",
+      {
+        name:
+          "Discard draft",
+      }
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Documents & images",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "resume.primary"
+    );
+
+    const file =
+      new File(
+        [
+          "PDF-BYTES-FROM-ASSETS-TAB",
+        ],
+        "resume-v3.pdf",
+        {
+          type:
+            "application/pdf",
+        }
+      );
+
+    fireEvent.change(
+      screen.getByLabelText(
+        "Replace file"
+      ),
+      {
+        target: {
+          files: [
+            file,
+          ],
+        },
+      }
+    );
+
+    expect(
+      await screen.findByText(
+        /New file staged: resume-v3\.pdf/
+      )
+    ).toBeInTheDocument();
   }
 );
