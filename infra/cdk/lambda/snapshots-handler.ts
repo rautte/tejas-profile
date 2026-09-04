@@ -3436,7 +3436,7 @@ export async function handler(event: Event) {
             Content: {
               Simple: {
                 Subject: {
-                  Data: `[tejas-profile ${STAGE}] Owner passcode change code`,
+                  Data: `Owner Passcode Change - tejas-profile (${STAGE})`,
                 },
 
                 Body: {
