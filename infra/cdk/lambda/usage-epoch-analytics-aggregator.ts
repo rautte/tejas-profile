@@ -36,6 +36,13 @@ import {
   normalizeTrafficEvidence,
 } from "./traffic-classification";
 
+import {
+  ENGAGED_SESSION_ACTIVE_MS,
+  ENGAGED_SESSION_EVENT_COUNT,
+  MEANINGFUL_SESSION_ACTIVE_MS,
+  computeOutreachScoreV1,
+} from "./outreach-score-v1";
+
 
 const DAY_MS =
   24 * 60 * 60 * 1000;
@@ -1498,6 +1505,25 @@ export function aggregateUsageEpochAnalyticsEvents({
       Set<string>
     >();
 
+  // Per-session totals, for Outreach Score's engaged-session
+  // rate and consistency components. Mirrors the live path's
+  // sessionActiveMs/sessionEventCount in analytics-handler.ts's
+  // aggregateSessionFragments -- but this file iterates individual
+  // raw events (one iteration = one event), not pre-aggregated
+  // upload fragments, so eventCount here is a per-event +1 rather
+  // than summing a fragment's own eventCount field.
+  const sessionActiveMs =
+    new Map<
+      string,
+      number
+    >();
+
+  const sessionEventCount =
+    new Map<
+      string,
+      number
+    >();
+
 
   type SectionState = {
     visits:
@@ -1790,6 +1816,17 @@ export function aggregateUsageEpochAnalyticsEvents({
       event.sessionHash
     );
 
+    sessionEventCount.set(
+      event.sessionHash,
+      (
+        sessionEventCount.get(
+          event.sessionHash
+        ) ||
+        0
+      ) +
+        1
+    );
+
 
     const dailyState =
       dailyByDay.get(
@@ -1873,6 +1910,17 @@ export function aggregateUsageEpochAnalyticsEvents({
         )!
         .activeMs +=
         event.ms;
+
+      sessionActiveMs.set(
+        event.sessionHash,
+        (
+          sessionActiveMs.get(
+            event.sessionHash
+          ) ||
+          0
+        ) +
+          event.ms
+      );
     }
 
 
@@ -2217,6 +2265,82 @@ export function aggregateUsageEpochAnalyticsEvents({
       : 0;
 
 
+  // -----------------------------
+  // Outreach Score engagement inputs
+  //
+  // Mirrors analytics-handler.ts's aggregateSessionFragments (the
+  // live path) exactly, over sessionActiveMs/sessionEventCount
+  // built in the event loop above.
+  // -----------------------------
+
+  let meaningfulSessionCount =
+    0;
+
+  let engagedSessionCount =
+    0;
+
+  let topSessionActiveMs =
+    0;
+
+  for (
+    const sessionHash of
+      sessions
+  ) {
+    const ms =
+      sessionActiveMs.get(
+        sessionHash
+      ) ||
+      0;
+
+    const eventCount =
+      sessionEventCount.get(
+        sessionHash
+      ) ||
+      0;
+
+    if (
+      ms >=
+      MEANINGFUL_SESSION_ACTIVE_MS
+    ) {
+      meaningfulSessionCount +=
+        1;
+    }
+
+    if (
+      ms >=
+        ENGAGED_SESSION_ACTIVE_MS ||
+      eventCount >=
+        ENGAGED_SESSION_EVENT_COUNT
+    ) {
+      engagedSessionCount +=
+        1;
+    }
+
+    if (
+      ms >
+      topSessionActiveMs
+    ) {
+      topSessionActiveMs =
+        ms;
+    }
+  }
+
+  const topSessionActiveMsShare =
+    totalActiveMs >
+    0
+      ? topSessionActiveMs /
+        totalActiveMs
+      : 0;
+
+  const engagement = {
+    meaningfulSessionCount,
+
+    engagedSessionCount,
+
+    topSessionActiveMsShare,
+  };
+
+
   const sectionOutput =
     PUBLIC_SECTION_ORDER.map(
       (
@@ -2396,6 +2520,8 @@ export function aggregateUsageEpochAnalyticsEvents({
           ? topSection.section
           : null,
     },
+
+    engagement,
 
     sections:
       sectionOutput,
@@ -2712,16 +2838,78 @@ export function aggregateUsageEpochAnalyticsTrafficReport({
     });
 
 
+  /**
+   * Computed once per traffic slice at finalization time, from that
+   * exact slice's own overview/sections/ctas/projects/deepLinks/
+   * engagement -- immutable from that point on, same as the rest of
+   * the report. Mirrors how the live query path computes it outside
+   * aggregateSessionFragments, using that call's returned analytics.
+   */
+  function withOutreachScore<
+    T extends {
+      overview: any;
+      sections: any;
+      ctas: any;
+      projects: any;
+      deepLinks: any;
+      engagement: any;
+    }
+  >(
+    analytics:
+      T
+  ) {
+    return {
+      ...analytics,
+
+      outreachScore:
+        computeOutreachScoreV1(
+          {
+            overview:
+              analytics.overview,
+
+            sections:
+              analytics.sections,
+
+            ctas:
+              analytics.ctas,
+
+            projects:
+              analytics.projects,
+
+            deepLinks:
+              analytics.deepLinks,
+
+            engagement:
+              analytics.engagement,
+
+            totalSectionCount:
+              PUBLIC_SECTION_ORDER.length,
+          }
+        ),
+    };
+  }
+
+
   const analyticsByTraffic = {
-    all,
+    all:
+      withOutreachScore(
+        all
+      ),
 
     likely_human:
-      likelyHuman,
+      withOutreachScore(
+        likelyHuman
+      ),
 
     likely_automated:
-      likelyAutomated,
+      withOutreachScore(
+        likelyAutomated
+      ),
 
-    uncertain,
+    uncertain:
+      withOutreachScore(
+        uncertain
+      ),
   };
 
 

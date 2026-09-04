@@ -2300,6 +2300,18 @@ export class SnapshotsStack extends cdk.Stack {
 
     httpApi.addRoutes({
       path:
+        "/profile-variants/get-batch",
+
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+
+      integration,
+    });
+
+
+    httpApi.addRoutes({
+      path:
         "/platform-releases/register",
 
       methods: [
@@ -2412,6 +2424,18 @@ export class SnapshotsStack extends cdk.Stack {
 
       methods: [
         apigwv2.HttpMethod.GET,
+      ],
+
+      integration,
+    });
+
+
+    httpApi.addRoutes({
+      path:
+        "/configuration-analytics-reports/get-batch",
+
+      methods: [
+        apigwv2.HttpMethod.POST,
       ],
 
       integration,

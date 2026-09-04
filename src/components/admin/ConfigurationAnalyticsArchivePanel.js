@@ -7,9 +7,19 @@ import {
 } from "react";
 
 import {
+  HiOutlineEyeSlash,
+  HiStar,
+} from "react-icons/hi2";
+
+import {
   getConfigurationAnalyticsReport,
+  getConfigurationAnalyticsReportsBatch,
   listUsageEpochs,
 } from "../../utils/analytics/analyticsApi";
+
+import {
+  getProfileVariantsBatch,
+} from "../../utils/snapshots/snapshotsApi";
 
 import {
   CONFIGURATION_ANALYTICS_TRAFFIC_OPTIONS,
@@ -18,6 +28,13 @@ import {
   buildUsageEpochArchiveRows,
   selectConfigurationAnalyticsArchiveTraffic,
 } from "../../utils/analytics/configurationAnalyticsArchiveViewModel";
+
+import {
+  ActionButton,
+  QuerySearchModal,
+  applyKeyValueFilters,
+  comparePrimitive,
+} from "./adminQueryTools";
 
 import {
   CARD_ROUNDED_2XL,
@@ -40,6 +57,70 @@ import {
 
 const PAGE_SIZE =
   25;
+
+
+const ARCHIVE_FAVORITES_STORAGE_KEY =
+  "admin_analytics_archive_favorites_v1";
+
+const ARCHIVE_HIDDEN_STORAGE_KEY =
+  "admin_analytics_archive_hidden_v1";
+
+const ARCHIVE_QUERY_STORAGE_KEY =
+  "admin_analytics_archive_query_v1";
+
+const ARCHIVE_TAB_ID =
+  "archive";
+
+const ARCHIVE_TAB_IDS = [
+  ARCHIVE_TAB_ID,
+];
+
+
+function readLocalJson(
+  key,
+  fallback
+) {
+  try {
+    const raw =
+      localStorage.getItem(
+        key
+      );
+
+    if (!raw) {
+      return fallback;
+    }
+
+    const parsed =
+      JSON.parse(
+        raw
+      );
+
+    return parsed &&
+      typeof parsed ===
+        "object"
+      ? parsed
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+
+function writeLocalJson(
+  key,
+  value
+) {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify(
+        value
+      )
+    );
+  } catch {
+    // best-effort only; UI-only state, safe to drop
+  }
+}
 
 
 function formatNumber(
@@ -493,6 +574,101 @@ function InteractionTable({
 }
 
 
+const ARCHIVE_COLUMN_DEFS = [
+  {
+    id: "state",
+    label: "State",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.state || "",
+  },
+  {
+    id: "startedAt",
+    label: "Started",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) =>
+      row.startedAt ? new Date(row.startedAt).getTime() : 0,
+  },
+  {
+    id: "endedAt",
+    label: "Ended",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) =>
+      row.endedAt ? new Date(row.endedAt).getTime() : 0,
+  },
+  {
+    id: "usageEpochId",
+    label: "Usage Epoch",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.usageEpochId || "",
+  },
+  {
+    id: "deploymentConfigurationId",
+    label: "Configuration",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.deploymentConfigurationId || "",
+  },
+  {
+    id: "profileVariantId",
+    label: "Profile Variant",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.profileVariantId || "",
+  },
+  {
+    id: "platformReleaseId",
+    label: "Platform Release",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.platformReleaseId || "",
+  },
+  {
+    id: "targetLocation",
+    label: "Target Location",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.targetLocation || "",
+  },
+  {
+    id: "targetJobRole",
+    label: "Target Job Role",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => row.targetJobRole || "",
+  },
+  {
+    id: "outreachScore",
+    label: "Outreach Score",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) =>
+      typeof row.outreachScoreValue === "number"
+        ? row.outreachScoreValue
+        : "",
+  },
+  {
+    id: "reportReady",
+    label: "Report",
+    tabs: ARCHIVE_TAB_IDS,
+    sortable: true,
+    getValue: (row) => (row.reportReady ? "Immutable" : "Pending"),
+  },
+];
+
+const ARCHIVE_TAB_CONFIG = {
+  [ARCHIVE_TAB_ID]: {
+    label: "Usage Epochs",
+    defaultSelect: ARCHIVE_COLUMN_DEFS.map(
+      (col) => col.id
+    ),
+  },
+};
+
+
 export default function ConfigurationAnalyticsArchivePanel() {
   const [
     lifecycleState,
@@ -611,6 +787,147 @@ export default function ConfigurationAnalyticsArchivePanel() {
     );
 
 
+  const [
+    favorites,
+    setFavorites,
+  ] =
+    useState(
+      () =>
+        readLocalJson(
+          ARCHIVE_FAVORITES_STORAGE_KEY,
+          {}
+        )
+    );
+
+
+  useEffect(
+    () => {
+      writeLocalJson(
+        ARCHIVE_FAVORITES_STORAGE_KEY,
+        favorites
+      );
+    },
+    [
+      favorites,
+    ]
+  );
+
+
+  const [
+    hiddenIds,
+    setHiddenIds,
+  ] =
+    useState(
+      () =>
+        readLocalJson(
+          ARCHIVE_HIDDEN_STORAGE_KEY,
+          {}
+        )
+    );
+
+
+  useEffect(
+    () => {
+      writeLocalJson(
+        ARCHIVE_HIDDEN_STORAGE_KEY,
+        hiddenIds
+      );
+    },
+    [
+      hiddenIds,
+    ]
+  );
+
+
+  const [
+    showHidden,
+    setShowHidden,
+  ] =
+    useState(
+      false
+    );
+
+
+  const [
+    selectedRowKeys,
+    setSelectedRowKeys,
+  ] =
+    useState(
+      []
+    );
+
+
+  const [
+    queryOpen,
+    setQueryOpen,
+  ] =
+    useState(
+      false
+    );
+
+
+  const [
+    query,
+    setQuery,
+  ] =
+    useState(
+      () =>
+        readLocalJson(
+          ARCHIVE_QUERY_STORAGE_KEY,
+          null
+        )
+    );
+
+
+  useEffect(
+    () => {
+      if (
+        query
+      ) {
+        writeLocalJson(
+          ARCHIVE_QUERY_STORAGE_KEY,
+          query
+        );
+      } else {
+        try {
+          localStorage.removeItem(
+            ARCHIVE_QUERY_STORAGE_KEY
+          );
+        } catch {
+          // best-effort only
+        }
+      }
+    },
+    [
+      query,
+    ]
+  );
+
+
+  const [
+    variantTargetingById,
+    setVariantTargetingById,
+  ] =
+    useState(
+      {}
+    );
+
+
+  const [
+    outreachScoresById,
+    setOutreachScoresById,
+  ] =
+    useState(
+      {}
+    );
+
+
+  const batchRequestRef =
+    useRef(
+      0
+    );
+
+
   const detailRequestRef =
     useRef(
       0
@@ -629,10 +946,591 @@ export default function ConfigurationAnalyticsArchivePanel() {
     );
 
 
+  useEffect(
+    () => {
+      const profileVariantIds =
+        Array.from(
+          new Set(
+            rows
+              .map(
+                (
+                  row
+                ) =>
+                  String(
+                    row
+                      ?.profileVariantId ||
+                      ""
+                  ).trim()
+              )
+              .filter(
+                Boolean
+              )
+          )
+        );
+
+      const usageEpochIds =
+        Array.from(
+          new Set(
+            rows
+              .filter(
+                (
+                  row
+                ) =>
+                  row.reportReady
+              )
+              .map(
+                (
+                  row
+                ) =>
+                  row.usageEpochId
+              )
+              .filter(
+                Boolean
+              )
+          )
+        );
+
+
+      if (
+        !profileVariantIds.length &&
+        !usageEpochIds.length
+      ) {
+        return;
+      }
+
+
+      const requestId =
+        batchRequestRef
+          .current +
+        1;
+
+      batchRequestRef.current =
+        requestId;
+
+
+      (async () => {
+        const [
+          variants,
+          scores,
+        ] =
+          await Promise.all(
+            [
+              profileVariantIds.length
+                ? getProfileVariantsBatch(
+                    profileVariantIds
+                  ).catch(
+                    () => []
+                  )
+                : Promise.resolve(
+                    []
+                  ),
+
+              usageEpochIds.length
+                ? getConfigurationAnalyticsReportsBatch(
+                    {
+                      usageEpochIds,
+                    }
+                  ).catch(
+                    () => []
+                  )
+                : Promise.resolve(
+                    []
+                  ),
+            ]
+          );
+
+
+        if (
+          batchRequestRef
+            .current !==
+          requestId
+        ) {
+          return;
+        }
+
+
+        setVariantTargetingById(
+          (
+            prev
+          ) => {
+            const next =
+              {
+                ...prev,
+              };
+
+            for (
+              const entry of
+                variants ||
+                []
+            ) {
+              if (
+                entry
+                  ?.profileVariantId
+              ) {
+                next[
+                  entry
+                    .profileVariantId
+                ] =
+                  entry
+                    .targeting ||
+                  null;
+              }
+            }
+
+            return next;
+          }
+        );
+
+
+        setOutreachScoresById(
+          (
+            prev
+          ) => {
+            const next =
+              {
+                ...prev,
+              };
+
+            for (
+              const entry of
+                scores ||
+                []
+            ) {
+              if (
+                entry
+                  ?.usageEpochId
+              ) {
+                next[
+                  entry
+                    .usageEpochId
+                ] =
+                  entry
+                    .outreachScore ||
+                  null;
+              }
+            }
+
+            return next;
+          }
+        );
+      })();
+    },
+    [
+      rows,
+    ]
+  );
+
+
+  const enrichedRows =
+    useMemo(
+      () =>
+        rows.map(
+          (
+            row
+          ) => {
+            const targeting =
+              variantTargetingById[
+                row
+                  .profileVariantId
+              ] ||
+              null;
+
+            const outreachScore =
+              outreachScoresById[
+                row
+                  .usageEpochId
+              ] ||
+              null;
+
+
+            return {
+              ...row,
+
+              targetLocation:
+                targeting
+                  ?.location ||
+                "",
+
+              targetJobRole:
+                targeting
+                  ?.jobRole ||
+                "",
+
+              outreachScoreValue:
+                typeof outreachScore
+                  ?.score ===
+                "number"
+                  ? outreachScore.score
+                  : null,
+
+              outreachScoreConfidence:
+                outreachScore
+                  ?.confidence ||
+                "",
+            };
+          }
+        ),
+      [
+        rows,
+        variantTargetingById,
+        outreachScoresById,
+      ]
+    );
+
+
+  const visibleRows =
+    useMemo(
+      () => {
+        let base =
+          showHidden
+            ? enrichedRows
+            : enrichedRows.filter(
+                (
+                  row
+                ) =>
+                  !hiddenIds[
+                    row
+                      .usageEpochId
+                  ]
+              );
+
+
+        if (
+          !query
+        ) {
+          return base;
+        }
+
+
+        let out =
+          applyKeyValueFilters(
+            base,
+            ARCHIVE_COLUMN_DEFS,
+            query.filters
+          );
+
+
+        if (
+          query.orderBy
+        ) {
+          const byId =
+            Object.fromEntries(
+              ARCHIVE_COLUMN_DEFS.map(
+                (
+                  col
+                ) => [
+                  col.id,
+                  col,
+                ]
+              )
+            );
+
+          const col =
+            byId[
+              query
+                .orderBy
+            ];
+
+
+          if (
+            col
+          ) {
+            out =
+              [
+                ...out,
+              ].sort(
+                (
+                  a,
+                  b
+                ) =>
+                  comparePrimitive(
+                    col.getValue(
+                      a
+                    ),
+                    col.getValue(
+                      b
+                    ),
+                    query.orderDir
+                  )
+              );
+          }
+        }
+
+
+        if (
+          typeof query.limit ===
+            "number" &&
+          query.limit >
+            0
+        ) {
+          out =
+            out.slice(
+              0,
+              query.limit
+            );
+        }
+
+
+        return out;
+      },
+      [
+        enrichedRows,
+        hiddenIds,
+        showHidden,
+        query,
+      ]
+    );
+
+
+  const allKeysOnScreen =
+    useMemo(
+      () =>
+        visibleRows.map(
+          (
+            row
+          ) =>
+            row.usageEpochId
+        ),
+      [
+        visibleRows,
+      ]
+    );
+
+
+  const allSelectedOnScreen =
+    allKeysOnScreen.length >
+      0 &&
+    allKeysOnScreen.every(
+      (
+        key
+      ) =>
+        selectedRowKeys.includes(
+          key
+        )
+    );
+
+
+  const toggleSelectAll =
+    () => {
+      setSelectedRowKeys(
+        (
+          prev
+        ) =>
+          allSelectedOnScreen
+            ? prev.filter(
+                (
+                  key
+                ) =>
+                  !allKeysOnScreen.includes(
+                    key
+                  )
+              )
+            : Array.from(
+                new Set(
+                  [
+                    ...prev,
+                    ...allKeysOnScreen,
+                  ]
+                )
+              )
+      );
+    };
+
+
+  const toggleRowSelect =
+    (
+      usageEpochId
+    ) => {
+      setSelectedRowKeys(
+        (
+          prev
+        ) =>
+          prev.includes(
+            usageEpochId
+          )
+            ? prev.filter(
+                (
+                  key
+                ) =>
+                  key !==
+                  usageEpochId
+              )
+            : [
+                ...prev,
+                usageEpochId,
+              ]
+      );
+    };
+
+
+  const anySelectedFavorited =
+    selectedRowKeys.some(
+      (
+        key
+      ) =>
+        Boolean(
+          favorites[
+            key
+          ]
+        )
+    );
+
+
+  const anySelectedNotFavorited =
+    selectedRowKeys.some(
+      (
+        key
+      ) =>
+        !favorites[
+          key
+        ]
+    );
+
+
+  const anySelectedHidden =
+    selectedRowKeys.some(
+      (
+        key
+      ) =>
+        Boolean(
+          hiddenIds[
+            key
+          ]
+        )
+    );
+
+
+  const anySelectedNotHidden =
+    selectedRowKeys.some(
+      (
+        key
+      ) =>
+        !hiddenIds[
+          key
+        ]
+    );
+
+
+  const addFavoritesForSelected =
+    () => {
+      setFavorites(
+        (
+          prev
+        ) => {
+          const next =
+            {
+              ...prev,
+            };
+
+          selectedRowKeys.forEach(
+            (
+              key
+            ) => {
+              next[
+                key
+              ] = true;
+            }
+          );
+
+          return next;
+        }
+      );
+    };
+
+
+  const removeFavoritesForSelected =
+    () => {
+      setFavorites(
+        (
+          prev
+        ) => {
+          const next =
+            {
+              ...prev,
+            };
+
+          selectedRowKeys.forEach(
+            (
+              key
+            ) => {
+              delete next[
+                key
+              ];
+            }
+          );
+
+          return next;
+        }
+      );
+    };
+
+
+  const hideSelected =
+    () => {
+      setHiddenIds(
+        (
+          prev
+        ) => {
+          const next =
+            {
+              ...prev,
+            };
+
+          selectedRowKeys.forEach(
+            (
+              key
+            ) => {
+              next[
+                key
+              ] = true;
+            }
+          );
+
+          return next;
+        }
+      );
+
+      setSelectedRowKeys(
+        []
+      );
+    };
+
+
+  const restoreSelected =
+    () => {
+      setHiddenIds(
+        (
+          prev
+        ) => {
+          const next =
+            {
+              ...prev,
+            };
+
+          selectedRowKeys.forEach(
+            (
+              key
+            ) => {
+              delete next[
+                key
+              ];
+            }
+          );
+
+          return next;
+        }
+      );
+
+      setSelectedRowKeys(
+        []
+      );
+    };
+
+
   const selectedEpoch =
     useMemo(
       () =>
-        rows.find(
+        enrichedRows.find(
           (
             row
           ) =>
@@ -642,7 +1540,7 @@ export default function ConfigurationAnalyticsArchivePanel() {
         ) ||
         null,
       [
-        rows,
+        enrichedRows,
         selectedEpochId,
       ]
     );
@@ -1214,16 +2112,202 @@ export default function ConfigurationAnalyticsArchivePanel() {
         ) : null}
 
 
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 select-none">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-purple-600"
+              checked={
+                showHidden
+              }
+              onChange={(
+                event
+              ) =>
+                setShowHidden(
+                  event
+                    .target
+                    .checked
+                )
+              }
+            />
+            Show hidden ({
+              Object.keys(
+                hiddenIds
+              ).length
+            })
+          </label>
+
+          {selectedRowKeys.length >
+          0 ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="text-xs text-gray-600 dark:text-gray-400">
+                Selected:{" "}
+                <span className="font-semibold">
+                  {
+                    selectedRowKeys.length
+                  }
+                </span>
+              </div>
+
+              {anySelectedNotFavorited ? (
+                <ActionButton
+                  variant="neutral"
+                  onClick={
+                    addFavoritesForSelected
+                  }
+                  title="Mark selected rows as favorite"
+                >
+                  Add Favorite
+                </ActionButton>
+              ) : null}
+
+              {anySelectedFavorited ? (
+                <ActionButton
+                  variant="neutral"
+                  onClick={
+                    removeFavoritesForSelected
+                  }
+                  title="Unmark selected rows as favorite"
+                >
+                  Remove Favorite
+                </ActionButton>
+              ) : null}
+
+              {anySelectedNotHidden ? (
+                <ActionButton
+                  variant="danger"
+                  onClick={
+                    hideSelected
+                  }
+                  title="Hide selected rows from the archive table (UI-only — the immutable audit record is unaffected)"
+                >
+                  Hide
+                </ActionButton>
+              ) : null}
+
+              {anySelectedHidden ? (
+                <ActionButton
+                  variant="purple"
+                  onClick={
+                    restoreSelected
+                  }
+                  title="Restore selected rows to the archive table"
+                >
+                  Restore
+                </ActionButton>
+              ) : null}
+
+              <ActionButton
+                onClick={() =>
+                  setSelectedRowKeys(
+                    []
+                  )
+                }
+                title="Clear selection"
+              >
+                Clear
+              </ActionButton>
+            </div>
+          ) : null}
+
+          <ActionButton
+            variant="purple"
+            onClick={() =>
+              setQueryOpen(
+                true
+              )
+            }
+            title="Build a SQL-like query for this table"
+          >
+            Query search
+          </ActionButton>
+        </div>
+
+
+        <QuerySearchModal
+          open={
+            queryOpen
+          }
+          onClose={() =>
+            setQueryOpen(
+              false
+            )
+          }
+          activeTab={
+            ARCHIVE_TAB_ID
+          }
+          tabIds={
+            ARCHIVE_TAB_IDS
+          }
+          tabs={
+            ARCHIVE_TAB_CONFIG
+          }
+          getColsForTab={() =>
+            ARCHIVE_COLUMN_DEFS
+          }
+          getSortableColsForTab={() =>
+            ARCHIVE_COLUMN_DEFS.filter(
+              (
+                col
+              ) =>
+                col.sortable
+            )
+          }
+          initial={
+            query || {
+              fromTab:
+                ARCHIVE_TAB_ID,
+              selectCols:
+                [],
+              orderBy:
+                "",
+              orderDir:
+                "desc",
+              limit:
+                undefined,
+              filters:
+                [],
+            }
+          }
+          onApply={(
+            q
+          ) =>
+            setQuery(
+              q
+            )
+          }
+          onClear={() =>
+            setQuery(
+              null
+            )
+          }
+        />
+
+
         {loading ? (
           <div className="text-sm text-gray-600 dark:text-gray-400">
             Loading Usage Epoch archive…
           </div>
-        ) : rows.length ? (
+        ) : visibleRows.length ? (
           <div className="rounded-xl border border-gray-200/70 dark:border-white/10 overflow-hidden">
             <div className="overflow-auto">
               <table className="w-full min-w-[1250px] text-sm">
                 <thead className="bg-gray-100/90 dark:bg-[#121224]/90 border-b border-gray-200/70 dark:border-white/10">
                   <tr className="text-left text-xs text-gray-600 dark:text-gray-300">
+                    <th className="py-3 px-4">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-purple-600"
+                        checked={
+                          allSelectedOnScreen
+                        }
+                        onChange={
+                          toggleSelectAll
+                        }
+                        aria-label="Select all visible Usage Epochs"
+                      />
+                    </th>
+
                     <th className="py-3 px-4 font-semibold">
                       State
                     </th>
@@ -1253,13 +2337,25 @@ export default function ConfigurationAnalyticsArchivePanel() {
                     </th>
 
                     <th className="py-3 px-4 font-semibold">
+                      Target Location
+                    </th>
+
+                    <th className="py-3 px-4 font-semibold">
+                      Target Job Role
+                    </th>
+
+                    <th className="py-3 px-4 font-semibold text-right">
+                      Outreach Score
+                    </th>
+
+                    <th className="py-3 px-4 font-semibold">
                       Report
                     </th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {rows.map(
+                  {visibleRows.map(
                     (
                       row
                     ) => {
@@ -1267,6 +2363,12 @@ export default function ConfigurationAnalyticsArchivePanel() {
                         selectedEpochId ===
                         row
                           .usageEpochId;
+
+                      const rowSelected =
+                        selectedRowKeys.includes(
+                          row
+                            .usageEpochId
+                        );
 
 
                       return (
@@ -1288,6 +2390,30 @@ export default function ConfigurationAnalyticsArchivePanel() {
                               : ""
                           )}
                         >
+                          <td
+                            className="py-3 px-4"
+                            onClick={(
+                              event
+                            ) =>
+                              event.stopPropagation()
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-purple-600"
+                              checked={
+                                rowSelected
+                              }
+                              onChange={() =>
+                                toggleRowSelect(
+                                  row
+                                    .usageEpochId
+                                )
+                              }
+                              aria-label={`Select Usage Epoch ${row.usageEpochId}`}
+                            />
+                          </td>
+
                           <td className="py-3 px-4">
                             <Badge
                               tone={
@@ -1313,8 +2439,30 @@ export default function ConfigurationAnalyticsArchivePanel() {
                           </td>
 
                           <td className="py-3 px-4 font-mono text-[11px] text-purple-700 dark:text-purple-300">
-                            {row
-                              .usageEpochId}
+                            <div className="inline-flex items-center gap-1.5">
+                              {row
+                                .usageEpochId}
+
+                              {favorites[
+                                row
+                                  .usageEpochId
+                              ] ? (
+                                <HiStar
+                                  className="h-3.5 w-3.5 text-amber-400 drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]"
+                                  title="Favorite"
+                                />
+                              ) : null}
+
+                              {hiddenIds[
+                                row
+                                  .usageEpochId
+                              ] ? (
+                                <HiOutlineEyeSlash
+                                  className="h-3.5 w-3.5 text-gray-400"
+                                  title="Hidden"
+                                />
+                              ) : null}
+                            </div>
                           </td>
 
                           <td className="py-3 px-4 font-mono text-[11px] text-gray-700 dark:text-gray-300">
@@ -1335,6 +2483,38 @@ export default function ConfigurationAnalyticsArchivePanel() {
                             {displayValue(
                               row
                                 .platformReleaseId
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-xs text-gray-700 dark:text-gray-300">
+                            {row
+                              .targetLocation ||
+                              "—"}
+                          </td>
+
+                          <td className="py-3 px-4 text-xs text-gray-700 dark:text-gray-300">
+                            {row
+                              .targetJobRole ||
+                              "—"}
+                          </td>
+
+                          <td className="py-3 px-4 text-xs text-right text-gray-700 dark:text-gray-300">
+                            {typeof row.outreachScoreValue ===
+                            "number" ? (
+                              <span
+                                title={
+                                  row.outreachScoreConfidence
+                                    ? `Confidence: ${row.outreachScoreConfidence}`
+                                    : undefined
+                                }
+                                className="font-semibold"
+                              >
+                                {
+                                  row.outreachScoreValue
+                                }
+                              </span>
+                            ) : (
+                              "—"
                             )}
                           </td>
 
@@ -1708,6 +2888,117 @@ export default function ConfigurationAnalyticsArchivePanel() {
                     </div>
                   ) : null}
                 </div>
+
+
+                {detail
+                  .outreachScore ? (
+                  <div className="rounded-xl border border-purple-200/70 dark:border-purple-400/20 bg-purple-50/40 dark:bg-purple-500/5 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                            Outreach Score
+                          </div>
+
+                          <Badge tone="purple">
+                            {detail
+                              .outreachScore
+                              .confidence}{" "}
+                            confidence
+                          </Badge>
+                        </div>
+
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-md">
+                          Archived composite reach/engagement/depth/intent/consistency score for this selected traffic slice — algorithm{" "}
+                          <span className="font-mono">
+                            {detail
+                              .outreachScore
+                              .algorithm}
+                          </span>
+                          .
+                        </p>
+                      </div>
+
+                      <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                        {
+                          detail
+                            .outreachScore
+                            .score
+                        }
+                      </div>
+                    </div>
+
+                    {detail
+                      .outreachScore
+                      .components ? (
+                      <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        {Object.entries(
+                          detail
+                            .outreachScore
+                            .components
+                        ).map(
+                          ([
+                            key,
+                            value,
+                          ]) => (
+                            <div
+                              key={
+                                key
+                              }
+                              className="rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/60 dark:bg-white/5 px-3 py-2"
+                            >
+                              <div className="text-[10px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                                {
+                                  key
+                                }
+                              </div>
+
+                              <div className="mt-1 text-sm font-bold text-gray-900 dark:text-gray-100">
+                                {
+                                  value
+                                }
+                              </div>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    ) : null}
+
+                    {detail
+                      .engagement ? (
+                      <div className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">
+                        {formatNumber(
+                          detail
+                            .engagement
+                            .meaningfulSessionCount
+                        )}{" "}
+                        meaningful sessions ·{" "}
+                        {formatNumber(
+                          detail
+                            .engagement
+                            .engagedSessionCount
+                        )}{" "}
+                        engaged sessions ·{" "}
+                        {(
+                          Number(
+                            detail
+                              .engagement
+                              .topSessionActiveMsShare ||
+                              0
+                          ) *
+                          100
+                        ).toFixed(
+                          1
+                        )}
+                        % top-session active-time share
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-gray-300/80 dark:border-white/15 px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                    No Outreach Score is available for this immutable report — it was finalized before the Outreach Score algorithm existed, or this traffic slice has no measurable engagement.
+                  </div>
+                )}
 
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

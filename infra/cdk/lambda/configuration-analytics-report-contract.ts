@@ -59,6 +59,21 @@ const ARCHIVED_ANALYTICS_KEYS =
   ] as const;
 
 
+/**
+ * Added after V2 shipped, so they are allowed but never required --
+ * reports finalized before this field existed simply omit them.
+ * "engagement" is the Outreach Score session-quality input; "outreachScore"
+ * is the score computed once at finalization time from this exact
+ * slice's own overview/sections/ctas/projects/deepLinks/engagement,
+ * then permanently fixed like the rest of the report.
+ */
+const ARCHIVED_ANALYTICS_OPTIONAL_KEYS =
+  [
+    "engagement",
+    "outreachScore",
+  ] as const;
+
+
 type PlainObject =
   Record<
     string,
@@ -488,9 +503,10 @@ function normalizeAnalytics(
 
 
   const allowed =
-    new Set<string>(
-      ARCHIVED_ANALYTICS_KEYS
-    );
+    new Set<string>([
+      ...ARCHIVED_ANALYTICS_KEYS,
+      ...ARCHIVED_ANALYTICS_OPTIONAL_KEYS,
+    ]);
 
 
   assertAllowedKeys(
@@ -617,6 +633,40 @@ function normalizeAnalytics(
         input.daily,
         "analytics.daily"
       ),
+
+    ...(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          input,
+          "engagement"
+        )
+        ? {
+            engagement:
+              normalizeJsonValue(
+                input.engagement,
+                "analytics.engagement"
+              ),
+          }
+        : {}
+    ),
+
+    ...(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          input,
+          "outreachScore"
+        )
+        ? {
+            outreachScore:
+              normalizeJsonValue(
+                input.outreachScore,
+                "analytics.outreachScore"
+              ),
+          }
+        : {}
+    ),
   };
 }
 

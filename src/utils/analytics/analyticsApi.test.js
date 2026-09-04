@@ -955,6 +955,130 @@ describe(
 
 
     test(
+      "getConfigurationAnalyticsReportsBatch posts deduplicated IDs and returns the scores",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse({
+              ok:
+                true,
+
+              scores: [
+                {
+                  usageEpochId:
+                    "uep_one",
+
+                  outreachScore: {
+                    algorithm:
+                      "outreach-score.v1",
+
+                    score:
+                      42,
+                  },
+                },
+              ],
+            })
+          );
+
+
+        const {
+          getConfigurationAnalyticsReportsBatch,
+        } =
+          loadAnalyticsApi();
+
+
+        const result =
+          await getConfigurationAnalyticsReportsBatch(
+            {
+              usageEpochIds: [
+                "uep_one",
+                "uep_one",
+                "  ",
+              ],
+            }
+          );
+
+
+        expect(
+          result
+        ).toEqual(
+          [
+            {
+              usageEpochId:
+                "uep_one",
+
+              outreachScore: {
+                algorithm:
+                  "outreach-score.v1",
+
+                score:
+                  42,
+              },
+            },
+          ]
+        );
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+        expect(url).toBe(
+          "https://snapshots.example.test/configuration-analytics-reports/get-batch"
+        );
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual(
+          {
+            usageEpochIds: [
+              "uep_one",
+            ],
+          }
+        );
+      }
+    );
+
+
+    test(
+      "getConfigurationAnalyticsReportsBatch returns an empty array without calling fetch when given no IDs",
+      async () => {
+        const {
+          getConfigurationAnalyticsReportsBatch,
+        } =
+          loadAnalyticsApi();
+
+
+        const result =
+          await getConfigurationAnalyticsReportsBatch(
+            {
+              usageEpochIds: [],
+            }
+          );
+
+
+        expect(
+          result
+        ).toEqual(
+          []
+        );
+
+        expect(
+          global.fetch
+        ).not
+          .toHaveBeenCalled();
+      }
+    );
+
+
+    test(
       "owner-only queries fail closed without Owner Mode",
       async () => {
         const {

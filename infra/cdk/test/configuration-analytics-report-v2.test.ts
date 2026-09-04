@@ -614,5 +614,192 @@ describe(
         );
       }
     );
+
+
+    test(
+      "every traffic slice carries engagement and a matching Outreach Score, and it survives a normalize roundtrip",
+      () => {
+        const {
+          epoch,
+          result,
+        } =
+          reportData();
+
+
+        const v2 =
+          createConfigurationAnalyticsReportV2Document(
+            {
+              epoch,
+
+              traffic:
+                result.traffic,
+
+              analyticsByTraffic:
+                result
+                  .analyticsByTraffic,
+            }
+          );
+
+
+        for (
+          const key of
+            [
+              "all",
+              "likely_human",
+              "likely_automated",
+              "uncertain",
+            ] as const
+        ) {
+          const slice =
+            v2
+              .analyticsByTraffic[
+                key
+              ];
+
+          expect(
+            slice.engagement
+          ).toEqual(
+            {
+              meaningfulSessionCount:
+                expect.any(
+                  Number
+                ),
+
+              engagedSessionCount:
+                expect.any(
+                  Number
+                ),
+
+              topSessionActiveMsShare:
+                expect.any(
+                  Number
+                ),
+            }
+          );
+
+          expect(
+            slice
+              .outreachScore
+              .algorithm
+          ).toBe(
+            "outreach-score.v1"
+          );
+        }
+
+
+        expect(
+          normalizeAndValidateConfigurationAnalyticsReportDocument(
+            v2
+          )
+        ).toEqual(
+          v2
+        );
+      }
+    );
+
+
+    test(
+      "a V2 report finalized before engagement/outreachScore existed still validates without them",
+      () => {
+        const {
+          epoch,
+          result,
+        } =
+          reportData();
+
+
+        const v2 =
+          createConfigurationAnalyticsReportV2Document(
+            {
+              epoch,
+
+              traffic:
+                result.traffic,
+
+              analyticsByTraffic:
+                result
+                  .analyticsByTraffic,
+            }
+          );
+
+
+        function stripEngagementAndScore(
+          slice:
+            any
+        ) {
+          const {
+            engagement,
+            outreachScore,
+            ...rest
+          } =
+            slice;
+
+          return rest;
+        }
+
+
+        const legacyShaped = {
+          ...v2,
+
+          analyticsByTraffic: {
+            all:
+              stripEngagementAndScore(
+                v2
+                  .analyticsByTraffic
+                  .all
+              ),
+
+            likely_human:
+              stripEngagementAndScore(
+                v2
+                  .analyticsByTraffic
+                  .likely_human
+              ),
+
+            likely_automated:
+              stripEngagementAndScore(
+                v2
+                  .analyticsByTraffic
+                  .likely_automated
+              ),
+
+            uncertain:
+              stripEngagementAndScore(
+                v2
+                  .analyticsByTraffic
+                  .uncertain
+              ),
+          },
+        };
+
+
+        const normalized =
+          normalizeAndValidateConfigurationAnalyticsReportDocument(
+            legacyShaped
+          ) as
+            typeof v2;
+
+
+        expect(
+          normalized
+            .analyticsByTraffic
+            .all
+            .engagement
+        ).toBeUndefined();
+
+        expect(
+          normalized
+            .analyticsByTraffic
+            .all
+            .outreachScore
+        ).toBeUndefined();
+
+        expect(
+          normalized
+        ).toEqual(
+          legacyShaped
+        );
+      }
+    );
   }
 );

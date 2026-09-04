@@ -534,6 +534,97 @@ export async function getProfileVariant(
 }
 
 /**
+ * Batch retrieval of minimal targeting evidence (profileVariantId +
+ * targeting) for already-published Profile Variants. Unknown or
+ * unreadable IDs are simply absent from the result -- callers treat
+ * a missing entry as "no evidence available", not an error.
+ */
+export async function getProfileVariantsBatch(
+  profileVariantIds
+) {
+  const ids =
+    Array.from(
+      new Set(
+        (
+          Array.isArray(
+            profileVariantIds
+          )
+            ? profileVariantIds
+            : []
+        )
+          .map(
+            (
+              id
+            ) =>
+              String(
+                id ||
+                ""
+              ).trim()
+          )
+          .filter(
+            Boolean
+          )
+      )
+    );
+
+  if (
+    ids.length ===
+    0
+  ) {
+    return [];
+  }
+
+  const base =
+    mustHaveApi();
+
+  const res =
+    await fetch(
+      `${base}/profile-variants/get-batch`,
+      {
+        method:
+          "POST",
+
+        headers:
+          headers(),
+
+        body:
+          JSON.stringify(
+            {
+              profileVariantIds:
+                ids,
+            }
+          ),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Profile Variant batch read failed (${res.status})`
+    );
+  }
+
+  return Array.isArray(
+    json.variants
+  )
+    ? json.variants
+    : [];
+}
+
+/**
  * Atomically activates an already-published immutable Profile Variant.
  *
  * expectedRevision provides optimistic concurrency protection:

@@ -465,6 +465,138 @@ describe(
 
 
     test(
+      "getProfileVariantsBatch posts deduplicated IDs and returns the resolved variants",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response({
+            body: {
+              ok:
+                true,
+
+              variants: [
+                {
+                  profileVariantId:
+                    "prv:one",
+
+                  targeting: {
+                    location:
+                      "Austin, TX",
+
+                    jobRole:
+                      "Backend Engineer",
+                  },
+                },
+              ],
+            },
+          })
+        );
+
+
+        const {
+          getProfileVariantsBatch,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        const result =
+          await getProfileVariantsBatch(
+            [
+              "prv:one",
+              "prv:one",
+              "  ",
+            ]
+          );
+
+
+        expect(
+          result
+        ).toEqual(
+          [
+            {
+              profileVariantId:
+                "prv:one",
+
+              targeting: {
+                location:
+                  "Austin, TX",
+
+                jobRole:
+                  "Backend Engineer",
+              },
+            },
+          ]
+        );
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+
+        expect(url).toBe(
+          "https://api.example.test/profile-variants/get-batch"
+        );
+
+        expect(
+          options.method
+        ).toBe(
+          "POST"
+        );
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual(
+          {
+            profileVariantIds: [
+              "prv:one",
+            ],
+          }
+        );
+      }
+    );
+
+
+    test(
+      "getProfileVariantsBatch returns an empty array without calling fetch when given no IDs",
+      async () => {
+        const {
+          getProfileVariantsBatch,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        const result =
+          await getProfileVariantsBatch(
+            []
+          );
+
+
+        expect(
+          result
+        ).toEqual(
+          []
+        );
+
+        expect(
+          global.fetch
+        ).not
+          .toHaveBeenCalled();
+      }
+    );
+
+
+    test(
       "requestOwnerPasscodeChange posts to the request-change endpoint with the owner session header",
       async () => {
         global.fetch.mockResolvedValue(

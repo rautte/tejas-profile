@@ -24,12 +24,21 @@ import {
 
 import {
   aggregateUsageEpochAnalyticsEvents,
+  aggregateUsageEpochAnalyticsTrafficReport,
   buildUsageEpochAnalyticsReportData,
 } from "../lambda/usage-epoch-analytics-aggregator";
 
 import {
   createConfigurationAnalyticsReportDocument,
 } from "../lambda/configuration-analytics-report-contract";
+
+import {
+  PUBLIC_SECTION_ORDER,
+} from "../lambda/analytics-domain";
+
+import {
+  computeOutreachScoreV1,
+} from "../lambda/outreach-score-v1";
 
 
 const PROJECTION_TABLE =
@@ -819,6 +828,187 @@ describe(
               analytics,
             })
         ).not.toThrow();
+      }
+    );
+
+
+    test(
+      "computes per-session engagement and an Outreach Score from the exact same slice it appends them to",
+      () => {
+        const epoch =
+          closingEpoch();
+
+        const windowStart =
+          Date.parse(
+            "2026-08-24T23:59:10.000Z"
+          );
+
+        const events = [
+          // A long, active session -- crosses both the meaningful
+          // (>=10s) and engaged (>=30s) active-time thresholds.
+          record({
+            eventId:
+              "engaged-01",
+
+            ts:
+              windowStart,
+
+            visitorHash:
+              "visitor-engaged",
+
+            sessionHash:
+              "session-engaged",
+
+            type:
+              "section_time",
+
+            section:
+              "About Me",
+
+            ms:
+              35_000,
+          }),
+
+          // A short, single-event session -- crosses neither
+          // threshold.
+          record({
+            eventId:
+              "quiet-01",
+
+            ts:
+              windowStart +
+              1_000,
+
+            visitorHash:
+              "visitor-quiet",
+
+            sessionHash:
+              "session-quiet",
+
+            type:
+              "section_time",
+
+            section:
+              "Skills",
+
+            ms:
+              1_000,
+          }),
+        ];
+
+
+        const analytics =
+          aggregateUsageEpochAnalyticsEvents({
+            epoch,
+
+            events,
+
+            visitorFirstSeenByHash:
+              new Map(
+                [
+                  [
+                    "visitor-engaged",
+                    windowStart,
+                  ],
+
+                  [
+                    "visitor-quiet",
+                    windowStart,
+                  ],
+                ]
+              ),
+          });
+
+
+        expect(
+          analytics.engagement
+        ).toEqual(
+          {
+            meaningfulSessionCount:
+              1,
+
+            engagedSessionCount:
+              1,
+
+            topSessionActiveMsShare:
+              35_000 /
+              36_000,
+          }
+        );
+
+
+        /**
+         * outreachScore is only appended one level up, per traffic
+         * slice, by aggregateUsageEpochAnalyticsTrafficReport --
+         * aggregateUsageEpochAnalyticsEvents itself only produces
+         * the engagement inputs asserted above.
+         */
+        const trafficReport =
+          aggregateUsageEpochAnalyticsTrafficReport(
+            {
+              epoch,
+
+              events,
+
+              visitorFirstSeenByHash:
+                new Map(
+                  [
+                    [
+                      "visitor-engaged",
+                      windowStart,
+                    ],
+
+                    [
+                      "visitor-quiet",
+                      windowStart,
+                    ],
+                  ]
+                ),
+            }
+          );
+
+        const allSlice =
+          trafficReport
+            .analyticsByTraffic
+            .all;
+
+
+        expect(
+          allSlice.outreachScore
+        ).toEqual(
+          computeOutreachScoreV1(
+            {
+              overview:
+                allSlice.overview,
+
+              sections:
+                allSlice.sections,
+
+              ctas:
+                allSlice.ctas,
+
+              projects:
+                allSlice.projects,
+
+              deepLinks:
+                allSlice.deepLinks,
+
+              engagement:
+                allSlice.engagement,
+
+              totalSectionCount:
+                PUBLIC_SECTION_ORDER.length,
+            }
+          )
+        );
+
+
+        expect(
+          allSlice.outreachScore
+            .algorithm
+        ).toBe(
+          "outreach-score.v1"
+        );
       }
     );
 

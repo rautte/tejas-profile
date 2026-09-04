@@ -468,6 +468,96 @@ export async function getConfigurationAnalyticsReport({
 }
 
 
+/**
+ * Batch retrieval of the default-classification Outreach Score for
+ * CLOSED, finalized Usage Epochs -- for showing a score per row in
+ * a table without N sequential full-report fetches. Epochs that
+ * aren't finalized, or whose report predates Outreach Score, are
+ * simply absent from the result.
+ */
+export async function getConfigurationAnalyticsReportsBatch({
+  usageEpochIds,
+  signal,
+} = {}) {
+  const ids =
+    Array.from(
+      new Set(
+        (
+          Array.isArray(
+            usageEpochIds
+          )
+            ? usageEpochIds
+            : []
+        )
+          .map(
+            (
+              id
+            ) =>
+              cleanString(
+                id
+              )
+          )
+          .filter(
+            Boolean
+          )
+      )
+    );
+
+  if (
+    ids.length ===
+    0
+  ) {
+    return [];
+  }
+
+  const base =
+    mustHaveSnapshotsApi();
+
+  const response =
+    await fetch(
+      `${base}/configuration-analytics-reports/get-batch`,
+      {
+        method:
+          "POST",
+
+        headers:
+          analyticsHeaders(
+            {
+              requireOwner:
+                true,
+            }
+          ),
+
+        body:
+          JSON.stringify(
+            {
+              usageEpochIds:
+                ids,
+            }
+          ),
+
+        cache:
+          "no-store",
+
+        signal,
+      }
+    );
+
+  const data =
+    await readJsonResponse(
+      response,
+      "Configuration Analytics Report batch read"
+    );
+
+  return Array.isArray(
+    data
+      ?.scores
+  )
+    ? data.scores
+    : [];
+}
+
+
 export async function ingestAnalyticsBatch(
   payload
 ) {

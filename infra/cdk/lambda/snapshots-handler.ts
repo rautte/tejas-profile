@@ -4933,6 +4933,176 @@ export async function handler(event: Event) {
 
 
   // -----------------------------
+  // POST /profile-variants/get-batch
+  //
+  // body:
+  // {
+  //   profileVariantIds: string[]
+  // }
+  //
+  // Owner-only batch retrieval of minimal targeting evidence
+  // (profileVariantId + targeting) for already-published immutable
+  // Profile Variants. Exists to join targeting onto other read
+  // models (e.g. the Usage Epoch historical archive) without N
+  // sequential full-manifest reads.
+  //
+  // Unknown/unreadable/corrupt IDs are silently omitted from the
+  // response rather than failing the whole batch -- callers already
+  // treat a missing join as "no evidence available".
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/profile-variants/get-batch"
+    )
+  ) {
+    const storage =
+      requireProfileVariantStorage();
+
+    if (!storage.ok) {
+      return json(
+        storage.status,
+        {
+          ok: false,
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload: any = {};
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const rawIds =
+      Array.isArray(
+        payload
+          ?.profileVariantIds
+      )
+        ? payload.profileVariantIds
+        : [];
+
+    const ids: string[] =
+      Array.from(
+        new Set<string>(
+          rawIds
+            .map(
+              (
+                id: any
+              ) =>
+                String(
+                  id ||
+                  ""
+                ).trim()
+            )
+            .filter(
+              Boolean
+            )
+        )
+      );
+
+    const MAX_BATCH_IDS =
+      100;
+
+    if (
+      ids.length >
+      MAX_BATCH_IDS
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            `profileVariantIds must not exceed ${MAX_BATCH_IDS} entries.`,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const results =
+      await Promise.all(
+        ids.map(
+          async (
+            profileVariantId
+          ) => {
+            try {
+              const key =
+                createProfileVariantManifestKey(
+                  profileVariantId
+                );
+
+              const stored =
+                await readPublishedProfileVariant(
+                  key
+                );
+
+              const parsed =
+                JSON.parse(
+                  stored.body
+                );
+
+              const variant =
+                normalizeAndValidateProfileVariantDocument(
+                  parsed
+                );
+
+              return {
+                profileVariantId:
+                  variant.profileVariantId,
+
+                targeting:
+                  variant.targeting ||
+                  null,
+              };
+            } catch {
+              return null;
+            }
+          }
+        )
+      );
+
+    const variants =
+      results.filter(
+        (
+          entry
+        ) =>
+          entry !==
+          null
+      );
+
+    return json(
+      200,
+      {
+        ok: true,
+        variants,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
   // GET /profile-variants/list
   //
   // Owner-only enumeration of authoritative immutable Profile
@@ -8572,6 +8742,243 @@ export async function handler(event: Event) {
         corsOrigin
       );
     }
+  }
+
+
+  // -----------------------------
+  // POST /configuration-analytics-reports/get-batch
+  //
+  // body:
+  // {
+  //   usageEpochIds: string[]
+  // }
+  //
+  // Owner-only batch retrieval of just the default-classification
+  // Outreach Score for CLOSED, finalized Usage Epochs. Exists so a
+  // table listing many epochs at once (the historical archive) can
+  // show a score per row without N sequential full single-report
+  // fetches.
+  //
+  // Unfinalized epochs, missing reports, and reports finalized
+  // before Outreach Score existed are silently omitted rather than
+  // failing the whole batch -- callers already treat a missing
+  // entry as "no score available".
+  // -----------------------------
+  if (
+    method === "POST" &&
+    path.endsWith(
+      "/configuration-analytics-reports/get-batch"
+    )
+  ) {
+    const storage =
+      requireUsageEpochStorage();
+
+    if (
+      !storage.ok
+    ) {
+      return json(
+        storage.status,
+        {
+          ok:
+            false,
+
+          error:
+            storage.msg,
+        },
+        corsOrigin
+      );
+    }
+
+
+    if (
+      !CONFIGURATION_ANALYTICS_REPORTS_BUCKET
+    ) {
+      return json(
+        500,
+        {
+          ok:
+            false,
+
+          error:
+            "Configuration Analytics Report storage is not configured.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    let payload: any = {};
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const rawIds =
+      Array.isArray(
+        payload
+          ?.usageEpochIds
+      )
+        ? payload.usageEpochIds
+        : [];
+
+    const ids: string[] =
+      Array.from(
+        new Set<string>(
+          rawIds
+            .map(
+              (
+                id: any
+              ) =>
+                String(
+                  id ||
+                  ""
+                ).trim()
+            )
+            .filter(
+              Boolean
+            )
+        )
+      );
+
+    const MAX_BATCH_IDS =
+      100;
+
+    if (
+      ids.length >
+      MAX_BATCH_IDS
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+          error:
+            `usageEpochIds must not exceed ${MAX_BATCH_IDS} entries.`,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const results =
+      await Promise.all(
+        ids.map(
+          async (
+            usageEpochId
+          ) => {
+            try {
+              const epoch =
+                await readUsageEpochRecord(
+                  {
+                    client:
+                      dynamodb,
+
+                    tableName:
+                      USAGE_EPOCHS_TABLE,
+
+                    usageEpochId,
+                  }
+                );
+
+              if (
+                epoch.stage !==
+                  STAGE ||
+                epoch.state !==
+                  USAGE_EPOCH_STATE
+                    .CLOSED ||
+                !epoch.report
+              ) {
+                return null;
+              }
+
+              const stored =
+                await readConfigurationAnalyticsReport(
+                  {
+                    client:
+                      s3,
+
+                    bucketName:
+                      CONFIGURATION_ANALYTICS_REPORTS_BUCKET,
+
+                    reportId:
+                      epoch.report
+                        .reportId,
+                  }
+                );
+
+              if (
+                !stored
+              ) {
+                return null;
+              }
+
+              assertReportMatchesUsageEpoch(
+                {
+                  epoch,
+
+                  stored,
+                }
+              );
+
+              const outreachScore =
+                (
+                  stored.report as any
+                )
+                  ?.analyticsByTraffic
+                  ?.likely_human
+                  ?.outreachScore ||
+                null;
+
+              if (
+                !outreachScore
+              ) {
+                return null;
+              }
+
+              return {
+                usageEpochId,
+
+                outreachScore,
+              };
+            } catch {
+              return null;
+            }
+          }
+        )
+      );
+
+    const scores =
+      results.filter(
+        (
+          entry
+        ) =>
+          entry !==
+          null
+      );
+
+    return json(
+      200,
+      {
+        ok: true,
+        scores,
+      },
+      corsOrigin
+    );
   }
 
 

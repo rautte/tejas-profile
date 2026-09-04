@@ -255,5 +255,255 @@ describe(
         );
       }
     );
+
+
+    test(
+      "surfaces engagement and Outreach Score from a V2 report's default traffic slice",
+      () => {
+        function emptySlice(
+          overrides =
+            {}
+        ) {
+          return {
+            overview: {
+              uniqueVisitors:
+                0,
+
+              sessions:
+                0,
+
+              eventCount:
+                0,
+
+              activeMs:
+                0,
+            },
+
+            sections:
+              [],
+
+            ctas:
+              [],
+
+            projects:
+              [],
+
+            snippets:
+              [],
+
+            deepLinks:
+              [],
+
+            depthMilestones:
+              [],
+
+            countries:
+              [],
+
+            cities:
+              [],
+
+            daily:
+              [],
+
+            ...overrides,
+          };
+        }
+
+
+        const epoch = {
+          usageEpochId:
+            "uep_v2",
+
+          stage:
+            "prod",
+
+          deploymentConfigurationId:
+            "cfg_v2",
+
+          platformReleaseId:
+            "plr_v2",
+
+          profileVariantId:
+            "prv_v2",
+
+          state:
+            "CLOSED",
+
+          startedAt:
+            "2026-08-20T00:00:00.000Z",
+
+          endedAt:
+            "2026-08-21T00:00:00.000Z",
+
+          report: {
+            reportId:
+              "car_v2",
+
+            reportSha256:
+              "sha_v2",
+
+            finalizedAt:
+              "2026-08-22T00:00:00.000Z",
+          },
+        };
+
+
+        const outreachScore = {
+          algorithm:
+            "outreach-score.v1",
+
+          score:
+            57,
+
+          confidence:
+            "medium",
+
+          components: {
+            reach:
+              50,
+
+            engagement:
+              60,
+
+            depth:
+              40,
+
+            intent:
+              70,
+
+            consistency:
+              65,
+          },
+        };
+
+
+        const engagement = {
+          meaningfulSessionCount:
+            2,
+
+          engagedSessionCount:
+            1,
+
+          topSessionActiveMsShare:
+            0.5,
+        };
+
+
+        const trafficSummaryBucket = {
+          uniqueVisitors:
+            0,
+
+          sessions:
+            0,
+
+          eventCount:
+            0,
+
+          activeMs:
+            0,
+        };
+
+
+        const fixture = {
+          ok:
+            true,
+
+          usageEpoch:
+            epoch,
+
+          reportSha256:
+            "sha_v2",
+
+          report: {
+            schemaId:
+              "tejas-profile.configuration-analytics-report.v2",
+
+            reportId:
+              "car_v2",
+
+            usageEpochId:
+              "uep_v2",
+
+            stage:
+              "prod",
+
+            deploymentConfigurationId:
+              "cfg_v2",
+
+            platformReleaseId:
+              "plr_v2",
+
+            profileVariantId:
+              "prv_v2",
+
+            interval: {
+              startedAt:
+                epoch.startedAt,
+
+              endedAt:
+                epoch.endedAt,
+            },
+
+            traffic: {
+              classifierVersion:
+                "traffic-classifier.v1",
+
+              summary: {
+                all:
+                  trafficSummaryBucket,
+
+                likely_human:
+                  trafficSummaryBucket,
+
+                likely_automated:
+                  trafficSummaryBucket,
+
+                uncertain:
+                  trafficSummaryBucket,
+              },
+            },
+
+            analyticsByTraffic: {
+              all:
+                emptySlice(),
+
+              likely_human:
+                emptySlice(
+                  {
+                    engagement,
+                    outreachScore,
+                  }
+                ),
+
+              likely_automated:
+                emptySlice(),
+
+              uncertain:
+                emptySlice(),
+            },
+          },
+        };
+
+
+        const detail =
+          buildConfigurationAnalyticsArchiveDetail(
+            fixture
+          );
+
+
+        expect(
+          detail.outreachScore
+        ).toEqual(
+          outreachScore
+        );
+
+        expect(
+          detail.engagement
+        ).toEqual(
+          engagement
+        );
+      }
+    );
   }
 );

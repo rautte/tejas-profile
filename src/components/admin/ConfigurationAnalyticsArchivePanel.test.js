@@ -9,8 +9,13 @@ import ConfigurationAnalyticsArchivePanel from "./ConfigurationAnalyticsArchiveP
 
 import {
   getConfigurationAnalyticsReport,
+  getConfigurationAnalyticsReportsBatch,
   listUsageEpochs,
 } from "../../utils/analytics/analyticsApi";
+
+import {
+  getProfileVariantsBatch,
+} from "../../utils/snapshots/snapshotsApi";
 
 
 jest.mock(
@@ -19,7 +24,19 @@ jest.mock(
     getConfigurationAnalyticsReport:
       jest.fn(),
 
+    getConfigurationAnalyticsReportsBatch:
+      jest.fn(),
+
     listUsageEpochs:
+      jest.fn(),
+  })
+);
+
+
+jest.mock(
+  "../../utils/snapshots/snapshotsApi",
+  () => ({
+    getProfileVariantsBatch:
       jest.fn(),
   })
 );
@@ -249,6 +266,18 @@ beforeEach(
     getConfigurationAnalyticsReport
       .mockResolvedValue(
         REPORT_RESPONSE
+      );
+
+
+    getConfigurationAnalyticsReportsBatch
+      .mockResolvedValue(
+        []
+      );
+
+
+    getProfileVariantsBatch
+      .mockResolvedValue(
+        []
       );
   }
 );

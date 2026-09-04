@@ -180,6 +180,17 @@ function normalizeArchiveAnalytics(
 
     daily:
       analytics.daily,
+
+    // Absent on reports finalized before Outreach Score existed --
+    // callers must treat a missing outreachScore as "not available",
+    // never as an error.
+    engagement:
+      analytics.engagement ||
+      null,
+
+    outreachScore:
+      analytics.outreachScore ||
+      null,
   };
 }
 
@@ -857,5 +868,11 @@ export function selectConfigurationAnalyticsArchiveTraffic(
 
     daily:
       analytics.daily,
+
+    engagement:
+      analytics.engagement,
+
+    outreachScore:
+      analytics.outreachScore,
   };
 }
