@@ -68,6 +68,23 @@ function requireBucketName(
 }
 
 
+/**
+ * S3 cannot tell a caller "this key doesn't exist" (404) from "you're
+ * not allowed to know" (403) unless the caller also holds
+ * s3:ListBucket -- and AWS's internal check for that disambiguation
+ * evaluates s3:ListBucket without an s3:prefix context, so even a
+ * correctly prefix-scoped ListBucket grant would never satisfy it
+ * (confirmed empirically via iam:SimulatePrincipalPolicy while
+ * diagnosing the identical failure mode in snapshots-handler.ts).
+ * This bucket is deliberately GetObject/PutObject-only with no
+ * ListBucket grant, so a missing report object always surfaces as
+ * AccessDenied, never NoSuchKey.
+ *
+ * Safe to fold into isNotFound() here (unlike the shared
+ * isS3NotFound() in snapshots-handler.ts) because this is the only
+ * GetObject call site in this file, and s3:GetObject is verifiably
+ * granted for the exact key pattern used.
+ */
 function isNotFound(
   error:
     any
@@ -79,7 +96,14 @@ function isNotFound(
       "NotFound" ||
     error?.$metadata
       ?.httpStatusCode ===
-      404
+      404 ||
+    (
+      error?.name ===
+        "AccessDenied" &&
+      error?.$metadata
+        ?.httpStatusCode ===
+        403
+    )
   );
 }
 

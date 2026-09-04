@@ -463,6 +463,27 @@ function noSuchKey() {
 }
 
 
+/**
+ * The shape S3 actually returns for a GetObject on a missing key
+ * when the caller lacks s3:ListBucket -- masks the true NotFound as
+ * AccessDenied instead. Both buckets this reader touches are
+ * deliberately GetObject-only for the public runtime role, with no
+ * ListBucket grant, so this is the real-world error shape for a
+ * missing object, not noSuchKey() above.
+ */
+function accessDeniedMaskingMissingKey() {
+  return {
+    name:
+      "AccessDenied",
+
+    $metadata: {
+      httpStatusCode:
+        403,
+    },
+  };
+}
+
+
 describe(
   "effective Deployment Configuration reader",
   () => {
@@ -1162,6 +1183,88 @@ describe(
             )
             .mockRejectedValueOnce(
               noSuchKey()
+            );
+
+
+        const expectedId =
+          computeDeploymentConfigurationId({
+            stage:
+              "prod",
+
+            platformReleaseId:
+              release
+                .platformReleaseId,
+
+            profileVariantId:
+              variant
+                .profileVariantId,
+          });
+
+
+        await expect(
+          readEffectiveDeploymentConfiguration({
+            platformDeploymentClient: {
+              send:
+                platformSend,
+            },
+
+            s3Client: {
+              send:
+                s3Send,
+            },
+
+            platformDeploymentTableName:
+              "platform-deployments",
+
+            platformReleasesBucket:
+              "platform-releases",
+
+            deploymentConfigurationsBucket:
+              "deployment-configurations",
+
+            stage:
+              "prod",
+
+            activeProfilePointer:
+              activeProfilePointer(
+                variant
+              ),
+          })
+        ).rejects.toThrow(
+          `Effective Deployment Configuration "${expectedId}" does not exist.`
+        );
+      }
+    );
+
+    test(
+      "recognizes a missing Deployment Configuration masked as S3 AccessDenied the same as NoSuchKey",
+      async () => {
+        const variant =
+          validVariant();
+
+        const release =
+          validRelease();
+
+        const platformSend =
+          jest.fn()
+            .mockResolvedValueOnce({
+              Item:
+                marshall(
+                  activePlatformPointer(
+                    release
+                  )
+                ),
+            });
+
+        const s3Send =
+          jest.fn()
+            .mockResolvedValueOnce(
+              storedResponse(
+                release
+              )
+            )
+            .mockRejectedValueOnce(
+              accessDeniedMaskingMissingKey()
             );
 
 

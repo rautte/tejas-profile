@@ -292,6 +292,25 @@ function validateRuntimeActiveProfileIdentity(
 }
 
 
+/**
+ * S3 cannot tell a caller "this key doesn't exist" (404) from "you're
+ * not allowed to know" (403) unless the caller also holds
+ * s3:ListBucket -- and AWS's internal check for that disambiguation
+ * evaluates s3:ListBucket without an s3:prefix context, so even a
+ * correctly prefix-scoped ListBucket grant would never satisfy it
+ * (confirmed empirically via iam:SimulatePrincipalPolicy while
+ * diagnosing the identical failure mode in snapshots-handler.ts).
+ * Both buckets this reader touches (Platform Releases,
+ * Deployment Configurations) are deliberately GetObject-only for the
+ * public runtime role, with no ListBucket grant, so a missing object
+ * always surfaces as AccessDenied, never NoSuchKey.
+ *
+ * Safe to fold this recognition directly into isS3NotFound() here
+ * (unlike the shared helper of the same name in
+ * snapshots-handler.ts, which serves call sites with differing IAM
+ * shapes) because both of this file's call sites share the same
+ * GetObject-only, no-ListBucket grant.
+ */
 function isS3NotFound(
   error:
     any
@@ -317,7 +336,13 @@ function isS3NotFound(
     name ===
       "NotFound" ||
     status ===
-      404
+      404 ||
+    (
+      name ===
+        "AccessDenied" &&
+      status ===
+        403
+    )
   );
 }
 

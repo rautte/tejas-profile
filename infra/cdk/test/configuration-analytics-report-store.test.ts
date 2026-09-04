@@ -201,6 +201,33 @@ function notFoundError() {
 }
 
 
+/**
+ * The shape S3 actually returns for a GetObject on a missing key
+ * when the caller lacks s3:ListBucket -- masks the true NotFound as
+ * AccessDenied instead. This bucket is deliberately GetObject/
+ * PutObject-only with no ListBucket grant, so this is the real-world
+ * error shape for a not-yet-written report, not notFoundError() above.
+ */
+function accessDeniedMaskingMissingKey() {
+  const error:
+    any =
+      new Error(
+        "Access Denied"
+      );
+
+  error.name =
+    "AccessDenied";
+
+  error.$metadata = {
+    httpStatusCode:
+      403,
+  };
+
+
+  return error;
+}
+
+
 function preconditionError() {
   const error:
     any =
@@ -375,6 +402,82 @@ describe(
             value
           )
         );
+      }
+    );
+
+
+    test(
+      "treats a missing report masked as S3 AccessDenied the same as a clean NotFound",
+      async () => {
+        const value =
+          report();
+
+        const send =
+          jest.fn(
+            async (
+              command:
+                any
+            ) => {
+              if (
+                command instanceof
+                  GetObjectCommand
+              ) {
+                throw accessDeniedMaskingMissingKey();
+              }
+
+
+              if (
+                command instanceof
+                  PutObjectCommand
+              ) {
+                return {};
+              }
+
+
+              throw new Error(
+                "Unexpected command."
+              );
+            }
+          );
+
+
+        const result =
+          await writeImmutableConfigurationAnalyticsReport({
+            client: {
+              send,
+            },
+
+            bucketName:
+              BUCKET,
+
+            report:
+              value,
+          });
+
+
+        expect(
+          result.alreadyExists
+        ).toBe(false);
+
+        const put =
+          send.mock.calls
+            .map(
+              (
+                call
+              ) =>
+                call[0]
+            )
+            .find(
+              (
+                command
+              ) =>
+                command instanceof
+                  PutObjectCommand
+            );
+
+        expect(
+          put
+        ).toBeDefined();
       }
     );
 
