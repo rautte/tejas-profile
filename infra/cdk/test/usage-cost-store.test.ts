@@ -295,6 +295,28 @@ describe(
 
             updatedBy:
               null,
+
+            alertThresholdsUsd: {
+              day:
+                null,
+
+              week:
+                null,
+
+              month:
+                null,
+            },
+
+            lastAlertedPeriodKeys: {
+              day:
+                null,
+
+              week:
+                null,
+
+              month:
+                null,
+            },
           }
         );
       }
@@ -593,6 +615,206 @@ describe(
             ?.totalCostUsd
         ).toBe(
           9
+        );
+      }
+    );
+
+
+    test(
+      "writeUsageCostConfig persists alert thresholds and lastAlertedPeriodKeys",
+      async () => {
+        const client =
+          fakeTable();
+
+        await writeUsageCostConfig(
+          {
+            client,
+
+            tableName:
+              TABLE,
+
+            intervalDays:
+              1,
+
+            alertThresholdsUsd: {
+              day:
+                5,
+
+              week:
+                null,
+
+              month:
+                50,
+            },
+
+            lastAlertedPeriodKeys: {
+              day:
+                "2026-09-04",
+
+              week:
+                null,
+
+              month:
+                null,
+            },
+          }
+        );
+
+        const config =
+          await readUsageCostConfig(
+            {
+              client,
+
+              tableName:
+                TABLE,
+            }
+          );
+
+        expect(
+          config.alertThresholdsUsd
+        ).toEqual(
+          {
+            day:
+              5,
+
+            week:
+              null,
+
+            month:
+              50,
+          }
+        );
+
+        expect(
+          config.lastAlertedPeriodKeys
+        ).toEqual(
+          {
+            day:
+              "2026-09-04",
+
+            week:
+              null,
+
+            month:
+              null,
+          }
+        );
+      }
+    );
+
+
+    test(
+      "writeUsageCostConfig rejects a negative alert threshold",
+      async () => {
+        const client =
+          fakeTable();
+
+        await expect(
+          writeUsageCostConfig(
+            {
+              client,
+
+              tableName:
+                TABLE,
+
+              intervalDays:
+                1,
+
+              alertThresholdsUsd: {
+                day:
+                  -5,
+
+                week:
+                  null,
+
+                month:
+                  null,
+              },
+            }
+          )
+        ).rejects.toThrow(
+          /alert threshold/
+        );
+      }
+    );
+
+
+    test(
+      "markUsageCostConfigRun updates lastAlertedPeriodKeys while preserving alertThresholdsUsd",
+      async () => {
+        const client =
+          fakeTable();
+
+        const config =
+          await writeUsageCostConfig(
+            {
+              client,
+
+              tableName:
+                TABLE,
+
+              intervalDays:
+                1,
+
+              alertThresholdsUsd: {
+                day:
+                  5,
+
+                week:
+                  null,
+
+                month:
+                  null,
+              },
+            }
+          );
+
+        const next =
+          await markUsageCostConfigRun(
+            {
+              client,
+
+              tableName:
+                TABLE,
+
+              config,
+
+              ranAt:
+                "2026-09-04T12:00:00.000Z",
+
+              lastAlertedPeriodKeys: {
+                day:
+                  "2026-09-04",
+
+                week:
+                  null,
+
+                month:
+                  null,
+              },
+            }
+          );
+
+        expect(
+          next.alertThresholdsUsd
+        ).toEqual(
+          {
+            day:
+              5,
+
+            week:
+              null,
+
+            month:
+              null,
+          }
+        );
+
+        expect(
+          next.lastAlertedPeriodKeys
+            .day
+        ).toBe(
+          "2026-09-04"
         );
       }
     );

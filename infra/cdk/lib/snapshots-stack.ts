@@ -1431,6 +1431,9 @@ export class SnapshotsStack extends cdk.Stack {
                 ","
               ),
 
+            OWNER_NOTIFICATION_EMAIL:
+              ownerNotificationEmail,
+
             STAGE:
               props.stage,
           },
@@ -1486,6 +1489,22 @@ export class SnapshotsStack extends cdk.Stack {
 
           resources: [
             "*",
+          ],
+        }
+      )
+    );
+
+    // Owner-configurable cost alert emails (see
+    // checkAndSendUsageCostAlerts).
+    usageCostAggregatorFn.addToRolePolicy(
+      new iam.PolicyStatement(
+        {
+          actions: [
+            "ses:SendEmail",
+          ],
+
+          resources: [
+            `arn:aws:ses:${this.region}:${this.account}:identity/${ownerNotificationEmail}`,
           ],
         }
       )

@@ -377,6 +377,78 @@ describe(
 
 
     test(
+      "setUsageRefreshConfig includes alertThresholds in the body only when provided",
+      async () => {
+        global.fetch
+          .mockResolvedValue(
+            jsonResponse(
+              {
+                ok: true,
+
+                config: {
+                  intervalDays:
+                    1,
+
+                  alertThresholdsUsd: {
+                    day:
+                      10,
+
+                    week:
+                      null,
+
+                    month:
+                      null,
+                  },
+                },
+              }
+            )
+          );
+
+        const {
+          setUsageRefreshConfig,
+        } =
+          loadUsageApi();
+
+        await setUsageRefreshConfig(
+          {
+            intervalDays:
+              1,
+
+            alertThresholds: {
+              day:
+                10,
+            },
+          }
+        );
+
+        const [
+          ,
+          options,
+        ] =
+          global.fetch
+            .mock
+            .calls[0];
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual(
+          {
+            intervalDays:
+              1,
+
+            alertThresholds: {
+              day:
+                10,
+            },
+          }
+        );
+      }
+    );
+
+
+    test(
       "refreshUsageNow POSTs /usage/refresh-now and returns whether it was triggered",
       async () => {
         global.fetch

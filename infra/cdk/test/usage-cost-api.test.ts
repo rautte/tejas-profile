@@ -157,6 +157,28 @@ function configItem(
       updatedBy:
         "owner",
 
+      alertThresholdsUsd: {
+        day:
+          null,
+
+        week:
+          null,
+
+        month:
+          null,
+      },
+
+      lastAlertedPeriodKeys: {
+        day:
+          null,
+
+        week:
+          null,
+
+        month:
+          null,
+      },
+
       ...overrides,
     }
   );
@@ -714,6 +736,187 @@ describe(
             .N
         ).toBe(
           "7"
+        );
+      }
+    );
+
+
+    test(
+      "POST /usage/config sets alert thresholds while leaving unspecified periods untouched",
+      async () => {
+        mockDynamoSend.mockImplementation(
+          (
+            command:
+              any
+          ) => {
+            if (
+              command.constructor
+                .name ===
+              "GetItemCommand"
+            ) {
+              return Promise.resolve(
+                {
+                  Item:
+                    configItem(
+                      {
+                        alertThresholdsUsd: {
+                          day:
+                            null,
+
+                          week:
+                            25,
+
+                          month:
+                            null,
+                        },
+                      }
+                    ),
+                }
+              );
+            }
+
+            if (
+              command.constructor
+                .name ===
+              "PutItemCommand"
+            ) {
+              return Promise.resolve(
+                {}
+              );
+            }
+
+            throw new Error(
+              "Unexpected DynamoDB command in test."
+            );
+          }
+        );
+
+        const response =
+          await handler(
+            ownerEvent(
+              {
+                method:
+                  "POST",
+
+                path:
+                  "/usage/config",
+
+                body: {
+                  intervalDays:
+                    1,
+
+                  alertThresholds: {
+                    day:
+                      10,
+                  },
+                },
+              }
+            )
+          );
+
+        expect(
+          response.statusCode
+        ).toBe(
+          200
+        );
+
+        const body =
+          parsedBody(
+            response
+          );
+
+        expect(
+          body.config
+            .alertThresholdsUsd
+        ).toEqual(
+          {
+            day:
+              10,
+
+            week:
+              25,
+
+            month:
+              null,
+          }
+        );
+      }
+    );
+
+
+    test(
+      "POST /usage/config rejects a negative alert threshold",
+      async () => {
+        mockDynamoSend.mockImplementation(
+          (
+            command:
+              any
+          ) => {
+            if (
+              command.constructor
+                .name ===
+              "GetItemCommand"
+            ) {
+              return Promise.resolve(
+                {
+                  Item:
+                    configItem(),
+                }
+              );
+            }
+
+            throw new Error(
+              "Unexpected DynamoDB command in test."
+            );
+          }
+        );
+
+        const response =
+          await handler(
+            ownerEvent(
+              {
+                method:
+                  "POST",
+
+                path:
+                  "/usage/config",
+
+                body: {
+                  intervalDays:
+                    1,
+
+                  alertThresholds: {
+                    day:
+                      -1,
+                  },
+                },
+              }
+            )
+          );
+
+        expect(
+          response.statusCode
+        ).toBe(
+          400
+        );
+
+        const putCalls =
+          mockDynamoSend.mock
+            .calls.filter(
+              (
+                call:
+                  any
+              ) =>
+                call[0]
+                  .constructor
+                  .name ===
+                "PutItemCommand"
+            );
+
+        expect(
+          putCalls
+        ).toHaveLength(
+          0
         );
       }
     );

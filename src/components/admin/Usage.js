@@ -341,9 +341,9 @@ function ResourceUsageTable({
         {title}
       </div>
 
-      <div className="overflow-auto rounded-lg border border-gray-200/70 dark:border-white/10">
+      <div className="rounded-lg border border-gray-200/70 dark:border-white/10 max-h-[248px] overflow-y-auto overflow-x-auto">
         <table className="w-full min-w-[420px]">
-          <thead className="bg-white/60 dark:bg-white/[0.03]">
+          <thead className="sticky top-0 z-10 bg-gray-100 dark:bg-[#121224]">
             <tr className="text-left text-[11px] text-gray-500 dark:text-gray-400">
               <th className="py-2.5 px-4 font-semibold">
                 Name
@@ -462,6 +462,23 @@ export default function AdminUsage() {
     );
 
   const [
+    alertDrafts,
+    setAlertDrafts,
+  ] =
+    useState(
+      {
+        day:
+          "",
+
+        week:
+          "",
+
+        month:
+          "",
+      }
+    );
+
+  const [
     savingConfig,
     setSavingConfig,
   ] =
@@ -554,6 +571,40 @@ export default function AdminUsage() {
               .config
               ?.intervalDays ||
             1
+          );
+
+          const thresholds =
+            result
+              .config
+              ?.alertThresholdsUsd ||
+            {};
+
+          setAlertDrafts(
+            {
+              day:
+                thresholds.day ==
+                  null
+                  ? ""
+                  : String(
+                      thresholds.day
+                    ),
+
+              week:
+                thresholds.week ==
+                  null
+                  ? ""
+                  : String(
+                      thresholds.week
+                    ),
+
+              month:
+                thresholds.month ==
+                  null
+                  ? ""
+                  : String(
+                      thresholds.month
+                    ),
+            }
           );
         } catch (
           exception
@@ -649,14 +700,68 @@ export default function AdminUsage() {
   );
 
 
-  const saveInterval =
+  const saveConfig =
     async () => {
-      setSavingConfig(
-        true
-      );
-
       setConfigError(
         ""
+      );
+
+      const parsedThresholds = {};
+
+      for (
+        const key of [
+          "day",
+          "week",
+          "month",
+        ]
+      ) {
+        const raw =
+          String(
+            alertDrafts[
+              key
+            ] ||
+            ""
+          ).trim();
+
+        if (
+          !raw
+        ) {
+          parsedThresholds[
+            key
+          ] =
+            null;
+
+          continue;
+        }
+
+        const parsed =
+          Number(
+            raw
+          );
+
+        if (
+          !Number.isFinite(
+            parsed
+          ) ||
+          parsed <
+            0
+        ) {
+          setConfigError(
+            `${key} alert threshold must be a non-negative dollar amount.`
+          );
+
+          return;
+        }
+
+        parsedThresholds[
+          key
+        ] =
+          parsed;
+      }
+
+
+      setSavingConfig(
+        true
       );
 
       try {
@@ -665,6 +770,9 @@ export default function AdminUsage() {
             {
               intervalDays:
                 intervalDraft,
+
+              alertThresholds:
+                parsedThresholds,
             }
           );
 
@@ -872,21 +980,36 @@ export default function AdminUsage() {
                     )
                   )}
                 </select>
+
+                {config
+                  ?.intervalDays &&
+                config.intervalDays !==
+                  intervalDraft ? (
+                  <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                    Currently saved: every{" "}
+                    {
+                      config.intervalDays
+                    }{" "}
+                    day
+                    {config.intervalDays ===
+                    1
+                      ? ""
+                      : "s"}
+                  </div>
+                ) : null}
               </label>
 
               <SmallButton
                 onClick={
-                  saveInterval
+                  saveConfig
                 }
                 disabled={
-                  savingConfig ||
-                  intervalDraft ===
-                    config?.intervalDays
+                  savingConfig
                 }
               >
                 {savingConfig
                   ? "Saving…"
-                  : "Save schedule"}
+                  : "Save settings"}
               </SmallButton>
 
               <SmallButton
@@ -901,6 +1024,67 @@ export default function AdminUsage() {
                   ? "Triggering…"
                   : "Refresh now"}
               </SmallButton>
+            </div>
+
+            <div>
+              <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500 dark:text-gray-400">
+                Email me when cost exceeds (USD)
+              </div>
+
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400 max-w-2xl">
+                Leave a field blank to disable that alert. Sent once per period the threshold is crossed --
+                you won&apos;t be re-alerted again until the next day/week/month.
+              </p>
+
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {PERIOD_TABS.map(
+                  (
+                    tab
+                  ) => (
+                    <label
+                      key={
+                        tab.id
+                      }
+                    >
+                      <div className="text-[11px] text-gray-600 dark:text-gray-400">
+                        {tab.label}
+                      </div>
+
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        aria-label={`${tab.label} cost alert threshold`}
+                        placeholder="Off"
+                        value={
+                          alertDrafts[
+                            tab.id
+                          ]
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setAlertDrafts(
+                            (
+                              prev
+                            ) => (
+                              {
+                                ...prev,
+
+                                [tab.id]:
+                                  event
+                                    .target
+                                    .value,
+                              }
+                            )
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-200/70 dark:border-white/10 bg-white/80 dark:bg-[#151521] px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none"
+                      />
+                    </label>
+                  )
+                )}
+              </div>
             </div>
 
             {configError ? (
@@ -994,7 +1178,7 @@ export default function AdminUsage() {
                 ) : null}
 
                 {resourceUsage ? (
-                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <ResourceUsageTable
                       title="S3 buckets"
                       entries={

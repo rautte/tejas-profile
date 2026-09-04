@@ -137,6 +137,7 @@ import {
 import {
   USAGE_COST_ALLOWED_INTERVAL_DAYS,
   USAGE_COST_PERIOD_TYPES,
+  isValidUsageCostAlertThreshold,
   isValidUsageCostIntervalDays,
   listUsageCostSnapshots,
   readUsageCostConfig,
@@ -9193,11 +9194,17 @@ export async function handler(event: Event) {
   // -----------------------------
   // POST /usage/config
   //
-  // Owner-only. body: { intervalDays: 1 | 2 | 3 | 7 }
+  // Owner-only. body: {
+  //   intervalDays: 1 | 2 | 3 | 7,
+  //   alertThresholds?: { day?, week?, month?: number | null },
+  // }
   //
-  // Changes how often the scheduled aggregator actually performs a
-  // real Cost Explorer / CloudWatch collection (see
-  // usage-cost-aggregator.ts) -- it does not itself trigger a run.
+  // intervalDays changes how often the scheduled aggregator
+  // actually performs a real Cost Explorer / CloudWatch collection
+  // (see usage-cost-aggregator.ts) -- it does not itself trigger a
+  // run. alertThresholds is a $ ceiling per period type; omitted or
+  // null disables that period's email alert. Any field omitted from
+  // alertThresholds keeps its previously saved value.
   // -----------------------------
   if (
     method ===
@@ -9270,6 +9277,70 @@ export async function handler(event: Event) {
       );
 
 
+    const rawAlertThresholds =
+      payload
+        ?.alertThresholds ||
+      {};
+
+    const alertThresholds = {
+      day:
+        Object.prototype.hasOwnProperty.call(
+          rawAlertThresholds,
+          "day"
+        )
+          ? rawAlertThresholds.day
+          : current
+              .alertThresholdsUsd
+              .day,
+
+      week:
+        Object.prototype.hasOwnProperty.call(
+          rawAlertThresholds,
+          "week"
+        )
+          ? rawAlertThresholds.week
+          : current
+              .alertThresholdsUsd
+              .week,
+
+      month:
+        Object.prototype.hasOwnProperty.call(
+          rawAlertThresholds,
+          "month"
+        )
+          ? rawAlertThresholds.month
+          : current
+              .alertThresholdsUsd
+              .month,
+    };
+
+
+    for (
+      const value of [
+        alertThresholds.day,
+        alertThresholds.week,
+        alertThresholds.month,
+      ]
+    ) {
+      if (
+        !isValidUsageCostAlertThreshold(
+          value
+        )
+      ) {
+        return json(
+          400,
+          {
+            ok: false,
+
+            error:
+              "Each alert threshold must be a non-negative number, or null to disable it.",
+          },
+          corsOrigin
+        );
+      }
+    }
+
+
     const config =
       await writeUsageCostConfig(
         {
@@ -9286,6 +9357,12 @@ export async function handler(event: Event) {
 
           lastRunAt:
             current.lastRunAt,
+
+          alertThresholdsUsd:
+            alertThresholds,
+
+          lastAlertedPeriodKeys:
+            current.lastAlertedPeriodKeys,
         }
       );
 

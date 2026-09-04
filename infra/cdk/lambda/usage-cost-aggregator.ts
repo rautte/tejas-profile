@@ -38,11 +38,20 @@ import {
 } from "@aws-sdk/client-dynamodb";
 
 import {
+  SESv2Client,
+  SendEmailCommand,
+} from "@aws-sdk/client-sesv2";
+
+import {
   USAGE_COST_DEFAULT_INTERVAL_DAYS,
+  USAGE_COST_PERIOD_TYPES,
   markUsageCostConfigRun,
   readUsageCostConfig,
   writeUsageCostConfig,
   writeUsageCostSnapshot,
+  type UsageCostAlertedPeriodKeys,
+  type UsageCostConfig,
+  type UsageCostPeriodType,
   type UsageCostResourceUsageEntry,
   type UsageCostSnapshot,
 } from "./usage-cost-store";
@@ -1206,6 +1215,184 @@ export async function collectUsageCostSnapshots(
 }
 
 
+// Sends at most one email per period per breach: the moment a
+// period's totalCostUsd first crosses its owner-set threshold, an
+// alert goes out and that period's key is recorded in
+// lastAlertedPeriodKeys so subsequent ticks (still over threshold,
+// same period) never re-send. The next period naturally gets a
+// fresh periodKey, so alerting re-arms on its own -- no manual
+// reset needed.
+//
+// An email failure is logged and swallowed, never thrown: sending
+// an alert must never be able to block or roll back the
+// aggregation run that produced the data it's alerting about.
+export async function checkAndSendUsageCostAlerts(
+  {
+    sesClient,
+    ownerNotificationEmail,
+    stage,
+    config,
+    snapshots,
+  }: {
+    sesClient?:
+      SESv2Client |
+      Sender;
+
+    ownerNotificationEmail?:
+      string;
+
+    stage:
+      string;
+
+    config:
+      UsageCostConfig;
+
+    snapshots: {
+      day:
+        UsageCostSnapshot;
+
+      week:
+        UsageCostSnapshot;
+
+      month:
+        UsageCostSnapshot;
+    };
+  }
+): Promise<{
+  alertsSent:
+    UsageCostPeriodType[];
+
+  lastAlertedPeriodKeys:
+    UsageCostAlertedPeriodKeys;
+}> {
+  const lastAlertedPeriodKeys: UsageCostAlertedPeriodKeys =
+    {
+      ...config.lastAlertedPeriodKeys,
+    };
+
+  const alertsSent: UsageCostPeriodType[] =
+    [];
+
+
+  if (
+    !sesClient ||
+    !ownerNotificationEmail
+  ) {
+    return {
+      alertsSent,
+      lastAlertedPeriodKeys,
+    };
+  }
+
+
+  for (
+    const periodType of
+      USAGE_COST_PERIOD_TYPES
+  ) {
+    const threshold =
+      config
+        .alertThresholdsUsd[
+        periodType
+      ];
+
+    const snapshot =
+      snapshots[
+        periodType
+      ];
+
+
+    if (
+      threshold ===
+        null ||
+      threshold ===
+        undefined ||
+      !snapshot ||
+      snapshot.totalCostUsd <
+        threshold ||
+      lastAlertedPeriodKeys[
+        periodType
+      ] ===
+        snapshot.periodKey
+    ) {
+      continue;
+    }
+
+
+    try {
+      await sesClient.send(
+        new SendEmailCommand(
+          {
+            FromEmailAddress:
+              ownerNotificationEmail,
+
+            Destination: {
+              ToAddresses: [
+                ownerNotificationEmail,
+              ],
+            },
+
+            Content: {
+              Simple: {
+                Subject: {
+                  Data:
+                    `Usage alert: ${periodType} cost exceeded threshold -- tejas-profile (${stage})`,
+                },
+
+                Body: {
+                  Text: {
+                    Data:
+                      `The ${periodType} AWS cost for tejas-profile (${stage}) has reached $${snapshot.totalCostUsd.toFixed(
+                        2
+                      )}, exceeding your configured alert threshold of $${threshold.toFixed(
+                        2
+                      )}.\n\nPeriod: ${
+                        snapshot.periodKey
+                      }\nCollected: ${
+                        snapshot.collectedAt
+                      }\n\nThis is a best-effort estimate from AWS Cost Explorer and may lag actual billing by up to a day. Adjust or clear this alert threshold from the Usage page in the admin dashboard. You will not be alerted again for this same period.`,
+                  },
+                },
+              },
+            },
+          }
+        )
+      );
+
+      lastAlertedPeriodKeys[
+        periodType
+      ] =
+        snapshot.periodKey;
+
+      alertsSent.push(
+        periodType
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Usage cost alert email failed",
+        {
+          periodType,
+
+          error:
+            String(
+              error
+                ?.message ||
+              error
+            ),
+        }
+      );
+    }
+  }
+
+
+  return {
+    alertsSent,
+    lastAlertedPeriodKeys,
+  };
+}
+
+
 export type UsageCostAggregationSummary = {
   ran:
     boolean;
@@ -1219,6 +1406,9 @@ export type UsageCostAggregationSummary = {
   lastRunAt:
     string |
     null;
+
+  alertsSent:
+    UsageCostPeriodType[];
 };
 
 
@@ -1227,10 +1417,16 @@ export async function runUsageCostAggregation(
     ddbClient,
     ceClient,
     cwClient,
+    sesClient,
     tableName,
     s3Buckets,
     dynamoTables,
     lambdaFunctions,
+    ownerNotificationEmail,
+
+    stage =
+      "dev",
+
     now =
       new Date(),
 
@@ -1249,6 +1445,10 @@ export async function runUsageCostAggregation(
       CloudWatchClient |
       Sender;
 
+    sesClient?:
+      SESv2Client |
+      Sender;
+
     tableName:
       string;
 
@@ -1260,6 +1460,12 @@ export async function runUsageCostAggregation(
 
     lambdaFunctions:
       string[];
+
+    ownerNotificationEmail?:
+      string;
+
+    stage?:
+      string;
 
     now?:
       Date;
@@ -1313,6 +1519,9 @@ export async function runUsageCostAggregation(
 
       lastRunAt:
         config.lastRunAt,
+
+      alertsSent:
+        [],
     };
   }
 
@@ -1375,6 +1584,25 @@ export async function runUsageCostAggregation(
     now.toISOString();
 
 
+  const {
+    alertsSent,
+    lastAlertedPeriodKeys,
+  } =
+    await checkAndSendUsageCostAlerts(
+      {
+        sesClient,
+
+        ownerNotificationEmail,
+
+        stage,
+
+        config,
+
+        snapshots,
+      }
+    );
+
+
   await markUsageCostConfigRun(
     {
       client:
@@ -1385,6 +1613,8 @@ export async function runUsageCostAggregation(
       config,
 
       ranAt,
+
+      lastAlertedPeriodKeys,
     }
   );
 
@@ -1402,6 +1632,8 @@ export async function runUsageCostAggregation(
 
     lastRunAt:
       ranAt,
+
+    alertsSent,
   };
 }
 
@@ -1426,6 +1658,11 @@ const ddbClient =
     {}
   );
 
+const sesClient =
+  new SESv2Client(
+    {}
+  );
+
 
 const {
   USAGE_COST_METRICS_TABLE =
@@ -1439,6 +1676,12 @@ const {
 
   USAGE_COST_LAMBDA_FUNCTIONS =
     "",
+
+  OWNER_NOTIFICATION_EMAIL =
+    "",
+
+  STAGE =
+    "dev",
 } =
   process.env;
 
@@ -1458,6 +1701,8 @@ export async function handler(
 
         cwClient,
 
+        sesClient,
+
         tableName:
           USAGE_COST_METRICS_TABLE,
 
@@ -1475,6 +1720,13 @@ export async function handler(
           parseCsvEnv(
             USAGE_COST_LAMBDA_FUNCTIONS
           ),
+
+        ownerNotificationEmail:
+          OWNER_NOTIFICATION_EMAIL ||
+          undefined,
+
+        stage:
+          STAGE,
 
         force:
           Boolean(

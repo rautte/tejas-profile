@@ -205,6 +205,7 @@ export async function getUsageHistory(
 export async function setUsageRefreshConfig(
   {
     intervalDays,
+    alertThresholds,
   }
 ) {
   const base =
@@ -224,6 +225,12 @@ export async function setUsageRefreshConfig(
           JSON.stringify(
             {
               intervalDays,
+
+              ...(alertThresholds
+                ? {
+                    alertThresholds,
+                  }
+                : {}),
             }
           ),
 

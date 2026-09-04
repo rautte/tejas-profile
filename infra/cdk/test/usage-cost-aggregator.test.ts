@@ -18,11 +18,20 @@ import {
 } from "@aws-sdk/util-dynamodb";
 
 import {
+  SendEmailCommand,
+} from "@aws-sdk/client-sesv2";
+
+import {
+  checkAndSendUsageCostAlerts,
   collectDailyCostBuckets,
   collectResourceUsage,
   collectUsageCostSnapshots,
   runUsageCostAggregation,
 } from "../lambda/usage-cost-aggregator";
+
+import type {
+  UsageCostSnapshot,
+} from "../lambda/usage-cost-store";
 
 
 const TABLE =
@@ -1105,6 +1114,722 @@ describe(
           summary.ran
         ).toBe(
           true
+        );
+      }
+    );
+  }
+);
+
+
+function fakeSesClient() {
+  return {
+    send:
+      jest.fn(
+        async (
+          command: any
+        ) => {
+          if (
+            command instanceof
+            SendEmailCommand
+          ) {
+            return {};
+          }
+
+          throw new Error(
+            "Unexpected SES command."
+          );
+        }
+      ),
+  };
+}
+
+
+function usageSnapshotFixture(
+  overrides:
+    Record<string, any> =
+    {}
+): UsageCostSnapshot {
+  return {
+    periodType:
+      "day",
+
+    periodKey:
+      "2026-09-04",
+
+    periodStart:
+      "2026-09-04T00:00:00.000Z",
+
+    periodEnd:
+      "2026-09-04T06:00:00.000Z",
+
+    collectedAt:
+      "2026-09-04T06:00:00.000Z",
+
+    totalCostUsd:
+      10,
+
+    costByService:
+      {},
+
+    resourceUsage: {
+      s3:
+        [],
+
+      dynamodb:
+        [],
+
+      lambda:
+        [],
+    },
+
+    ...overrides,
+  } as UsageCostSnapshot;
+}
+
+
+function baseConfig(
+  overrides:
+    Record<string, any> =
+    {}
+) {
+  return {
+    intervalDays:
+      1,
+
+    lastRunAt:
+      null,
+
+    updatedAt:
+      null,
+
+    updatedBy:
+      null,
+
+    alertThresholdsUsd: {
+      day:
+        null,
+
+      week:
+        null,
+
+      month:
+        null,
+    },
+
+    lastAlertedPeriodKeys: {
+      day:
+        null,
+
+      week:
+        null,
+
+      month:
+        null,
+    },
+
+    ...overrides,
+  };
+}
+
+
+describe(
+  "checkAndSendUsageCostAlerts",
+  () => {
+    test(
+      "sends an email and marks the period alerted when cost meets or exceeds the threshold",
+      async () => {
+        const sesClient =
+          fakeSesClient();
+
+        const result =
+          await checkAndSendUsageCostAlerts(
+            {
+              sesClient,
+
+              ownerNotificationEmail:
+                "owner@example.com",
+
+              stage:
+                "dev",
+
+              config:
+                baseConfig(
+                  {
+                    alertThresholdsUsd: {
+                      day:
+                        5,
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+                  }
+                ),
+
+              snapshots: {
+                day:
+                  usageSnapshotFixture(
+                    {
+                      totalCostUsd:
+                        7.5,
+                    }
+                  ),
+
+                week:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "week",
+
+                      periodKey:
+                        "2026-W36",
+                    }
+                  ),
+
+                month:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "month",
+
+                      periodKey:
+                        "2026-09",
+                    }
+                  ),
+              },
+            }
+          );
+
+        expect(
+          result.alertsSent
+        ).toEqual(
+          [
+            "day",
+          ]
+        );
+
+        expect(
+          result
+            .lastAlertedPeriodKeys
+            .day
+        ).toBe(
+          "2026-09-04"
+        );
+
+        expect(
+          sesClient.send
+        ).toHaveBeenCalledTimes(
+          1
+        );
+
+        const sentCommand =
+          sesClient.send.mock
+            .calls[0][0];
+
+        expect(
+          sentCommand
+            .input
+            .Destination
+            .ToAddresses
+        ).toEqual(
+          [
+            "owner@example.com",
+          ]
+        );
+
+        expect(
+          sentCommand
+            .input
+            .Content
+            .Simple
+            .Subject
+            .Data
+        ).toContain(
+          "day"
+        );
+      }
+    );
+
+
+    test(
+      "does not re-send when the same period was already alerted",
+      async () => {
+        const sesClient =
+          fakeSesClient();
+
+        const result =
+          await checkAndSendUsageCostAlerts(
+            {
+              sesClient,
+
+              ownerNotificationEmail:
+                "owner@example.com",
+
+              stage:
+                "dev",
+
+              config:
+                baseConfig(
+                  {
+                    alertThresholdsUsd: {
+                      day:
+                        5,
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+
+                    lastAlertedPeriodKeys: {
+                      day:
+                        "2026-09-04",
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+                  }
+                ),
+
+              snapshots: {
+                day:
+                  usageSnapshotFixture(
+                    {
+                      totalCostUsd:
+                        9,
+                    }
+                  ),
+
+                week:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "week",
+                    }
+                  ),
+
+                month:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "month",
+                    }
+                  ),
+              },
+            }
+          );
+
+        expect(
+          result.alertsSent
+        ).toEqual(
+          []
+        );
+
+        expect(
+          sesClient.send
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+
+    test(
+      "does nothing when no threshold is configured for any period",
+      async () => {
+        const sesClient =
+          fakeSesClient();
+
+        const result =
+          await checkAndSendUsageCostAlerts(
+            {
+              sesClient,
+
+              ownerNotificationEmail:
+                "owner@example.com",
+
+              stage:
+                "dev",
+
+              config:
+                baseConfig(),
+
+              snapshots: {
+                day:
+                  usageSnapshotFixture(
+                    {
+                      totalCostUsd:
+                        999,
+                    }
+                  ),
+
+                week:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "week",
+                    }
+                  ),
+
+                month:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "month",
+                    }
+                  ),
+              },
+            }
+          );
+
+        expect(
+          result.alertsSent
+        ).toEqual(
+          []
+        );
+
+        expect(
+          sesClient.send
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+
+    test(
+      "is a no-op when no SES client or owner email is provided",
+      async () => {
+        const result =
+          await checkAndSendUsageCostAlerts(
+            {
+              stage:
+                "dev",
+
+              config:
+                baseConfig(
+                  {
+                    alertThresholdsUsd: {
+                      day:
+                        1,
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+                  }
+                ),
+
+              snapshots: {
+                day:
+                  usageSnapshotFixture(
+                    {
+                      totalCostUsd:
+                        999,
+                    }
+                  ),
+
+                week:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "week",
+                    }
+                  ),
+
+                month:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "month",
+                    }
+                  ),
+              },
+            }
+          );
+
+        expect(
+          result.alertsSent
+        ).toEqual(
+          []
+        );
+      }
+    );
+
+
+    test(
+      "logs and swallows an SES failure without marking the period alerted",
+      async () => {
+        const sesClient = {
+          send:
+            jest.fn(
+              async () => {
+                throw new Error(
+                  "SES is down"
+                );
+              }
+            ),
+        };
+
+        const consoleErrorSpy =
+          jest
+            .spyOn(
+              console,
+              "error"
+            )
+            .mockImplementation(
+              () => {}
+            );
+
+        const result =
+          await checkAndSendUsageCostAlerts(
+            {
+              sesClient,
+
+              ownerNotificationEmail:
+                "owner@example.com",
+
+              stage:
+                "dev",
+
+              config:
+                baseConfig(
+                  {
+                    alertThresholdsUsd: {
+                      day:
+                        5,
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+                  }
+                ),
+
+              snapshots: {
+                day:
+                  usageSnapshotFixture(
+                    {
+                      totalCostUsd:
+                        9,
+                    }
+                  ),
+
+                week:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "week",
+                    }
+                  ),
+
+                month:
+                  usageSnapshotFixture(
+                    {
+                      periodType:
+                        "month",
+                    }
+                  ),
+              },
+            }
+          );
+
+        expect(
+          result.alertsSent
+        ).toEqual(
+          []
+        );
+
+        expect(
+          result
+            .lastAlertedPeriodKeys
+            .day
+        ).toBeNull();
+
+        expect(
+          consoleErrorSpy
+        ).toHaveBeenCalled();
+
+        consoleErrorSpy.mockRestore();
+      }
+    );
+  }
+);
+
+
+describe(
+  "runUsageCostAggregation alert integration",
+  () => {
+    test(
+      "sends an alert and persists lastAlertedPeriodKeys alongside lastRunAt",
+      async () => {
+        const ddb =
+          fakeDynamoTable();
+
+        const ceClient =
+          fakeCostExplorerClient(
+            [
+              {
+                TimePeriod: {
+                  Start:
+                    "2026-09-04",
+                },
+
+                Groups: [
+                  {
+                    Keys: [
+                      "Amazon S3",
+                    ],
+
+                    Metrics: {
+                      UnblendedCost: {
+                        Amount:
+                          "50.00",
+                      },
+                    },
+                  },
+                ],
+              },
+            ]
+          );
+
+        const cwClient =
+          fakeCloudWatchClient(
+            {}
+          );
+
+        const sesClient =
+          fakeSesClient();
+
+        await ddb.send(
+          new PutItemCommand(
+            {
+              TableName:
+                TABLE,
+
+              Item:
+                marshall(
+                  {
+                    pk:
+                      "CONFIG",
+
+                    sk:
+                      "CONFIG",
+
+                    intervalDays:
+                      1,
+
+                    lastRunAt:
+                      null,
+
+                    updatedAt:
+                      null,
+
+                    updatedBy:
+                      "owner",
+
+                    alertThresholdsUsd: {
+                      day:
+                        10,
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+
+                    lastAlertedPeriodKeys: {
+                      day:
+                        null,
+
+                      week:
+                        null,
+
+                      month:
+                        null,
+                    },
+                  }
+                ),
+            }
+          )
+        );
+
+        const summary =
+          await runUsageCostAggregation(
+            {
+              ddbClient:
+                ddb,
+
+              ceClient,
+
+              cwClient,
+
+              sesClient,
+
+              ownerNotificationEmail:
+                "owner@example.com",
+
+              stage:
+                "dev",
+
+              tableName:
+                TABLE,
+
+              s3Buckets:
+                [],
+
+              dynamoTables:
+                [],
+
+              lambdaFunctions:
+                [],
+
+              now:
+                new Date(
+                  "2026-09-04T06:00:00.000Z"
+                ),
+            }
+          );
+
+        expect(
+          summary.alertsSent
+        ).toEqual(
+          [
+            "day",
+          ]
+        );
+
+        expect(
+          sesClient.send
+        ).toHaveBeenCalledTimes(
+          1
+        );
+
+        expect(
+          ddb.rows.get(
+            "CONFIG#CONFIG"
+          )
+            ?.lastAlertedPeriodKeys
+            .day
+        ).toBe(
+          "2026-09-04"
+        );
+
+        expect(
+          ddb.rows.get(
+            "CONFIG#CONFIG"
+          )
+            ?.alertThresholdsUsd
+            .day
+        ).toBe(
+          10
         );
       }
     );

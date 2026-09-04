@@ -49,6 +49,36 @@ export const USAGE_COST_DEFAULT_INTERVAL_DAYS =
   1;
 
 
+export type UsageCostAlertThresholds = {
+  day:
+    number |
+    null;
+
+  week:
+    number |
+    null;
+
+  month:
+    number |
+    null;
+};
+
+
+export type UsageCostAlertedPeriodKeys = {
+  day:
+    string |
+    null;
+
+  week:
+    string |
+    null;
+
+  month:
+    string |
+    null;
+};
+
+
 export type UsageCostConfig = {
   intervalDays:
     number;
@@ -64,7 +94,72 @@ export type UsageCostConfig = {
   updatedBy:
     string |
     null;
+
+  // Owner-set $ thresholds (USD) per period type. null/absent means
+  // "no alert configured" for that period. Checked once per real
+  // aggregation run (see runUsageCostAggregation) -- never on the
+  // cheap not-due no-op ticks.
+  alertThresholdsUsd:
+    UsageCostAlertThresholds;
+
+  // The periodKey already alerted on, per period type -- prevents
+  // re-sending the same email on every subsequent run while a
+  // period stays over threshold. Reset naturally once the period
+  // rolls over to a new periodKey.
+  lastAlertedPeriodKeys:
+    UsageCostAlertedPeriodKeys;
 };
+
+
+const EMPTY_ALERT_THRESHOLDS: UsageCostAlertThresholds =
+  {
+    day:
+      null,
+
+    week:
+      null,
+
+    month:
+      null,
+  };
+
+
+const EMPTY_ALERTED_PERIOD_KEYS: UsageCostAlertedPeriodKeys =
+  {
+    day:
+      null,
+
+    week:
+      null,
+
+    month:
+      null,
+  };
+
+
+export function isValidUsageCostAlertThreshold(
+  value:
+    unknown
+): value is number | null {
+  if (
+    value ===
+      null ||
+    value ===
+      undefined
+  ) {
+    return true;
+  }
+
+  return (
+    typeof value ===
+      "number" &&
+    Number.isFinite(
+      value
+    ) &&
+    value >=
+      0
+  );
+}
 
 
 export type UsageCostResourceUsageEntry = {
@@ -211,6 +306,12 @@ export async function readUsageCostConfig(
 
       updatedBy:
         null,
+
+      alertThresholdsUsd:
+        EMPTY_ALERT_THRESHOLDS,
+
+      lastAlertedPeriodKeys:
+        EMPTY_ALERTED_PERIOD_KEYS,
     };
   }
 
@@ -219,6 +320,33 @@ export async function readUsageCostConfig(
     unmarshall(
       result.Item
     ) as any;
+
+
+  function threshold(
+    value:
+      unknown
+  ) {
+    return isValidUsageCostAlertThreshold(
+      value
+    )
+      ? (
+          value as
+            number |
+            null
+        )
+      : null;
+  }
+
+
+  function alertedKey(
+    value:
+      unknown
+  ) {
+    return typeof value ===
+      "string"
+      ? value
+      : null;
+  }
 
 
   return {
@@ -246,6 +374,52 @@ export async function readUsageCostConfig(
         "string"
         ? item.updatedBy
         : null,
+
+    alertThresholdsUsd: {
+      day:
+        threshold(
+          item
+            ?.alertThresholdsUsd
+            ?.day
+        ),
+
+      week:
+        threshold(
+          item
+            ?.alertThresholdsUsd
+            ?.week
+        ),
+
+      month:
+        threshold(
+          item
+            ?.alertThresholdsUsd
+            ?.month
+        ),
+    },
+
+    lastAlertedPeriodKeys: {
+      day:
+        alertedKey(
+          item
+            ?.lastAlertedPeriodKeys
+            ?.day
+        ),
+
+      week:
+        alertedKey(
+          item
+            ?.lastAlertedPeriodKeys
+            ?.week
+        ),
+
+      month:
+        alertedKey(
+          item
+            ?.lastAlertedPeriodKeys
+            ?.month
+        ),
+    },
   };
 }
 
@@ -257,6 +431,8 @@ export async function writeUsageCostConfig(
     intervalDays,
     updatedBy,
     lastRunAt,
+    alertThresholdsUsd,
+    lastAlertedPeriodKeys,
   }: {
     client:
       DynamoDBClient |
@@ -275,6 +451,12 @@ export async function writeUsageCostConfig(
     lastRunAt?:
       string |
       null;
+
+    alertThresholdsUsd?:
+      UsageCostAlertThresholds;
+
+    lastAlertedPeriodKeys?:
+      UsageCostAlertedPeriodKeys;
   }
 ): Promise<UsageCostConfig> {
   if (
@@ -287,6 +469,30 @@ export async function writeUsageCostConfig(
         ", "
       )}.`
     );
+  }
+
+
+  for (
+    const value of [
+      alertThresholdsUsd
+        ?.day,
+
+      alertThresholdsUsd
+        ?.week,
+
+      alertThresholdsUsd
+        ?.month,
+    ]
+  ) {
+    if (
+      !isValidUsageCostAlertThreshold(
+        value
+      )
+    ) {
+      throw new Error(
+        "Each alert threshold must be a non-negative number, or null to disable it."
+      );
+    }
   }
 
 
@@ -304,6 +510,14 @@ export async function writeUsageCostConfig(
       updatedBy:
         updatedBy ||
         null,
+
+      alertThresholdsUsd:
+        alertThresholdsUsd ||
+        EMPTY_ALERT_THRESHOLDS,
+
+      lastAlertedPeriodKeys:
+        lastAlertedPeriodKeys ||
+        EMPTY_ALERTED_PERIOD_KEYS,
     };
 
 
@@ -344,6 +558,7 @@ export async function markUsageCostConfigRun(
     tableName,
     config,
     ranAt,
+    lastAlertedPeriodKeys,
   }: {
     client:
       DynamoDBClient |
@@ -357,6 +572,9 @@ export async function markUsageCostConfigRun(
 
     ranAt:
       string;
+
+    lastAlertedPeriodKeys?:
+      UsageCostAlertedPeriodKeys;
   }
 ): Promise<UsageCostConfig> {
   return writeUsageCostConfig(
@@ -373,6 +591,13 @@ export async function markUsageCostConfigRun(
 
       lastRunAt:
         ranAt,
+
+      alertThresholdsUsd:
+        config.alertThresholdsUsd,
+
+      lastAlertedPeriodKeys:
+        lastAlertedPeriodKeys ||
+        config.lastAlertedPeriodKeys,
     }
   );
 }

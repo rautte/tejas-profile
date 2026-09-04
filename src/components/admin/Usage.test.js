@@ -297,7 +297,7 @@ describe(
 
         fireEvent.click(
           screen.getByText(
-            "Save schedule"
+            "Save settings"
           )
         );
 
@@ -309,9 +309,161 @@ describe(
               {
                 intervalDays:
                   3,
+
+                alertThresholds: {
+                  day:
+                    null,
+
+                  week:
+                    null,
+
+                  month:
+                    null,
+                },
               }
             );
           }
+        );
+      }
+    );
+
+
+    test(
+      "setting a Day cost alert threshold and saving includes it in the request",
+      async () => {
+        render(
+          <AdminUsage />
+        );
+
+        await screen.findByText(
+          "$1.50"
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Day cost alert threshold"
+          ),
+          {
+            target: {
+              value:
+                "10",
+            },
+          }
+        );
+
+        fireEvent.click(
+          screen.getByText(
+            "Save settings"
+          )
+        );
+
+        await waitFor(
+          () => {
+            expect(
+              setUsageRefreshConfig
+            ).toHaveBeenCalledWith(
+              {
+                intervalDays:
+                  1,
+
+                alertThresholds: {
+                  day:
+                    10,
+
+                  week:
+                    null,
+
+                  month:
+                    null,
+                },
+              }
+            );
+          }
+        );
+      }
+    );
+
+
+    test(
+      "a negative alert threshold shows a validation error and never calls the API",
+      async () => {
+        render(
+          <AdminUsage />
+        );
+
+        await screen.findByText(
+          "$1.50"
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Month cost alert threshold"
+          ),
+          {
+            target: {
+              value:
+                "-5",
+            },
+          }
+        );
+
+        fireEvent.click(
+          screen.getByText(
+            "Save settings"
+          )
+        );
+
+        expect(
+          await screen.findByText(
+            /non-negative dollar amount/
+          )
+        ).toBeInTheDocument();
+
+        expect(
+          setUsageRefreshConfig
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+
+    test(
+      "prefills alert threshold inputs from the loaded config",
+      async () => {
+        getUsageSummary.mockResolvedValue(
+          {
+            ...SUMMARY,
+
+            config: {
+              ...SUMMARY.config,
+
+              alertThresholdsUsd: {
+                day:
+                  null,
+
+                week:
+                  25,
+
+                month:
+                  null,
+              },
+            },
+          }
+        );
+
+        render(
+          <AdminUsage />
+        );
+
+        await screen.findByText(
+          "$1.50"
+        );
+
+        expect(
+          screen.getByLabelText(
+            "Week cost alert threshold"
+          )
+        ).toHaveValue(
+          25
         );
       }
     );
@@ -377,8 +529,12 @@ describe(
         );
 
         fireEvent.click(
-          screen.getByText(
-            "Week"
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Week",
+            }
           )
         );
 
