@@ -1183,7 +1183,17 @@ export default function ConfigurationAnalyticsArchivePanel() {
       () => {
         let base =
           showHidden
-            ? enrichedRows
+            ? enrichedRows.filter(
+                (
+                  row
+                ) =>
+                  Boolean(
+                    hiddenIds[
+                      row
+                        .usageEpochId
+                    ]
+                  )
+              )
             : enrichedRows.filter(
                 (
                   row
@@ -2129,8 +2139,9 @@ export default function ConfigurationAnalyticsArchivePanel() {
                     .checked
                 )
               }
+              title="When checked, the table shows only hidden Usage Epochs. When unchecked, hidden Usage Epochs are excluded."
             />
-            Show hidden ({
+            Show hidden only ({
               Object.keys(
                 hiddenIds
               ).length

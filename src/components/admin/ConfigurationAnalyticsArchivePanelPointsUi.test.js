@@ -67,6 +67,23 @@ const CLOSED_EPOCH = {
 };
 
 
+const OTHER_EPOCH = {
+  usageEpochId: "uep_points_ui_other",
+  stage: "prod",
+  deploymentConfigurationId: "cfg_points_ui_other",
+  platformReleaseId: "plr_points_ui_other",
+  profileVariantId: "prv_points_ui_other",
+  state: "CLOSED",
+  startedAt: "2026-08-15T00:00:00.000Z",
+  endedAt: "2026-08-16T00:00:00.000Z",
+  report: {
+    reportId: "car_points_ui_other",
+    reportSha256: "sha_points_ui_other",
+    finalizedAt: "2026-08-17T00:00:00.000Z",
+  },
+};
+
+
 const OUTREACH_SCORE = {
   algorithm: "outreach-score.v1",
   score: 63,
@@ -221,8 +238,27 @@ describe("ConfigurationAnalyticsArchivePanel — favorites", () => {
 
 
 describe("ConfigurationAnalyticsArchivePanel — UI-only hide/restore", () => {
-  test("hiding a selected row removes it from view, and Show hidden reveals it again", async () => {
+  test("hiding a selected row removes it from view, and Show hidden only exclusively shows hidden rows", async () => {
+    listUsageEpochs.mockResolvedValue({
+      ok: true,
+      epochs: [CLOSED_EPOCH, OTHER_EPOCH],
+      nextToken: null,
+    });
+
+    getProfileVariantsBatch.mockResolvedValue([
+      {
+        profileVariantId: CLOSED_EPOCH.profileVariantId,
+        targeting: { location: "Remote — US", jobRole: "Staff Engineer" },
+      },
+      {
+        profileVariantId: OTHER_EPOCH.profileVariantId,
+        targeting: { location: "Remote — EU", jobRole: "Principal Engineer" },
+      },
+    ]);
+
     render(<ConfigurationAnalyticsArchivePanel />);
+
+    await screen.findByText("uep_points_ui_other");
 
     const rowCheckbox = await screen.findByLabelText(
       "Select Usage Epoch uep_points_ui"
@@ -233,11 +269,17 @@ describe("ConfigurationAnalyticsArchivePanel — UI-only hide/restore", () => {
     const hideButton = await screen.findByText("Hide");
     fireEvent.click(hideButton);
 
+    // hidden row disappears from the default (non-hidden) view, the
+    // other row stays visible
     await waitFor(() => {
       expect(
         screen.queryByText("uep_points_ui")
       ).not.toBeInTheDocument();
     });
+
+    expect(
+      screen.getByText("uep_points_ui_other")
+    ).toBeInTheDocument();
 
     const stored = JSON.parse(
       window.localStorage.getItem(
@@ -252,8 +294,16 @@ describe("ConfigurationAnalyticsArchivePanel — UI-only hide/restore", () => {
 
     fireEvent.click(showHiddenToggle);
 
+    // "Show hidden only" is exclusive: the hidden row reappears, but
+    // the non-hidden row must now be excluded from view.
     expect(await screen.findByText("uep_points_ui")).toBeInTheDocument();
     expect(screen.getByTitle("Hidden")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("uep_points_ui_other")
+      ).not.toBeInTheDocument();
+    });
   });
 });
 
