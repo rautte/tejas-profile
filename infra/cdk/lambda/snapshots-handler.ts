@@ -3241,36 +3241,17 @@ export async function handler(event: Event) {
     );
   }
 
-  const auth =
-    await requireOwner(
-      event.headers
-    );
-
-
-  if (
-    !auth.ok
-  ) {
-    return json(
-      auth.status,
-      {
-        ok:
-          false,
-
-        error:
-          auth.msg,
-      },
-      corsOrigin
-    );
-  }
-
-
   // -----------------------------
   // POST /owner/passcode/request-change
   //
-  // Only reachable by an already-authenticated owner (auth.ok above).
+  // Intentionally unauthenticated -- this is the "forgot my passcode"
+  // recovery path, so it must work without a valid owner session.
   // Emails a one-time 6-digit code to the fixed, pre-verified owner
   // notification address -- never a caller-supplied address, so this
-  // can't be used to redirect the code anywhere else.
+  // can't be used to redirect the code anywhere else. Safety comes from
+  // the destination being fixed, a single global pending code (60s
+  // resend cooldown, 10min TTL), and confirm-change capping incorrect
+  // attempts at 5 before the code is invalidated.
   // -----------------------------
   if (
     method === "POST" &&
@@ -3825,6 +3806,29 @@ export async function handler(event: Event) {
         corsOrigin
       );
     }
+  }
+
+
+  const auth =
+    await requireOwner(
+      event.headers
+    );
+
+
+  if (
+    !auth.ok
+  ) {
+    return json(
+      auth.status,
+      {
+        ok:
+          false,
+
+        error:
+          auth.msg,
+      },
+      corsOrigin
+    );
   }
 
 
