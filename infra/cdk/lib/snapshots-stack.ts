@@ -1867,47 +1867,24 @@ export class SnapshotsStack extends cdk.Stack {
     // -----------------------------
     // Deployment Configuration existence disambiguation
     //
-    // Owner-only exact-prefix ListBucket.
+    // Without s3:ListBucket, S3 cannot distinguish "object does not
+    // exist" from "access denied" for a GetObject on a missing key,
+    // and masks a routine NotFound as AccessDenied. A prefix-scoped
+    // ListBucket grant does NOT fix this: AWS's internal check for
+    // this disambiguation evaluates s3:ListBucket without an
+    // s3:prefix context, so even a correctly-scoped grant never
+    // satisfies it (confirmed via iam:SimulatePrincipalPolicy) --
+    // only an unconditional grant would, which this bucket
+    // deliberately withholds.
     //
-    // Without this, S3 cannot distinguish "object does not exist"
-    // from "access denied" for a GetObject on a missing key, and
-    // masks a routine NotFound as AccessDenied -- which
-    // isS3NotFound() cannot recognize, turning a clean "Deployment
-    // Configuration does not exist" response into an opaque 500.
-    //
-    // Isolated into its own Policy (not fn.addToRolePolicy, which
-    // merges into fn's shared auto-managed default policy) because
-    // @aws-cdk/aws-iam:minimizePolicies has been observed to
-    // silently drop unrelated pre-existing statements from that
-    // shared policy when a new statement is merged into it.
+    // Fixed in the Lambda instead: readStoredDeploymentConfiguration()
+    // recognizes this specific masked-403 shape (safe only because
+    // s3:GetObject is verifiably granted for this exact key pattern
+    // and s3:ListBucket is verifiably absent by design) and re-throws
+    // it as a NotFound-shaped error, which isS3NotFound() already
+    // handles as a clean 409 "Deployment Configuration does not
+    // exist" response.
     // -----------------------------
-    new iam.Policy(
-      this,
-      "DeploymentConfigurationListBucketPolicy",
-      {
-        statements: [
-          new iam.PolicyStatement({
-            actions: [
-              "s3:ListBucket",
-            ],
-
-            resources: [
-              deploymentConfigurationsBucket
-                .bucketArn,
-            ],
-
-            conditions: {
-              StringEquals: {
-                "s3:prefix":
-                  "configurations/",
-              },
-            },
-          }),
-        ],
-      }
-    ).attachToRole(
-      fn.role!
-    );
 
 
     // -----------------------------

@@ -1195,6 +1195,49 @@ function isS3NotFound(
 }
 
 
+/**
+ * S3 cannot tell a caller "this key doesn't exist" (404) from
+ * "you're not allowed to know" (403) unless the caller also holds
+ * s3:ListBucket -- and AWS's internal check for that disambiguation
+ * evaluates s3:ListBucket without an s3:prefix context, so even a
+ * correctly prefix-scoped ListBucket grant never satisfies it. A
+ * bucket that is deliberately GetObject-only (no ListBucket at all,
+ * by design -- see the Deployment Configuration permission block)
+ * therefore always sees a missing key as AccessDenied, never 404.
+ *
+ * This is intentionally NOT folded into isS3NotFound(), which other
+ * call sites rely on to distinguish real permission problems from
+ * missing objects. It is only safe to treat AccessDenied as "missing"
+ * where s3:GetObject is verifiably granted for the exact key
+ * pattern and s3:ListBucket is verifiably absent by design -- i.e.
+ * only at this one call site.
+ */
+function isS3AccessDeniedMaskingMissingKey(
+  error: any
+) {
+  const name =
+    String(
+      error?.name || ""
+    );
+
+  const status =
+    Number(
+      error
+        ?.$metadata
+        ?.httpStatusCode ||
+      0
+    );
+
+
+  return (
+    name ===
+      "AccessDenied" &&
+    status ===
+      403
+  );
+}
+
+
 function isS3PreconditionFailed(
   error: any
 ) {
@@ -1522,19 +1565,43 @@ async function readStoredPlatformRelease(
 async function readStoredDeploymentConfiguration(
   key: string
 ) {
-  const out =
-    await s3.send(
-      new GetObjectCommand({
-        Bucket:
-          DEPLOYMENT_CONFIGURATIONS_BUCKET,
+  let out;
 
-        Key:
-          key,
+  try {
+    out =
+      await s3.send(
+        new GetObjectCommand({
+          Bucket:
+            DEPLOYMENT_CONFIGURATIONS_BUCKET,
 
-        ChecksumMode:
-          "ENABLED",
-      })
-    );
+          Key:
+            key,
+
+          ChecksumMode:
+            "ENABLED",
+        })
+      );
+  } catch (
+    error: any
+  ) {
+    if (
+      isS3AccessDeniedMaskingMissingKey(
+        error
+      )
+    ) {
+      const notFound: any =
+        new Error(
+          "Deployment Configuration object does not exist."
+        );
+
+      notFound.name =
+        "NotFound";
+
+      throw notFound;
+    }
+
+    throw error;
+  }
 
 
   const body =

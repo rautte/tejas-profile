@@ -272,6 +272,55 @@ describe(
 
 
     test(
+      "blocks validation when the new targeting is identical to the source's current targeting",
+      async () => {
+        render(
+          <ProfileVariantPublicationPanel
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
+        );
+
+
+        await loadSource();
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Validate",
+            }
+          )
+        );
+
+
+        expect(
+          await screen.findByText(
+            /New targeting is identical to the source Profile Variant's current targeting\./
+          )
+        ).toBeInTheDocument();
+
+
+        expect(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Publish new Profile Variant",
+            }
+          )
+        ).toBeDisabled();
+
+
+        expect(
+          buildProfilePublicationPackage
+        ).not.toHaveBeenCalled();
+      }
+    );
+
+
+    test(
       "publishes with reused content/assets under new targeting after validation",
       async () => {
         buildProfilePublicationPackage
@@ -443,7 +492,7 @@ describe(
 
 
     test(
-      "a shortcut button activates the newly-published variant straight into PROD",
+      "a shortcut button activates the newly-published variant",
       async () => {
         buildProfilePublicationPackage
           .mockResolvedValue({
@@ -577,7 +626,7 @@ describe(
             "button",
             {
               name:
-                "Activate to PROD",
+                "Activate Profile Variant",
             }
           )
         );
@@ -655,6 +704,32 @@ describe(
 
 
         await loadSource();
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target location"
+          ),
+          {
+            target: {
+              value:
+                "Austin, TX",
+            },
+          }
+        );
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target job role"
+          ),
+          {
+            target: {
+              value:
+                "Platform Engineer",
+            },
+          }
+        );
 
 
         fireEvent.click(
@@ -976,7 +1051,7 @@ describe(
             "button",
             {
               name:
-                "Activate to PROD",
+                "Activate Profile Variant",
             }
           )
         ).toBeInTheDocument();

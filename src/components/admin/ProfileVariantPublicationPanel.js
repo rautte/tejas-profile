@@ -95,7 +95,7 @@ export default function ProfileVariantPublicationPanel({
   /**
    * An externally-produced publish result (e.g. from the Data
    * page's own draft-editor publish flow) to surface through this
-   * card's "Published" / "Activate to PROD" UI, so there is a
+   * card's "Published" / "Activate Profile Variant" UI, so there is a
    * single place to activate a freshly-published variant regardless
    * of which publish path produced it. Adopted whenever its
    * profileVariantId changes -- a fresh publish always mints a new
@@ -649,6 +649,27 @@ export default function ProfileVariantPublicationPanel({
       if (!jobRole) {
         errors.push(
           "Target job role is required."
+        );
+      }
+
+      if (
+        location &&
+        jobRole &&
+        location ===
+          cleanString(
+            sourceVariant
+              ?.targeting
+              ?.location
+          ) &&
+        jobRole ===
+          cleanString(
+            sourceVariant
+              ?.targeting
+              ?.jobRole
+          )
+      ) {
+        errors.push(
+          "New targeting is identical to the source Profile Variant's current targeting. Change the location or job role -- otherwise this republish is redundant."
         );
       }
 
@@ -1230,7 +1251,7 @@ export default function ProfileVariantPublicationPanel({
 
             <p className="text-xs text-gray-600 dark:text-gray-400 pt-1">
               {activateDone
-                ? "It is now the live PROD Profile."
+                ? "It is now the live Profile."
                 : "Not yet active. Activate it now, or from Snapshots → Profile activation later."}
             </p>
 
@@ -1245,7 +1266,7 @@ export default function ProfileVariantPublicationPanel({
             {activateConfirming ? (
               <div className="space-y-2">
                 <div className="text-xs text-amber-700 dark:text-amber-300">
-                  Activate this variant now? This immediately makes it the live PROD Profile.
+                  Activate this variant now? This immediately makes it the live Profile for this environment.
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -1290,7 +1311,7 @@ export default function ProfileVariantPublicationPanel({
                 }
                 className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
               >
-                Activate to PROD
+                Activate Profile Variant
               </button>
             ) : null}
           </div>

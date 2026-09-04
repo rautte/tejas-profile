@@ -1980,7 +1980,7 @@ test(
 
 
 test(
-  "publishing a draft seeds the Publish new Profile Variant card, which activates it straight into PROD",
+  "publishing a draft seeds the Publish new Profile Variant card, which activates it",
   async () => {
     getProfileVariant
       .mockResolvedValue(
@@ -2125,7 +2125,7 @@ test(
         "button",
         {
           name:
-            "Activate to PROD",
+            "Activate Profile Variant",
         }
       )
     );
@@ -2170,7 +2170,7 @@ test(
 
     expect(
       screen.getByText(
-        /is now the live PROD Profile\./
+        /is now the live Profile\./
       )
     ).toBeInTheDocument();
 
@@ -2179,7 +2179,7 @@ test(
         "button",
         {
           name:
-            "Activate to PROD",
+            "Activate Profile Variant",
         }
       )
     ).not.toBeInTheDocument();
