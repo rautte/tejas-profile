@@ -313,6 +313,93 @@ describe(
 
 
     test(
+      "distinguishes a missing Deployment Configuration from a plain revision conflict",
+      async () => {
+        enableOwner();
+
+
+        global.fetch.mockResolvedValue({
+          ok:
+            false,
+
+          status:
+            409,
+
+          json:
+            async () => ({
+              ok:
+                false,
+
+              error:
+                "Deployment Configuration for the active Platform Release and requested Profile Variant does not exist.",
+
+              code:
+                "DEPLOYMENT_CONFIGURATION_MISSING",
+
+              platformReleaseId:
+                "plr_test",
+
+              profileVariantId:
+                "prv:test-two",
+            }),
+        });
+
+
+        const {
+          activateProfileVariant,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        let caught =
+          null;
+
+
+        try {
+          await activateProfileVariant({
+            profileVariantId:
+              "prv:test-two",
+
+            expectedRevision:
+              1,
+          });
+        } catch (
+          error
+        ) {
+          caught =
+            error;
+        }
+
+
+        expect(
+          caught
+            ?.code
+        ).toBe(
+          "DEPLOYMENT_CONFIGURATION_MISSING"
+        );
+
+
+        expect(
+          caught
+            ?.platformReleaseId
+        ).toBe(
+          "plr_test"
+        );
+
+
+        expect(
+          caught
+            ?.profileVariantId
+        ).toBe(
+          "prv:test-two"
+        );
+      }
+    );
+
+
+    test(
       "rejects an empty Profile Variant ID before making a request",
       async () => {
         const {
@@ -369,6 +456,191 @@ describe(
           global.fetch
         ).not
           .toHaveBeenCalled();
+      }
+    );
+  }
+);
+
+
+describe(
+  "createDeploymentConfiguration",
+  () => {
+    const ORIGINAL_API =
+      process.env
+        .REACT_APP_SNAPSHOTS_API;
+
+
+    beforeEach(
+      () => {
+        jest.resetModules();
+
+        process.env
+          .REACT_APP_SNAPSHOTS_API =
+          "https://api.example.test";
+
+        sessionStorage.clear();
+
+        global.fetch =
+          jest.fn();
+      }
+    );
+
+
+    afterEach(
+      () => {
+        sessionStorage.clear();
+
+        jest.restoreAllMocks();
+
+        if (
+          ORIGINAL_API ===
+            undefined
+        ) {
+          delete process.env
+            .REACT_APP_SNAPSHOTS_API;
+        } else {
+          process.env
+            .REACT_APP_SNAPSHOTS_API =
+            ORIGINAL_API;
+        }
+      }
+    );
+
+
+    test(
+      "posts platformReleaseId and profileVariantId to the create endpoint",
+      async () => {
+        global.fetch.mockResolvedValue({
+          ok:
+            true,
+
+          status:
+            200,
+
+          json:
+            async () => ({
+              ok:
+                true,
+
+              configuration: {
+                deploymentConfigurationId:
+                  "cfg_test",
+
+                platformReleaseId:
+                  "plr_test",
+
+                profileVariantId:
+                  "prv_test",
+              },
+            }),
+        });
+
+
+        const {
+          createDeploymentConfiguration,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        const result =
+          await createDeploymentConfiguration(
+            {
+              platformReleaseId:
+                "plr_test",
+
+              profileVariantId:
+                "prv_test",
+            }
+          );
+
+
+        expect(
+          result
+            .configuration
+            .deploymentConfigurationId
+        ).toBe(
+          "cfg_test"
+        );
+
+
+        const [
+          url,
+          options,
+        ] =
+          global
+            .fetch
+            .mock
+            .calls[0];
+
+
+        expect(
+          url
+        ).toBe(
+          "https://api.example.test/deployment-configurations/create"
+        );
+
+
+        expect(
+          JSON.parse(
+            options.body
+          )
+        ).toEqual(
+          {
+            platformReleaseId:
+              "plr_test",
+
+            profileVariantId:
+              "prv_test",
+          }
+        );
+      }
+    );
+
+
+    test(
+      "surfaces the backend error message on failure",
+      async () => {
+        global.fetch.mockResolvedValue({
+          ok:
+            false,
+
+          status:
+            404,
+
+          json:
+            async () => ({
+              ok:
+                false,
+
+              error:
+                "Platform Release not found.",
+            }),
+        });
+
+
+        const {
+          createDeploymentConfiguration,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+
+        await expect(
+          createDeploymentConfiguration(
+            {
+              platformReleaseId:
+                "plr_missing",
+
+              profileVariantId:
+                "prv_test",
+            }
+          )
+        ).rejects.toThrow(
+          "Platform Release not found."
+        );
       }
     );
   }

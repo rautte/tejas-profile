@@ -7,6 +7,7 @@ import {
 
 import {
   activateProfileVariant,
+  createDeploymentConfiguration,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
 
@@ -238,6 +239,33 @@ export default function ProfileVariantActivationPanel({
     );
 
 
+  const [
+    missingDeploymentConfig,
+    setMissingDeploymentConfig,
+  ] =
+    useState(
+      null
+    );
+
+
+  const [
+    createConfigBusy,
+    setCreateConfigBusy,
+  ] =
+    useState(
+      false
+    );
+
+
+  const [
+    createConfigError,
+    setCreateConfigError,
+  ] =
+    useState(
+      ""
+    );
+
+
   const observed =
     useMemo(
       () =>
@@ -295,6 +323,14 @@ export default function ProfileVariantActivationPanel({
     );
 
     setActivationSuccess(
+      ""
+    );
+
+    setMissingDeploymentConfig(
+      null
+    );
+
+    setCreateConfigError(
       ""
     );
   };
@@ -506,6 +542,35 @@ export default function ProfileVariantActivationPanel({
         if (
           error
             ?.code ===
+            "DEPLOYMENT_CONFIGURATION_MISSING" &&
+          error.platformReleaseId &&
+          error.profileVariantId
+        ) {
+          setActivationError(
+            String(
+              error
+                ?.message ||
+              error
+            )
+          );
+
+          setMissingDeploymentConfig(
+            {
+              platformReleaseId:
+                error.platformReleaseId,
+
+              profileVariantId:
+                error.profileVariantId,
+            }
+          );
+
+          return;
+        }
+
+
+        if (
+          error
+            ?.code ===
             "PROFILE_ACTIVATION_CONFLICT"
         ) {
           /**
@@ -539,6 +604,52 @@ export default function ProfileVariantActivationPanel({
         );
       } finally {
         setActivationBusy(
+          false
+        );
+      }
+    };
+
+
+  const createMissingDeploymentConfig =
+    async () => {
+      if (
+        !missingDeploymentConfig
+      ) {
+        return;
+      }
+
+      setCreateConfigBusy(
+        true
+      );
+
+      setCreateConfigError(
+        ""
+      );
+
+      try {
+        await createDeploymentConfiguration(
+          missingDeploymentConfig
+        );
+
+        setMissingDeploymentConfig(
+          null
+        );
+
+        setActivationError(
+          ""
+        );
+      } catch (
+        error
+      ) {
+        setCreateConfigError(
+          String(
+            error
+              ?.message ||
+            error
+          )
+        );
+      } finally {
+        setCreateConfigBusy(
           false
         );
       }
@@ -883,6 +994,36 @@ export default function ProfileVariantActivationPanel({
         {activationError ? (
           <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
             {activationError}
+          </div>
+        ) : null}
+
+
+        {missingDeploymentConfig ? (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              This Profile Variant has never been paired with the active Platform Release. Create that pairing, then activation will work.
+            </p>
+
+            <button
+              type="button"
+              onClick={
+                createMissingDeploymentConfig
+              }
+              disabled={
+                createConfigBusy
+              }
+              className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline disabled:opacity-60"
+            >
+              {createConfigBusy
+                ? "Creating Deployment Configuration…"
+                : "Create Deployment Configuration"}
+            </button>
+
+            {createConfigError ? (
+              <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+                {createConfigError}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

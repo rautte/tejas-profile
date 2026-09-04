@@ -379,6 +379,27 @@ function noSuchKey() {
 }
 
 
+/**
+ * The shape S3 actually returns for a GetObject on a missing key
+ * when the caller lacks s3:ListBucket -- masks the true NotFound as
+ * AccessDenied instead. The Deployment Configuration bucket is
+ * deliberately GetObject-only with no ListBucket grant, so this is
+ * the real-world error shape for a missing Deployment Configuration,
+ * not noSuchKey() above.
+ */
+function accessDeniedMaskingMissingKey() {
+  return {
+    name:
+      "AccessDenied",
+
+    $metadata: {
+      httpStatusCode:
+        403,
+    },
+  };
+}
+
+
 function ownerEvent({
   path,
   body,
@@ -1573,6 +1594,166 @@ describe(
           ).error
         ).toMatch(
           /Deployment Configuration/
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          ).code
+        ).toBe(
+          "DEPLOYMENT_CONFIGURATION_MISSING"
+        );
+      }
+    );
+
+
+    test(
+      "Profile activation recognizes a missing Deployment Configuration masked as S3 AccessDenied",
+      async () => {
+        const release =
+          validRelease(
+            "plr_profile_masked"
+          );
+
+        const variant =
+          validVariant(
+            "prv_profile_masked"
+          );
+
+        const activePlatform =
+          platformPointer(
+            release
+          );
+
+
+        mockS3Send
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              if (
+                command
+                    ?.input
+                    ?.Key ===
+                createProfileVariantManifestKey(
+                    variant.profileVariantId
+                )
+              ) {
+                return storedResponse(
+                    variant
+                );
+              }
+
+              if (
+                command
+                  ?.input
+                  ?.Key ===
+                  `releases/${release.platformReleaseId}.json`
+              ) {
+                return storedResponse(
+                  release
+                );
+              }
+
+              if (
+                command
+                  ?.constructor
+                  ?.name ===
+                  "GetObjectCommand"
+              ) {
+                throw accessDeniedMaskingMissingKey();
+              }
+
+
+              throw noSuchKey();
+            }
+          );
+
+
+        mockDynamoSend
+          .mockImplementation(
+            async (
+              command:
+                any
+            ) => {
+              if (
+                command
+                  ?.constructor
+                  ?.name ===
+                  "GetItemCommand"
+              ) {
+                return {
+                  Item:
+                    marshall(
+                      activePlatform
+                    ),
+                };
+              }
+
+
+              throw new Error(
+                "Profile activation must not transact without configuration."
+              );
+            }
+          );
+
+
+        const response =
+          await handler(
+            ownerEvent({
+              path:
+                "/profile-variants/activate",
+
+              body: {
+                profileVariantId:
+                  variant.profileVariantId,
+              },
+            })
+          );
+
+
+        expect(
+          response.statusCode
+        ).toBe(
+          409
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          ).error
+        ).toMatch(
+          /Deployment Configuration/
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          ).code
+        ).toBe(
+          "DEPLOYMENT_CONFIGURATION_MISSING"
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          ).platformReleaseId
+        ).toBe(
+          release.platformReleaseId
+        );
+
+
+        expect(
+          parsedBody(
+            response
+          ).profileVariantId
+        ).toBe(
+          variant.profileVariantId
         );
       }
     );

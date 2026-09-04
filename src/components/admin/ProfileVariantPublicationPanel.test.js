@@ -16,6 +16,7 @@ import {
 
 import {
   activateProfileVariant,
+  createDeploymentConfiguration,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
 
@@ -43,6 +44,9 @@ jest.mock(
       jest.fn(),
 
     activateProfileVariant:
+      jest.fn(),
+
+    createDeploymentConfiguration:
       jest.fn(),
   })
 );
@@ -672,6 +676,209 @@ describe(
             "Published & activated"
           )
         ).toBeInTheDocument();
+      }
+    );
+
+
+    test(
+      "offers to create the Deployment Configuration when activation fails because one is missing",
+      async () => {
+        buildProfilePublicationPackage
+          .mockResolvedValue({
+            schema:
+              "tejas-profile.profile-publication-package",
+
+            variant: {
+              profileVariantId:
+                "prv_retargeted",
+            },
+          });
+
+
+        publishProfilePublication
+          .mockResolvedValue({
+            ok:
+              true,
+
+            profileVariantId:
+              "prv_retargeted",
+
+            contentHash:
+              "b".repeat(
+                64
+              ),
+          });
+
+
+        const missing =
+          new Error(
+            "Deployment Configuration for the active Platform Release and requested Profile Variant does not exist."
+          );
+
+        missing.code =
+          "DEPLOYMENT_CONFIGURATION_MISSING";
+
+        missing.platformReleaseId =
+          "plr_test";
+
+        missing.profileVariantId =
+          "prv_retargeted";
+
+        activateProfileVariant
+          .mockRejectedValueOnce(
+            missing
+          );
+
+        createDeploymentConfiguration
+          .mockResolvedValueOnce(
+            {
+              ok:
+                true,
+            }
+          );
+
+
+        render(
+          <ProfileVariantPublicationPanel
+            activeProfileVariantId="prv_test"
+            activeProfile={
+              {
+                profileVariantId:
+                  "prv_test",
+
+                revision:
+                  3,
+              }
+            }
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
+        );
+
+
+        await loadSource();
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target location"
+          ),
+          {
+            target: {
+              value:
+                "Austin, TX",
+            },
+          }
+        );
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target job role"
+          ),
+          {
+            target: {
+              value:
+                "Platform Engineer",
+            },
+          }
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Validate",
+            }
+          )
+        );
+
+
+        await screen.findByText(
+          "Ready to publish."
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Publish new Profile Variant",
+            }
+          )
+        );
+
+
+        await screen.findByText(
+          "Published"
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Activate Profile Variant",
+            }
+          )
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Confirm activate",
+            }
+          )
+        );
+
+
+        await screen.findByText(
+          missing.message
+        );
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Create Deployment Configuration",
+            }
+          )
+        );
+
+
+        await waitFor(
+          () => {
+            expect(
+              createDeploymentConfiguration
+            ).toHaveBeenCalledWith(
+              {
+                platformReleaseId:
+                  "plr_test",
+
+                profileVariantId:
+                  "prv_retargeted",
+              }
+            );
+          }
+        );
+
+
+        expect(
+          screen.queryByRole(
+            "button",
+            {
+              name:
+                "Create Deployment Configuration",
+            }
+          )
+        ).not.toBeInTheDocument();
       }
     );
 

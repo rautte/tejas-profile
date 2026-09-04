@@ -10230,6 +10230,9 @@ export async function handler(event: Event) {
               error:
                 "Deployment Configuration for the active Platform Release and requested Profile Variant does not exist.",
 
+              code:
+                "DEPLOYMENT_CONFIGURATION_MISSING",
+
               platformReleaseId:
                 activePlatformPointer
                   .platformReleaseId,

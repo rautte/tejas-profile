@@ -657,10 +657,27 @@ export async function activateProfileVariant({
 
 
     error.code =
-      "PROFILE_ACTIVATION_CONFLICT";
+      json.code ===
+        "DEPLOYMENT_CONFIGURATION_MISSING"
+        ? "DEPLOYMENT_CONFIGURATION_MISSING"
+        : "PROFILE_ACTIVATION_CONFLICT";
 
     error.status =
       409;
+
+    if (
+      json.platformReleaseId
+    ) {
+      error.platformReleaseId =
+        json.platformReleaseId;
+    }
+
+    if (
+      json.profileVariantId
+    ) {
+      error.profileVariantId =
+        json.profileVariantId;
+    }
 
 
     throw error;
@@ -677,6 +694,73 @@ export async function activateProfileVariant({
     );
   }
 
+
+  return json;
+}
+
+
+/**
+ * Pairs an already-published Profile Variant with a Platform Release,
+ * creating the immutable Deployment Configuration that activation
+ * requires. Re-selecting an existing pairing returns the same
+ * already-existing configuration -- this is safe to call even if a
+ * matching one already exists.
+ */
+export async function createDeploymentConfiguration({
+  platformReleaseId,
+  profileVariantId,
+}) {
+  const base =
+    mustHaveApi();
+
+  const res =
+    await fetch(
+      `${base}/deployment-configurations/create`,
+      {
+        method:
+          "POST",
+
+        headers:
+          headers(),
+
+        body:
+          JSON.stringify(
+            {
+              platformReleaseId:
+                String(
+                  platformReleaseId ||
+                  ""
+                ).trim(),
+
+              profileVariantId:
+                String(
+                  profileVariantId ||
+                  ""
+                ).trim(),
+            }
+          ),
+
+        cache:
+          "no-store",
+      }
+    );
+
+  const json =
+    await res
+      .json()
+      .catch(
+        () => ({})
+      );
+
+  if (
+    !res.ok ||
+    !json.ok
+  ) {
+    throw new Error(
+      json.error ||
+        `Creating the Deployment Configuration failed (${res.status}).`
+    );
+  }
 
   return json;
 }

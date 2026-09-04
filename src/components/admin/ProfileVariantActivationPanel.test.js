@@ -11,6 +11,7 @@ import ProfileVariantActivationPanel from "./ProfileVariantActivationPanel";
 
 import {
   activateProfileVariant,
+  createDeploymentConfiguration,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
 
@@ -19,6 +20,9 @@ jest.mock(
   "../../utils/snapshots/snapshotsApi",
   () => ({
     activateProfileVariant:
+      jest.fn(),
+
+    createDeploymentConfiguration:
       jest.fn(),
 
     getProfileVariant:
@@ -447,6 +451,113 @@ describe(
         ).toHaveBeenCalledTimes(
           1
         );
+      }
+    );
+
+
+    test(
+      "offers to create the Deployment Configuration when activation fails because one is missing",
+      async () => {
+        const missing =
+          new Error(
+            "Deployment Configuration for the active Platform Release and requested Profile Variant does not exist."
+          );
+
+
+        missing.code =
+          "DEPLOYMENT_CONFIGURATION_MISSING";
+
+        missing.status =
+          409;
+
+        missing.platformReleaseId =
+          "plr_test";
+
+        missing.profileVariantId =
+          TARGET_ID;
+
+
+        activateProfileVariant
+          .mockRejectedValueOnce(
+            missing
+          );
+
+        createDeploymentConfiguration
+          .mockResolvedValueOnce(
+            {
+              ok:
+                true,
+            }
+          );
+
+
+        render(
+          <ProfileVariantActivationPanel
+            active={{
+              profileVariantId:
+                "prv_current",
+
+              revision:
+                4,
+            }}
+            activeProfileVariantId="prv_current"
+          />
+        );
+
+
+        await loadTargetVariant();
+
+        await confirmActivation();
+
+
+        await screen.findByText(
+          missing.message
+        );
+
+        expect(
+          screen.queryByText(
+            /Active Profile changed before this activation committed/
+          )
+        ).not.toBeInTheDocument();
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Create Deployment Configuration",
+            }
+          )
+        );
+
+
+        await waitFor(
+          () => {
+            expect(
+              createDeploymentConfiguration
+            ).toHaveBeenCalledWith(
+              {
+                platformReleaseId:
+                  "plr_test",
+
+                profileVariantId:
+                  TARGET_ID,
+              }
+            );
+          }
+        );
+
+
+        expect(
+          screen.queryByRole(
+            "button",
+            {
+              name:
+                "Create Deployment Configuration",
+            }
+          )
+        ).not.toBeInTheDocument();
       }
     );
 

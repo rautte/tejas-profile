@@ -17,6 +17,7 @@ import {
 
 import {
   activateProfileVariant,
+  createDeploymentConfiguration,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
 
@@ -219,6 +220,24 @@ export default function ProfileVariantPublicationPanel({
   ] =
     useState(false);
 
+  const [
+    missingDeploymentConfig,
+    setMissingDeploymentConfig,
+  ] =
+    useState(null);
+
+  const [
+    createConfigBusy,
+    setCreateConfigBusy,
+  ] =
+    useState(false);
+
+  const [
+    createConfigError,
+    setCreateConfigError,
+  ] =
+    useState("");
+
 
   useEffect(
     () => {
@@ -256,6 +275,14 @@ export default function ProfileVariantPublicationPanel({
 
       setActivateDone(
         false
+      );
+
+      setMissingDeploymentConfig(
+        null
+      );
+
+      setCreateConfigError(
+        ""
       );
     },
     [
@@ -385,6 +412,14 @@ export default function ProfileVariantPublicationPanel({
     setActivateDone(
       false
     );
+
+    setMissingDeploymentConfig(
+      null
+    );
+
+    setCreateConfigError(
+      ""
+    );
   };
 
 
@@ -430,6 +465,14 @@ export default function ProfileVariantPublicationPanel({
         ""
       );
 
+      setMissingDeploymentConfig(
+        null
+      );
+
+      setCreateConfigError(
+        ""
+      );
+
       try {
         await activateProfileVariant(
           {
@@ -466,8 +509,72 @@ export default function ProfileVariantPublicationPanel({
             error
           )
         );
+
+        if (
+          error
+            ?.code ===
+            "DEPLOYMENT_CONFIGURATION_MISSING" &&
+          error.platformReleaseId &&
+          error.profileVariantId
+        ) {
+          setMissingDeploymentConfig(
+            {
+              platformReleaseId:
+                error.platformReleaseId,
+
+              profileVariantId:
+                error.profileVariantId,
+            }
+          );
+        }
       } finally {
         setActivateBusy(
+          false
+        );
+      }
+    };
+
+
+  const createMissingDeploymentConfig =
+    async () => {
+      if (
+        !missingDeploymentConfig
+      ) {
+        return;
+      }
+
+      setCreateConfigBusy(
+        true
+      );
+
+      setCreateConfigError(
+        ""
+      );
+
+      try {
+        await createDeploymentConfiguration(
+          missingDeploymentConfig
+        );
+
+        setMissingDeploymentConfig(
+          null
+        );
+
+        setActivateError(
+          ""
+        );
+      } catch (
+        error
+      ) {
+        setCreateConfigError(
+          String(
+            error
+              ?.message ||
+            error
+          )
+        );
+      } finally {
+        setCreateConfigBusy(
           false
         );
       }
@@ -1260,6 +1367,37 @@ export default function ProfileVariantPublicationPanel({
                 {
                   activateError
                 }
+              </div>
+            ) : null}
+
+            {missingDeploymentConfig ? (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  This Profile Variant has never been paired with the active Platform Release. Create that pairing, then activation will work.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={
+                    createMissingDeploymentConfig
+                  }
+                  disabled={
+                    createConfigBusy
+                  }
+                  className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline disabled:opacity-60"
+                >
+                  {createConfigBusy
+                    ? "Creating Deployment Configuration…"
+                    : "Create Deployment Configuration"}
+                </button>
+
+                {createConfigError ? (
+                  <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+                    {
+                      createConfigError
+                    }
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
