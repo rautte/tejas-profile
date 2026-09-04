@@ -175,6 +175,11 @@ export class SnapshotsStack extends cdk.Stack {
         ? "tejas-profile-prod-usage-epoch-analytics-978416150779"
         : "tejas-profile-dev-usage-epoch-analytics-978416150779";
 
+    const usageCostMetricsTableName =
+      props.stage === "prod"
+        ? "tejas-profile-prod-usage-cost-metrics-978416150779"
+        : "tejas-profile-dev-usage-cost-metrics-978416150779";
+
     const snapshotsBucket = new s3.Bucket(this, "SnapshotsBucket", {
         bucketName: snapshotsBucketName,
         removalPolicy: cdk.RemovalPolicy.RETAIN,
@@ -990,6 +995,58 @@ export class SnapshotsStack extends cdk.Stack {
       );
 
 
+    // -----------------------------
+    // Admin "Usage" page (P13 point 4): AWS resource usage/cost
+    // snapshots aggregated day/week/month, plus the owner-
+    // configurable refresh-schedule config. Operational, mutable
+    // admin data -- safe to DESTROY in dev.
+    // -----------------------------
+    const usageCostMetricsTable =
+      new dynamodb.Table(
+        this,
+        "UsageCostMetricsTable",
+        {
+          tableName:
+            usageCostMetricsTableName,
+
+          partitionKey: {
+            name:
+              "pk",
+
+            type:
+              dynamodb
+                .AttributeType
+                .STRING,
+          },
+
+          sortKey: {
+            name:
+              "sk",
+
+            type:
+              dynamodb
+                .AttributeType
+                .STRING,
+          },
+
+          billingMode:
+            dynamodb
+              .BillingMode
+              .PAY_PER_REQUEST,
+
+          removalPolicy:
+            props.stage ===
+            "prod"
+              ? cdk
+                  .RemovalPolicy
+                  .RETAIN
+              : cdk
+                  .RemovalPolicy
+                  .DESTROY,
+        }
+      );
+
+
     const analyticsEventsBucket = new s3.Bucket(this, "AnalyticsEventsBucket", {
         blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
         encryption: s3.BucketEncryption.S3_MANAGED,
@@ -1286,6 +1343,219 @@ export class SnapshotsStack extends cdk.Stack {
           configurationAnalyticsReportFinalizerFn
         )
       );
+
+
+    // -----------------------------
+    // Usage cost aggregator (P13 point 4)
+    //
+    // Ticks far more often than any owner-configured refresh
+    // interval so a change to that interval takes effect promptly;
+    // each tick is a cheap DynamoDB-only no-op unless the interval
+    // has actually elapsed (see runUsageCostAggregation). The
+    // "Refresh now" admin action bypasses the interval by invoking
+    // this same function directly with { force: true }.
+    // -----------------------------
+    const usageCostAggregatorFn =
+      new nodeLambda.NodejsFunction(
+        this,
+        "UsageCostAggregator",
+        {
+          runtime:
+            lambda.Runtime.NODEJS_18_X,
+
+          entry:
+            "lambda/usage-cost-aggregator.ts",
+
+          handler:
+            "handler",
+
+          memorySize:
+            256,
+
+          timeout:
+            cdk.Duration.seconds(
+              60
+            ),
+
+          bundling: {
+            minify:
+              true,
+
+            target:
+              "node18",
+          },
+
+          environment: {
+            USAGE_COST_METRICS_TABLE:
+              usageCostMetricsTable
+                .tableName,
+
+            USAGE_COST_S3_BUCKETS:
+              [
+                snapshotsBucket.bucketName,
+                repoBucket.bucketName,
+                profileVariantsBucket.bucketName,
+                platformReleasesBucket.bucketName,
+                deploymentConfigurationsBucket.bucketName,
+                configurationAnalyticsReportsBucket.bucketName,
+                analyticsEventsBucket.bucketName,
+              ].join(
+                ","
+              ),
+
+            USAGE_COST_DYNAMODB_TABLES:
+              [
+                deploymentConfigurationsTable.tableName,
+                platformDeploymentTable.tableName,
+                ownerPasscodeVerificationTable.tableName,
+                profileActivationTable.tableName,
+                usageEpochsTable.tableName,
+                usageEpochAnalyticsTable.tableName,
+                analyticsTable.tableName,
+                usageCostMetricsTable.tableName,
+              ].join(
+                ","
+              ),
+
+            // fn (SnapshotsApiHandler) is deliberately excluded:
+            // fn's own environment references this function's name
+            // (to invoke it for "Refresh now"), so also referencing
+            // fn's name here would be a circular CloudFormation
+            // dependency between the two resources.
+            USAGE_COST_LAMBDA_FUNCTIONS:
+              [
+                analyticsFn.functionName,
+                activeProfileFn.functionName,
+                configurationAnalyticsReportFinalizerFn.functionName,
+              ].join(
+                ","
+              ),
+
+            STAGE:
+              props.stage,
+          },
+        }
+      );
+
+
+    const usageCostAggregatorRule =
+      new events.Rule(
+        this,
+        "UsageCostAggregatorSchedule",
+        {
+          schedule:
+            events.Schedule.rate(
+              cdk.Duration.hours(
+                6
+              )
+            ),
+        }
+      );
+
+
+    usageCostAggregatorRule
+      .addTarget(
+        new eventTargets.LambdaFunction(
+          usageCostAggregatorFn
+        )
+      );
+
+
+    // Cost Explorer and CloudWatch metrics have no per-resource IAM
+    // scoping -- "*" is the only valid Resource for these actions.
+    usageCostAggregatorFn.addToRolePolicy(
+      new iam.PolicyStatement(
+        {
+          actions: [
+            "ce:GetCostAndUsage",
+          ],
+
+          resources: [
+            "*",
+          ],
+        }
+      )
+    );
+
+    usageCostAggregatorFn.addToRolePolicy(
+      new iam.PolicyStatement(
+        {
+          actions: [
+            "cloudwatch:GetMetricData",
+          ],
+
+          resources: [
+            "*",
+          ],
+        }
+      )
+    );
+
+    usageCostMetricsTable.grantReadWriteData(
+      usageCostAggregatorFn
+    );
+
+    // usageCostMetricsTable and usageCostAggregatorFn are
+    // constructed after fn, so fn's own environment block can't
+    // reference them directly -- addEnvironment() after
+    // construction has the same effect.
+    fn.addEnvironment(
+      "USAGE_COST_METRICS_TABLE",
+      usageCostMetricsTable
+        .tableName
+    );
+
+    fn.addEnvironment(
+      "USAGE_COST_AGGREGATOR_FUNCTION_NAME",
+      usageCostAggregatorFn
+        .functionName
+    );
+
+    // Explicit minimal actions (matching fn's actual GetItem/
+    // Query/PutItem usage for the /usage/* routes, plus the
+    // "Refresh now" invoke) via one dedicated Policy -- NOT
+    // grantReadData()/grantInvoke(), which merge into fn's single
+    // auto-managed default policy and, per CDK's minimizePolicies
+    // behavior, have been observed elsewhere in this stack to
+    // silently drop unrelated pre-existing statements there.
+    new iam.Policy(
+      this,
+      "UsageCostApiPolicy",
+      {
+        statements: [
+          new iam.PolicyStatement(
+            {
+              actions: [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:Query",
+              ],
+
+              resources: [
+                usageCostMetricsTable
+                  .tableArn,
+              ],
+            }
+          ),
+
+          new iam.PolicyStatement(
+            {
+              actions: [
+                "lambda:InvokeFunction",
+              ],
+
+              resources: [
+                usageCostAggregatorFn
+                  .functionArn,
+              ],
+            }
+          ),
+        ],
+      }
+    ).attachToRole(
+      fn.role!
+    );
+
 
     // Runtime credentials are fetched on demand.
     //
@@ -2538,6 +2808,54 @@ export class SnapshotsStack extends cdk.Stack {
       ],
       integration:
         analyticsIntegration,
+    });
+
+
+    httpApi.addRoutes({
+      path:
+        "/usage/summary",
+
+      methods: [
+        apigwv2.HttpMethod.GET,
+      ],
+
+      integration,
+    });
+
+
+    httpApi.addRoutes({
+      path:
+        "/usage/history",
+
+      methods: [
+        apigwv2.HttpMethod.GET,
+      ],
+
+      integration,
+    });
+
+
+    httpApi.addRoutes({
+      path:
+        "/usage/config",
+
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+
+      integration,
+    });
+
+
+    httpApi.addRoutes({
+      path:
+        "/usage/refresh-now",
+
+      methods: [
+        apigwv2.HttpMethod.POST,
+      ],
+
+      integration,
     });
 
     const httpApiDomain =

@@ -129,6 +129,21 @@ import {
   readConfigurationAnalyticsReport,
 } from "./configuration-analytics-report-store";
 
+import {
+  LambdaClient,
+  InvokeCommand,
+} from "@aws-sdk/client-lambda";
+
+import {
+  USAGE_COST_ALLOWED_INTERVAL_DAYS,
+  USAGE_COST_PERIOD_TYPES,
+  isValidUsageCostIntervalDays,
+  listUsageCostSnapshots,
+  readUsageCostConfig,
+  writeUsageCostConfig,
+  type UsageCostPeriodType,
+} from "./usage-cost-store";
+
 type Event = {
   requestContext?: { http?: { method?: string; path?: string } };
   rawPath?: string;
@@ -143,6 +158,9 @@ const s3 =
 
 const dynamodb =
   new DynamoDBClient({});
+
+const lambdaClient =
+  new LambdaClient({});
 
 const secretsManager =
   new SecretsManagerClient({});
@@ -187,6 +205,14 @@ const USAGE_EPOCHS_TABLE =
 
 const CONFIGURATION_ANALYTICS_REPORTS_BUCKET =
   process.env.CONFIGURATION_ANALYTICS_REPORTS_BUCKET ||
+  "";
+
+const USAGE_COST_METRICS_TABLE =
+  process.env.USAGE_COST_METRICS_TABLE ||
+  "";
+
+const USAGE_COST_AGGREGATOR_FUNCTION_NAME =
+  process.env.USAGE_COST_AGGREGATOR_FUNCTION_NAME ||
   "";
 
 const STAGE =
@@ -8976,6 +9002,397 @@ export async function handler(event: Event) {
       {
         ok: true,
         scores,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // GET /usage/summary
+  //
+  // Owner-only. Admin "Usage" page: current refresh config plus the
+  // latest day/week/month AWS resource usage/cost snapshot (each
+  // may be null if the aggregator has never run yet).
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/usage/summary"
+    )
+  ) {
+    const config =
+      await readUsageCostConfig(
+        {
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_COST_METRICS_TABLE,
+        }
+      );
+
+
+    const [
+      day,
+      week,
+      month,
+    ] =
+      await Promise.all(
+        USAGE_COST_PERIOD_TYPES.map(
+          async (
+            periodType
+          ) => {
+            const rows =
+              await listUsageCostSnapshots(
+                {
+                  client:
+                    dynamodb,
+
+                  tableName:
+                    USAGE_COST_METRICS_TABLE,
+
+                  periodType,
+
+                  limit:
+                    1,
+                }
+              );
+
+            return (
+              rows[0] ||
+              null
+            );
+          }
+        )
+      );
+
+
+    return json(
+      200,
+      {
+        ok: true,
+
+        config,
+
+        snapshots: {
+          day,
+          week,
+          month,
+        },
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // GET /usage/history
+  //
+  // Owner-only. Optional query params:
+  //   periodType=day|week|month  (default day)
+  //   limit=1..90                (default 30)
+  // -----------------------------
+  if (
+    method ===
+      "GET" &&
+    path.endsWith(
+      "/usage/history"
+    )
+  ) {
+    const requestedPeriodType =
+      String(
+        event
+          .queryStringParameters
+          ?.periodType ||
+        "day"
+      ).trim() as
+        UsageCostPeriodType;
+
+
+    if (
+      !(
+        USAGE_COST_PERIOD_TYPES as
+          readonly string[]
+      ).includes(
+        requestedPeriodType
+      )
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+
+          error:
+            `periodType must be one of ${USAGE_COST_PERIOD_TYPES.join(
+              ", "
+            )}.`,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const rawLimit =
+      Number.parseInt(
+        String(
+          event
+            .queryStringParameters
+            ?.limit ||
+          "30"
+        ),
+        10
+      );
+
+    const limit =
+      Number.isFinite(
+        rawLimit
+      ) &&
+      rawLimit >
+        0
+        ? Math.min(
+            rawLimit,
+            90
+          )
+        : 30;
+
+
+    const snapshots =
+      await listUsageCostSnapshots(
+        {
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_COST_METRICS_TABLE,
+
+          periodType:
+            requestedPeriodType,
+
+          limit,
+        }
+      );
+
+
+    return json(
+      200,
+      {
+        ok: true,
+
+        periodType:
+          requestedPeriodType,
+
+        snapshots,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // POST /usage/config
+  //
+  // Owner-only. body: { intervalDays: 1 | 2 | 3 | 7 }
+  //
+  // Changes how often the scheduled aggregator actually performs a
+  // real Cost Explorer / CloudWatch collection (see
+  // usage-cost-aggregator.ts) -- it does not itself trigger a run.
+  // -----------------------------
+  if (
+    method ===
+      "POST" &&
+    path.endsWith(
+      "/usage/config"
+    )
+  ) {
+    let payload:
+      any =
+      {};
+
+    try {
+      payload =
+        event.body
+          ? JSON.parse(
+              event.body
+            )
+          : {};
+    } catch {
+      return json(
+        400,
+        {
+          ok: false,
+
+          error:
+            "Invalid JSON body",
+        },
+        corsOrigin
+      );
+    }
+
+
+    const intervalDays =
+      Number(
+        payload
+          ?.intervalDays
+      );
+
+
+    if (
+      !isValidUsageCostIntervalDays(
+        intervalDays
+      )
+    ) {
+      return json(
+        400,
+        {
+          ok: false,
+
+          error:
+            `intervalDays must be one of ${USAGE_COST_ALLOWED_INTERVAL_DAYS.join(
+              ", "
+            )}.`,
+        },
+        corsOrigin
+      );
+    }
+
+
+    const current =
+      await readUsageCostConfig(
+        {
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_COST_METRICS_TABLE,
+        }
+      );
+
+
+    const config =
+      await writeUsageCostConfig(
+        {
+          client:
+            dynamodb,
+
+          tableName:
+            USAGE_COST_METRICS_TABLE,
+
+          intervalDays,
+
+          updatedBy:
+            "owner",
+
+          lastRunAt:
+            current.lastRunAt,
+        }
+      );
+
+
+    return json(
+      200,
+      {
+        ok: true,
+
+        config,
+      },
+      corsOrigin
+    );
+  }
+
+
+  // -----------------------------
+  // POST /usage/refresh-now
+  //
+  // Owner-only. Asynchronously invokes the usage cost aggregator
+  // with { force: true }, bypassing the configured refresh
+  // interval. Fire-and-forget: this handler's own timeout is far
+  // shorter than a real Cost Explorer + CloudWatch collection can
+  // take, so the response only confirms the trigger was accepted --
+  // the admin page re-polls /usage/summary afterward to see the
+  // result once it lands.
+  // -----------------------------
+  if (
+    method ===
+      "POST" &&
+    path.endsWith(
+      "/usage/refresh-now"
+    )
+  ) {
+    if (
+      !USAGE_COST_AGGREGATOR_FUNCTION_NAME
+    ) {
+      return json(
+        500,
+        {
+          ok: false,
+
+          error:
+            "Usage cost aggregator is not configured.",
+        },
+        corsOrigin
+      );
+    }
+
+
+    try {
+      await lambdaClient.send(
+        new InvokeCommand(
+          {
+            FunctionName:
+              USAGE_COST_AGGREGATOR_FUNCTION_NAME,
+
+            InvocationType:
+              "Event",
+
+            Payload:
+              Buffer.from(
+                JSON.stringify(
+                  {
+                    force:
+                      true,
+                  }
+                )
+              ),
+          }
+        )
+      );
+    } catch (
+      error: any
+    ) {
+      console.error(
+        "Usage cost refresh trigger failed",
+        {
+          error:
+            String(
+              error
+                ?.message ||
+              error
+            ),
+        }
+      );
+
+      return json(
+        502,
+        {
+          ok: false,
+
+          error:
+            "Unable to trigger a Usage refresh right now",
+        },
+        corsOrigin
+      );
+    }
+
+
+    return json(
+      202,
+      {
+        ok: true,
+
+        triggered:
+          true,
       },
       corsOrigin
     );

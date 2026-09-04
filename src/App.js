@@ -37,7 +37,7 @@ import {
   setAnalyticsRuntimeIdentity,
 } from "./utils/analytics/runtimeIdentity";
 
-import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings } from "./components/admin";
+import { AdminAnalytics, AdminSnapshots, AdminData, AdminSettings, AdminUsage } from "./components/admin";
 
 import {
   clearOwnerBrowserSession,
@@ -97,12 +97,13 @@ import {
   FaProjectDiagram,
   FaCode,
   FaUserShield,
-  FaChartLine, 
-  FaDatabase, 
+  FaChartLine,
+  FaDatabase,
   FaCog,
   // FaRegFolderOpen,
   FaRegSave,
   FaLock,
+  FaMoneyBillWave,
 } from "react-icons/fa";
 
 import {
@@ -126,6 +127,7 @@ const ICONS = {
   Snapshots: <FaRegSave className="text-sm" />,
   Data: <FaDatabase className="text-sm" />,
   Settings: <FaCog className="text-sm" />,
+  Usage: <FaMoneyBillWave className="text-sm" />,
   // "Connect": <FaEnvelope className="text-sm" />,
 };
 
@@ -822,6 +824,7 @@ function AppContent() {
         />
       ),
       Settings: <AdminSettings darkMode={darkMode} />,
+      Usage: <AdminUsage darkMode={darkMode} />,
     };
   }, [
     darkMode,

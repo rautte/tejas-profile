@@ -9,6 +9,12 @@ import { SnapshotsStack } from "../lib/snapshots-stack";
 
 const app = new cdk.App();
 
+// Tags every resource in every stack. This is a prerequisite for
+// AWS Cost Allocation Tags (Billing console) to be able to break
+// project cost down by stage (dev vs prod) -- see the admin Usage
+// page's console-setup instructions.
+cdk.Tags.of(app).add("project", "tejas-profile");
+
 const assetEnv = {
   account:
     process.env.CDK_DEFAULT_ACCOUNT,
@@ -19,31 +25,37 @@ const assetEnv = {
 
 
 // Existing stack identity is preserved and explicitly becomes PROD.
-new AssetsCdnStack(
-  app,
-  "AssetsCdnStack",
-  {
-    env:
-      assetEnv,
+const assetsCdnStackProd =
+  new AssetsCdnStack(
+    app,
+    "AssetsCdnStack",
+    {
+      env:
+        assetEnv,
 
-    stage:
-      "prod",
-  }
-);
+      stage:
+        "prod",
+    }
+  );
+
+cdk.Tags.of(assetsCdnStackProd).add("stage", "prod");
 
 
 // New, isolated DEV asset environment.
-new AssetsCdnStack(
-  app,
-  "AssetsCdnStackDev",
-  {
-    env:
-      assetEnv,
+const assetsCdnStackDev =
+  new AssetsCdnStack(
+    app,
+    "AssetsCdnStackDev",
+    {
+      env:
+        assetEnv,
 
-    stage:
-      "dev",
-  }
-);
+      stage:
+        "dev",
+    }
+  );
+
+cdk.Tags.of(assetsCdnStackDev).add("stage", "dev");
 
 
 // Dedicated DEV application hosting.
@@ -64,6 +76,8 @@ const devFrontendStack =
     }
   );
 
+cdk.Tags.of(devFrontendStack).add("stage", "dev");
+
 
 const githubDeployerRoleArn =
   process.env.GITHUB_DEPLOYER_ROLE_ARN || "";
@@ -73,51 +87,57 @@ const githubDeployerRoleArn =
 //
 // Infrastructure synthesis must never require or load
 // the owner credential itself.
-new SnapshotsStack(
-  app,
-  "TejasProfileSnapshotsStackProd",
-  {
-    env: {
-      account:
-        process.env.CDK_DEFAULT_ACCOUNT,
+const snapshotsStackProd =
+  new SnapshotsStack(
+    app,
+    "TejasProfileSnapshotsStackProd",
+    {
+      env: {
+        account:
+          process.env.CDK_DEFAULT_ACCOUNT,
 
-      region:
-        "us-east-1",
-    },
+        region:
+          "us-east-1",
+      },
 
-    stage:
-      "prod",
+      stage:
+        "prod",
 
-    allowedOrigins: [
-      "https://rautte.github.io",
-    ],
+      allowedOrigins: [
+        "https://rautte.github.io",
+      ],
 
-    githubDeployerRoleArn:
-      githubDeployerRoleArn ||
-      undefined,
-  }
-);
+      githubDeployerRoleArn:
+        githubDeployerRoleArn ||
+        undefined,
+    }
+  );
+
+cdk.Tags.of(snapshotsStackProd).add("stage", "prod");
 
 
 // DEV remains physically and origin-isolated from PROD.
-new SnapshotsStack(
-  app,
-  "TejasProfileSnapshotsStackDev",
-  {
-    env: {
-      account:
-        process.env.CDK_DEFAULT_ACCOUNT,
+const snapshotsStackDev =
+  new SnapshotsStack(
+    app,
+    "TejasProfileSnapshotsStackDev",
+    {
+      env: {
+        account:
+          process.env.CDK_DEFAULT_ACCOUNT,
 
-      region:
-        "us-east-1",
-    },
+        region:
+          "us-east-1",
+      },
 
-    stage:
-      "dev",
+      stage:
+        "dev",
 
-    allowedOrigins: [
-      "http://localhost:3000",
-      devFrontendStack.frontendOrigin,
-    ],
-  }
-);
+      allowedOrigins: [
+        "http://localhost:3000",
+        devFrontendStack.frontendOrigin,
+      ],
+    }
+  );
+
+cdk.Tags.of(snapshotsStackDev).add("stage", "dev");

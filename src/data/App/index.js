@@ -22,6 +22,7 @@ export const ADMIN_SECTION_ORDER = [
   "Snapshots",
   "Data",
   "Settings",
+  "Usage",
 ];
 
 /**
