@@ -68,6 +68,21 @@ test("sending a code reveals the confirm form", async () => {
 });
 
 
+test("the resend button starts disabled with a 60s countdown after sending a code", async () => {
+  requestOwnerPasscodeChange.mockResolvedValue({ ok: true, expiresInSeconds: 600 });
+
+  render(
+    <OwnerPasscodeModal open onClose={() => {}} onSubmit={() => {}} error="" />
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+
+  const resendButton = await screen.findByRole("button", { name: "Resend in 60s" });
+  expect(resendButton).toBeDisabled();
+});
+
+
 test("mismatched new passcodes never call the confirm API", async () => {
   requestOwnerPasscodeChange.mockResolvedValue({ ok: true });
 

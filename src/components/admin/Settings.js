@@ -1,6 +1,7 @@
 // src/components/admin/Settings.js
 
 import {
+  useEffect,
   useState,
 } from "react";
 
@@ -27,6 +28,9 @@ import {
 
 const MIN_PASSCODE_LENGTH =
   12;
+
+const RESEND_COOLDOWN_SECONDS =
+  60;
 
 
 function OwnerPasscodeChangeCard() {
@@ -86,8 +90,69 @@ function OwnerPasscodeChangeCard() {
       ""
     );
 
+  const [
+    resendAvailableAt,
+    setResendAvailableAt,
+  ] =
+    useState(
+      0
+    );
+
+  const [
+    nowTick,
+    setNowTick,
+  ] =
+    useState(
+      () => Date.now()
+    );
+
+  useEffect(
+    () => {
+      if (
+        !resendAvailableAt ||
+        resendAvailableAt <=
+          Date.now()
+      ) {
+        return;
+      }
+
+      const id =
+        setInterval(
+          () =>
+            setNowTick(
+              Date.now()
+            ),
+          1000
+        );
+
+      return () =>
+        clearInterval(
+          id
+        );
+    },
+    [
+      resendAvailableAt,
+    ]
+  );
+
+  const resendSecondsLeft =
+    Math.max(
+      0,
+      Math.ceil(
+        (
+          resendAvailableAt -
+          nowTick
+        ) /
+          1000
+      )
+    );
+
 
   async function handleSendCode() {
+    const isResend =
+      phase ===
+      "awaiting-code";
+
     setPhase(
       "sending"
     );
@@ -102,6 +167,16 @@ function OwnerPasscodeChangeCard() {
       setPhase(
         "awaiting-code"
       );
+
+      setNowTick(
+        Date.now()
+      );
+
+      setResendAvailableAt(
+        Date.now() +
+          RESEND_COOLDOWN_SECONDS *
+            1000
+      );
     } catch (
       error
     ) {
@@ -114,7 +189,9 @@ function OwnerPasscodeChangeCard() {
       );
 
       setPhase(
-        "idle"
+        isResend
+          ? "awaiting-code"
+          : "idle"
       );
     }
   }
@@ -221,6 +298,10 @@ function OwnerPasscodeChangeCard() {
 
     setConfirmPasscode(
       ""
+    );
+
+    setResendAvailableAt(
+      0
     );
   }
 
@@ -365,6 +446,14 @@ function OwnerPasscodeChangeCard() {
             </div>
           ) : null}
 
+          {requestError ? (
+            <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+              {
+                requestError
+              }
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-3">
             <button
               type="submit"
@@ -391,11 +480,16 @@ function OwnerPasscodeChangeCard() {
                 handleSendCode
               }
               disabled={
-                confirmBusy
+                confirmBusy ||
+                resendSecondsLeft >
+                  0
               }
               className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline disabled:opacity-60"
             >
-              Resend code
+              {resendSecondsLeft >
+              0
+                ? `Resend code in ${resendSecondsLeft}s`
+                : "Resend code"}
             </button>
 
             <button
@@ -421,7 +515,9 @@ function OwnerPasscodeChangeCard() {
             }
             disabled={
               phase ===
-              "sending"
+                "sending" ||
+              resendSecondsLeft >
+                0
             }
             className={cx(
               "h-10 px-4 rounded-xl border text-xs font-semibold transition",
@@ -432,6 +528,9 @@ function OwnerPasscodeChangeCard() {
             {phase ===
             "sending"
               ? "Sending…"
+              : resendSecondsLeft >
+                0
+              ? `Send verification code (${resendSecondsLeft}s)`
               : "Send verification code"}
           </button>
 

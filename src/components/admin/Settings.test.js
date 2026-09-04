@@ -81,6 +81,47 @@ test(
 
 
 test(
+  "the resend button starts disabled with a 60s countdown after sending a code",
+  async () => {
+    requestOwnerPasscodeChange
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+        }
+      );
+
+    render(
+      <SettingsAdmin />
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Send verification code",
+        }
+      )
+    );
+
+    const resendButton =
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Resend code in 60s",
+        }
+      );
+
+    expect(
+      resendButton
+    ).toBeDisabled();
+  }
+);
+
+
+test(
   "a failed code request surfaces the error and stays on the initial step",
   async () => {
     requestOwnerPasscodeChange

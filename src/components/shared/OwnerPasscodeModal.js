@@ -6,6 +6,7 @@ import {
 } from "../../utils/snapshots/snapshotsApi";
 
 const MIN_PASSCODE_LENGTH = 12;
+const RESEND_COOLDOWN_SECONDS = 60;
 
 export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
   const [value, setValue] = useState("");
@@ -21,6 +22,8 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
   const [newPasscode, setNewPasscode] = useState("");
   const [confirmPasscode, setConfirmPasscode] = useState("");
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   function resetForgotState() {
     setMode("login");
@@ -29,7 +32,19 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
     setCode("");
     setNewPasscode("");
     setConfirmPasscode("");
+    setResendAvailableAt(0);
   }
+
+  useEffect(() => {
+    if (!resendAvailableAt || resendAvailableAt <= Date.now()) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [resendAvailableAt]);
+
+  const resendSecondsLeft = Math.max(
+    0,
+    Math.ceil((resendAvailableAt - nowTick) / 1000)
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -55,15 +70,18 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
   if (!open) return null;
 
   async function handleSendCode() {
+    const isResend = forgotPhase === "awaiting-code";
     setForgotPhase("sending");
     setForgotError("");
 
     try {
       await requestOwnerPasscodeChange();
       setForgotPhase("awaiting-code");
+      setNowTick(Date.now());
+      setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
     } catch (e) {
       setForgotError(String(e?.message || e));
-      setForgotPhase("idle");
+      setForgotPhase(isResend ? "awaiting-code" : "idle");
     }
   }
 
@@ -226,10 +244,22 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
 
               {forgotPhase === "awaiting-code" && (
                 <form onSubmit={handleConfirm} className="space-y-4">
-                  <p className="text-xs text-gray-600 dark:text-gray-400">
-                    A 6-digit code was emailed to your owner notification address.
-                    It expires in 10 minutes.
-                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      A 6-digit code was emailed to your owner notification address.
+                      It expires in 10 minutes.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSendCode}
+                      disabled={resendSecondsLeft > 0}
+                      className="shrink-0 text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline disabled:opacity-60 disabled:no-underline"
+                    >
+                      {resendSecondsLeft > 0
+                        ? `Resend in ${resendSecondsLeft}s`
+                        : "Resend code"}
+                    </button>
+                  </div>
 
                   <div className="space-y-2">
                     <label
