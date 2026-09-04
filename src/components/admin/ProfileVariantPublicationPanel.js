@@ -92,6 +92,18 @@ export default function ProfileVariantPublicationPanel({
 
   onRefreshActiveProfile,
 
+  /**
+   * An externally-produced publish result (e.g. from the Data
+   * page's own draft-editor publish flow) to surface through this
+   * card's "Published" / "Activate to PROD" UI, so there is a
+   * single place to activate a freshly-published variant regardless
+   * of which publish path produced it. Adopted whenever its
+   * profileVariantId changes -- a fresh publish always mints a new
+   * id, so identity alone is a sufficient "is this new" signal.
+   */
+  seedPublishResult =
+    null,
+
   loadProfileVariants =
     listProfileVariants,
 }) {
@@ -206,6 +218,50 @@ export default function ProfileVariantPublicationPanel({
     setActivateDone,
   ] =
     useState(false);
+
+
+  useEffect(
+    () => {
+      const seededId =
+        cleanString(
+          seedPublishResult
+            ?.profileVariantId
+        );
+
+      if (
+        !seededId
+      ) {
+        return;
+      }
+
+      setPublishResult(
+        seedPublishResult
+      );
+
+      setValidation(
+        null
+      );
+
+      setPublishError(
+        ""
+      );
+
+      setActivateConfirming(
+        false
+      );
+
+      setActivateError(
+        ""
+      );
+
+      setActivateDone(
+        false
+      );
+    },
+    [
+      seedPublishResult,
+    ]
+  );
 
 
   useEffect(

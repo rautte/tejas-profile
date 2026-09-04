@@ -1846,7 +1846,7 @@ export class SnapshotsStack extends cdk.Stack {
     // - GetObject
     // - PutObject
     //
-    // Intentionally NO delete/list.
+    // Intentionally NO delete.
     // -----------------------------
     fn.addToRolePolicy(
       new iam.PolicyStatement({
@@ -1862,6 +1862,51 @@ export class SnapshotsStack extends cdk.Stack {
             ),
         ],
       })
+    );
+
+    // -----------------------------
+    // Deployment Configuration existence disambiguation
+    //
+    // Owner-only exact-prefix ListBucket.
+    //
+    // Without this, S3 cannot distinguish "object does not exist"
+    // from "access denied" for a GetObject on a missing key, and
+    // masks a routine NotFound as AccessDenied -- which
+    // isS3NotFound() cannot recognize, turning a clean "Deployment
+    // Configuration does not exist" response into an opaque 500.
+    //
+    // Isolated into its own Policy (not fn.addToRolePolicy, which
+    // merges into fn's shared auto-managed default policy) because
+    // @aws-cdk/aws-iam:minimizePolicies has been observed to
+    // silently drop unrelated pre-existing statements from that
+    // shared policy when a new statement is merged into it.
+    // -----------------------------
+    new iam.Policy(
+      this,
+      "DeploymentConfigurationListBucketPolicy",
+      {
+        statements: [
+          new iam.PolicyStatement({
+            actions: [
+              "s3:ListBucket",
+            ],
+
+            resources: [
+              deploymentConfigurationsBucket
+                .bucketArn,
+            ],
+
+            conditions: {
+              StringEquals: {
+                "s3:prefix":
+                  "configurations/",
+              },
+            },
+          }),
+        ],
+      }
+    ).attachToRole(
+      fn.role!
     );
 
 

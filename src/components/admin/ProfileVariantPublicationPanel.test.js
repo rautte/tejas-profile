@@ -902,5 +902,85 @@ describe(
         );
       }
     );
+
+
+    test(
+      "seedPublishResult from an external publish (e.g. the Data page's draft editor) surfaces through this card's Published/Activate UI",
+      async () => {
+        const { rerender } =
+          render(
+            <ProfileVariantPublicationPanel
+              activeProfileVariantId="prv_test"
+              activeProfile={
+                {
+                  profileVariantId:
+                    "prv_test",
+
+                  revision:
+                    3,
+                }
+              }
+              loadProfileVariants={stubLoadProfileVariants()}
+            />
+          );
+
+        expect(
+          screen.queryByText(
+            "Published"
+          )
+        ).not.toBeInTheDocument();
+
+        rerender(
+          <ProfileVariantPublicationPanel
+            activeProfileVariantId="prv_test"
+            activeProfile={
+              {
+                profileVariantId:
+                  "prv_test",
+
+                revision:
+                  3,
+              }
+            }
+            loadProfileVariants={stubLoadProfileVariants()}
+            seedPublishResult={
+              {
+                profileVariantId:
+                  "prv_from_data_page",
+
+                contentHash:
+                  "c".repeat(
+                    64
+                  ),
+              }
+            }
+          />
+        );
+
+        expect(
+          await screen.findByText(
+            "Published"
+          )
+        ).toBeInTheDocument();
+
+        expect(
+          screen.getAllByText(
+            "prv_from_data_page"
+          ).length
+        ).toBeGreaterThan(
+          0
+        );
+
+        expect(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Activate to PROD",
+            }
+          )
+        ).toBeInTheDocument();
+      }
+    );
   }
 );

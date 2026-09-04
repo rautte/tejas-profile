@@ -493,7 +493,7 @@ test(
 
 
 test(
-  "the Publish new Profile Variant tool is collapsed by default and expands on click",
+  "the Publish new Profile Variant tool is always visible, matching the Snapshots page card",
   async () => {
     getProfileVariant
       .mockResolvedValue(
@@ -517,23 +517,7 @@ test(
     );
 
     expect(
-      screen.queryByLabelText(
-        "Source Profile Variant ID"
-      )
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole(
-        "button",
-        {
-          name:
-            "Publish new Profile Variant from existing content…",
-        }
-      )
-    );
-
-    expect(
-      await screen.findByLabelText(
+      screen.getByLabelText(
         "Source Profile Variant ID"
       )
     ).toBeInTheDocument();
@@ -1953,15 +1937,21 @@ test(
       )
     );
 
-    expect(
-      await screen.findByText(
-        "prv_republished"
-      )
-    ).toBeInTheDocument();
+    await waitFor(
+      () => {
+        expect(
+          screen.getAllByText(
+            "prv_republished"
+          ).length
+        ).toBeGreaterThan(
+          0
+        );
+      }
+    );
 
     expect(
       screen.getByText(
-        /is now stored\. It is not yet live/
+        /is now stored\. See "Publish new Profile Variant" below to activate it\./
       )
     ).toBeInTheDocument();
 
@@ -1990,7 +1980,7 @@ test(
 
 
 test(
-  "a shortcut button on the publish-success banner activates the newly-published variant straight into PROD",
+  "publishing a draft seeds the Publish new Profile Variant card, which activates it straight into PROD",
   async () => {
     getProfileVariant
       .mockResolvedValue(
@@ -2118,12 +2108,20 @@ test(
       )
     );
 
-    await screen.findByText(
-      "prv_republished"
+    await waitFor(
+      () => {
+        expect(
+          screen.getAllByText(
+            "prv_republished"
+          ).length
+        ).toBeGreaterThan(
+          0
+        );
+      }
     );
 
     fireEvent.click(
-      screen.getByRole(
+      await screen.findByRole(
         "button",
         {
           name:
