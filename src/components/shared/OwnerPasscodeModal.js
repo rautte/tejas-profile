@@ -17,6 +17,7 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
   // forgot-mode phase: "idle" | "sending" | "awaiting-code" | "done"
   const [forgotPhase, setForgotPhase] = useState("idle");
   const [forgotError, setForgotError] = useState("");
+  const [rateLimited, setRateLimited] = useState(false);
   const [recoveredNotice, setRecoveredNotice] = useState(false);
   const [code, setCode] = useState("");
   const [newPasscode, setNewPasscode] = useState("");
@@ -29,6 +30,7 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
     setMode("login");
     setForgotPhase("idle");
     setForgotError("");
+    setRateLimited(false);
     setCode("");
     setNewPasscode("");
     setConfirmPasscode("");
@@ -45,6 +47,11 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
     0,
     Math.ceil((resendAvailableAt - nowTick) / 1000)
   );
+
+  const rateLimitMessage =
+    rateLimited && resendSecondsLeft > 0
+      ? `A code was already sent recently. Try again in ${resendSecondsLeft}s.`
+      : "";
 
   useEffect(() => {
     if (!open) return;
@@ -73,6 +80,7 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
     const isResend = forgotPhase === "awaiting-code";
     setForgotPhase("sending");
     setForgotError("");
+    setRateLimited(false);
 
     try {
       await requestOwnerPasscodeChange();
@@ -80,8 +88,15 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
       setNowTick(Date.now());
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
     } catch (e) {
-      setForgotError(String(e?.message || e));
       setForgotPhase(isResend ? "awaiting-code" : "idle");
+
+      if (Number.isFinite(e?.retryAfterSeconds)) {
+        setRateLimited(true);
+        setNowTick(Date.now());
+        setResendAvailableAt(Date.now() + e.retryAfterSeconds * 1000);
+      } else {
+        setForgotError(String(e?.message || e));
+      }
     }
   }
 
@@ -232,8 +247,14 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
                     We'll email a one-time code to your owner notification address.
                     It expires in 10 minutes.
                   </p>
-                  {forgotError && (
-                    <div className="text-sm text-red-500">{forgotError}</div>
+                  {rateLimitMessage ? (
+                    <div className="text-sm text-amber-600 dark:text-amber-400">
+                      {rateLimitMessage}
+                    </div>
+                  ) : (
+                    forgotError && (
+                      <div className="text-sm text-red-500">{forgotError}</div>
+                    )
                   )}
                 </>
               )}
@@ -314,8 +335,14 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
                     />
                   </div>
 
-                  {forgotError && (
-                    <div className="text-sm text-red-500">{forgotError}</div>
+                  {rateLimitMessage ? (
+                    <div className="text-sm text-amber-600 dark:text-amber-400">
+                      {rateLimitMessage}
+                    </div>
+                  ) : (
+                    forgotError && (
+                      <div className="text-sm text-red-500">{forgotError}</div>
+                    )
                   )}
 
                   <button
@@ -347,13 +374,17 @@ export default function OwnerPasscodeModal({ open, onClose, onSubmit, error }) {
                 <button
                   type="button"
                   onClick={handleSendCode}
+                  disabled={resendSecondsLeft > 0}
                   className="
                     px-4 py-2 rounded-lg text-sm font-semibold
                     border border-purple-500/40
                     bg-purple-600 text-white hover:bg-purple-700
+                    disabled:opacity-60 disabled:cursor-not-allowed
                   "
                 >
-                  Send verification code
+                  {resendSecondsLeft > 0
+                    ? `Send verification code (${resendSecondsLeft}s)`
+                    : "Send verification code"}
                 </button>
               )}
             </div>

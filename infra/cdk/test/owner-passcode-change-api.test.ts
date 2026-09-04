@@ -473,6 +473,23 @@ describe(
         expect(
           mockSesSend
         ).not.toHaveBeenCalled();
+
+        const body =
+          JSON.parse(
+            response.body
+          );
+
+        expect(
+          body.retryAfterSeconds
+        ).toBeGreaterThan(
+          0
+        );
+
+        expect(
+          body.retryAfterSeconds
+        ).toBeLessThanOrEqual(
+          60
+        );
       }
     );
 

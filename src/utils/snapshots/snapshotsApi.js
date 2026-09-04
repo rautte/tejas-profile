@@ -743,10 +743,22 @@ export async function requestOwnerPasscodeChange() {
     !res.ok ||
     !json.ok
   ) {
-    throw new Error(
-      json.error ||
-        `Requesting a passcode change code failed (${res.status})`
-    );
+    const err =
+      new Error(
+        json.error ||
+          `Requesting a passcode change code failed (${res.status})`
+      );
+
+    if (
+      Number.isFinite(
+        json.retryAfterSeconds
+      )
+    ) {
+      err.retryAfterSeconds =
+        json.retryAfterSeconds;
+    }
+
+    throw err;
   }
 
   return json;

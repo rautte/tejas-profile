@@ -83,6 +83,25 @@ test("the resend button starts disabled with a 60s countdown after sending a cod
 });
 
 
+test("a rate-limited request shows a live countdown instead of the static error", async () => {
+  const err = new Error("A code was already sent recently. Please wait a minute before requesting another.");
+  err.retryAfterSeconds = 42;
+  requestOwnerPasscodeChange.mockRejectedValue(err);
+
+  render(
+    <OwnerPasscodeModal open onClose={() => {}} onSubmit={() => {}} error="" />
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Forgot password?" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send verification code" }));
+
+  expect(await screen.findByText(/Try again in 42s\./)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Send verification code (42s)" })
+  ).toBeDisabled();
+});
+
+
 test("mismatched new passcodes never call the confirm API", async () => {
   requestOwnerPasscodeChange.mockResolvedValue({ ok: true });
 

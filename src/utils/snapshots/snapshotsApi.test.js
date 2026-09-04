@@ -567,6 +567,58 @@ describe(
 
 
     test(
+      "requestOwnerPasscodeChange attaches retryAfterSeconds from a rate-limit response",
+      async () => {
+        global.fetch.mockResolvedValue(
+          response(
+            {
+              status:
+                429,
+
+              body: {
+                ok:
+                  false,
+
+                error:
+                  "Please wait a minute before requesting another.",
+
+                retryAfterSeconds:
+                  37,
+              },
+            }
+          )
+        );
+
+        const {
+          requestOwnerPasscodeChange,
+        } =
+          require(
+            "./snapshotsApi"
+          );
+
+        let caught =
+          null;
+
+        try {
+          await requestOwnerPasscodeChange();
+        } catch (
+          error
+        ) {
+          caught =
+            error;
+        }
+
+        expect(
+          caught
+            ?.retryAfterSeconds
+        ).toBe(
+          37
+        );
+      }
+    );
+
+
+    test(
       "confirmOwnerPasscodeChange posts the code and new passcode to the confirm-change endpoint",
       async () => {
         global.fetch.mockResolvedValue(

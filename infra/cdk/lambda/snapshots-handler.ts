@@ -3319,6 +3319,24 @@ export async function handler(event: Event) {
           ) <
           60_000
       ) {
+        const retryAfterSeconds =
+          Math.max(
+            1,
+            Math.ceil(
+              (
+                60_000 -
+                (
+                  Date.now() -
+                  Date.parse(
+                    existingRecord.createdAt ||
+                    0
+                  )
+                )
+              ) /
+                1000
+            )
+          );
+
         return json(
           429,
           {
@@ -3327,6 +3345,8 @@ export async function handler(event: Event) {
 
             error:
               "A code was already sent recently. Please wait a minute before requesting another.",
+
+            retryAfterSeconds,
           },
           corsOrigin
         );

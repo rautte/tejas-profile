@@ -122,6 +122,55 @@ test(
 
 
 test(
+  "a rate-limited request shows a live countdown instead of the static error",
+  async () => {
+    const err =
+      new Error(
+        "A code was already sent recently. Please wait a minute before requesting another."
+      );
+
+    err.retryAfterSeconds =
+      42;
+
+    requestOwnerPasscodeChange
+      .mockRejectedValue(
+        err
+      );
+
+    render(
+      <SettingsAdmin />
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Send verification code",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByText(
+        /Try again in 42s\./
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Send verification code (42s)",
+        }
+      )
+    ).toBeDisabled();
+  }
+);
+
+
+test(
   "a failed code request surfaces the error and stays on the initial step",
   async () => {
     requestOwnerPasscodeChange

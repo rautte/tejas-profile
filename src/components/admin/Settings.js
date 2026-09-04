@@ -91,6 +91,14 @@ function OwnerPasscodeChangeCard() {
     );
 
   const [
+    rateLimited,
+    setRateLimited,
+  ] =
+    useState(
+      false
+    );
+
+  const [
     resendAvailableAt,
     setResendAvailableAt,
   ] =
@@ -147,6 +155,13 @@ function OwnerPasscodeChangeCard() {
       )
     );
 
+  const rateLimitMessage =
+    rateLimited &&
+    resendSecondsLeft >
+      0
+      ? `A code was already sent recently. Try again in ${resendSecondsLeft}s.`
+      : "";
+
 
   async function handleSendCode() {
     const isResend =
@@ -159,6 +174,10 @@ function OwnerPasscodeChangeCard() {
 
     setRequestError(
       ""
+    );
+
+    setRateLimited(
+      false
     );
 
     try {
@@ -180,19 +199,40 @@ function OwnerPasscodeChangeCard() {
     } catch (
       error
     ) {
-      setRequestError(
-        String(
-          error
-            ?.message ||
-          error
-        )
-      );
-
       setPhase(
         isResend
           ? "awaiting-code"
           : "idle"
       );
+
+      if (
+        Number.isFinite(
+          error
+            ?.retryAfterSeconds
+        )
+      ) {
+        setRateLimited(
+          true
+        );
+
+        setNowTick(
+          Date.now()
+        );
+
+        setResendAvailableAt(
+          Date.now() +
+            error.retryAfterSeconds *
+              1000
+        );
+      } else {
+        setRequestError(
+          String(
+            error
+              ?.message ||
+            error
+          )
+        );
+      }
     }
   }
 
@@ -286,6 +326,10 @@ function OwnerPasscodeChangeCard() {
 
     setConfirmError(
       ""
+    );
+
+    setRateLimited(
+      false
     );
 
     setCode(
@@ -446,7 +490,13 @@ function OwnerPasscodeChangeCard() {
             </div>
           ) : null}
 
-          {requestError ? (
+          {rateLimitMessage ? (
+            <div className="text-xs text-amber-600 dark:text-amber-400 whitespace-pre-wrap break-words">
+              {
+                rateLimitMessage
+              }
+            </div>
+          ) : requestError ? (
             <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
               {
                 requestError
@@ -534,7 +584,13 @@ function OwnerPasscodeChangeCard() {
               : "Send verification code"}
           </button>
 
-          {requestError ? (
+          {rateLimitMessage ? (
+            <div className="text-xs text-amber-600 dark:text-amber-400 whitespace-pre-wrap break-words">
+              {
+                rateLimitMessage
+              }
+            </div>
+          ) : requestError ? (
             <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
               {
                 requestError
