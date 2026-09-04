@@ -29,7 +29,7 @@ function cleanString(
 }
 
 
-function deriveObservedActivationState({
+export function deriveObservedActivationState({
   active,
   activeProfileVariantId,
 }) {

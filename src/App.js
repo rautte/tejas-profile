@@ -811,6 +811,14 @@ function AppContent() {
           activeProfileTargeting={
             activeProfileTargeting
           }
+
+          activeProfile={
+            activeProfile
+          }
+
+          onRefreshActiveProfile={
+            refreshActiveProfile
+          }
         />
       ),
       Settings: <AdminSettings darkMode={darkMode} />,

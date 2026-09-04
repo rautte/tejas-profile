@@ -15,6 +15,7 @@ import {
 import AdminData from "./Data";
 
 import {
+  activateProfileVariant,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
 
@@ -34,6 +35,9 @@ jest.mock(
   "../../utils/snapshots/snapshotsApi",
   () => ({
     getProfileVariant:
+      jest.fn(),
+
+    activateProfileVariant:
       jest.fn(),
   })
 );
@@ -482,6 +486,55 @@ test(
     expect(
       screen.getByText(
         "Referenced but not found among this variant's published assets."
+      )
+    ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "the Publish new Profile Variant tool is collapsed by default and expands on click",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    expect(
+      screen.queryByLabelText(
+        "Source Profile Variant ID"
+      )
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Publish new Profile Variant from existing content…",
+        }
+      )
+    );
+
+    expect(
+      await screen.findByLabelText(
+        "Source Profile Variant ID"
       )
     ).toBeInTheDocument();
   }
@@ -1789,6 +1842,9 @@ beforeEach(
 
     publishProfilePublication
       .mockReset();
+
+    activateProfileVariant
+      .mockReset();
   }
 );
 
@@ -1929,6 +1985,206 @@ test(
         }
       )
     ).toBeInTheDocument();
+  }
+);
+
+
+test(
+  "a shortcut button on the publish-success banner activates the newly-published variant straight into PROD",
+  async () => {
+    getProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          variant:
+            mockVariant(),
+        }
+      );
+
+    buildProfilePublicationPackage
+      .mockResolvedValue(
+        {
+          schema:
+            "tejas-profile.profile-publication-package",
+
+          variant: {
+            profileVariantId:
+              "prv_republished",
+          },
+        }
+      );
+
+    publishProfilePublication
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          profileVariantId:
+            "prv_republished",
+
+          contentHash:
+            "b".repeat(
+              64
+            ),
+        }
+      );
+
+    activateProfileVariant
+      .mockResolvedValue(
+        {
+          ok:
+            true,
+
+          active: {
+            profileVariantId:
+              "prv_republished",
+
+            revision:
+              4,
+          },
+        }
+      );
+
+    const onRefreshActiveProfile =
+      jest.fn().mockResolvedValue();
+
+    render(
+      <AdminData
+        activeProfileVariantId="prv_test"
+        activeProfile={
+          {
+            profileVariantId:
+              "prv_test",
+
+            revision:
+              3,
+          }
+        }
+        onRefreshActiveProfile={
+          onRefreshActiveProfile
+        }
+      />
+    );
+
+    await screen.findByText(
+      "Tejas Raut"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Start draft",
+        }
+      )
+    );
+
+    const greetingInput =
+      await screen.findByDisplayValue(
+        "Hi, I'm"
+      );
+
+    fireEvent.change(
+      greetingInput,
+      {
+        target: {
+          value:
+            "Hello there",
+        },
+      }
+    );
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Publish…",
+        }
+      )
+    );
+
+    fireEvent.click(
+      await screen.findByRole(
+        "button",
+        {
+          name:
+            "Confirm & publish",
+        }
+      )
+    );
+
+    await screen.findByText(
+      "prv_republished"
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Activate to PROD",
+        }
+      )
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Confirm activate",
+        }
+      )
+    );
+
+    await waitFor(
+      () => {
+        expect(
+          activateProfileVariant
+        ).toHaveBeenCalledWith(
+          {
+            profileVariantId:
+              "prv_republished",
+
+            expectedRevision:
+              3,
+          }
+        );
+      }
+    );
+
+    expect(
+      onRefreshActiveProfile
+    ).toHaveBeenCalledTimes(
+      1
+    );
+
+    expect(
+      await screen.findByText(
+        "Published & activated"
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        /is now the live PROD Profile\./
+      )
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByRole(
+        "button",
+        {
+          name:
+            "Activate to PROD",
+        }
+      )
+    ).not.toBeInTheDocument();
   }
 );
 

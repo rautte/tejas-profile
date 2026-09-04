@@ -10,7 +10,6 @@ import SectionHeader from "../shared/SectionHeader";
 
 import ProfileVariantActivationPanel from "./ProfileVariantActivationPanel";
 
-import ProfileVariantPublicationPanel from "./ProfileVariantPublicationPanel";
 import ProfileVariantCatalogPanel from "./ProfileVariantCatalogPanel";
 import PlatformReleaseCatalogPanel from "./PlatformReleaseCatalogPanel";
 import CurrentRuntimeCompositionCard from "./CurrentRuntimeCompositionCard";
@@ -2534,15 +2533,6 @@ export default function AdminSnapshots({
 
             activeDeploymentConfigurationId={
               activeDeploymentConfigurationId
-            }
-          />
-        </div>
-
-
-        <div>
-          <ProfileVariantPublicationPanel
-            activeProfileVariantId={
-              activeProfileVariantId
             }
           />
         </div>

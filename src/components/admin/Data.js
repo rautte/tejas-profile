@@ -17,8 +17,15 @@ import {
 } from "../../profile/editor/metadata";
 
 import {
+  activateProfileVariant,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
+
+import {
+  deriveObservedActivationState,
+} from "./ProfileVariantActivationPanel";
+
+import ProfileVariantPublicationPanel from "./ProfileVariantPublicationPanel";
 
 import {
   PROFILE_DRAFT_STATUS,
@@ -2200,6 +2207,11 @@ export default function AdminData({
 
   activeProfileTargeting =
     null,
+
+  activeProfile =
+    null,
+
+  onRefreshActiveProfile,
 }) {
   const editorMetadata =
     useMemo(
@@ -2410,11 +2422,51 @@ export default function AdminData({
     );
 
   const [
+    showPublishNewVariant,
+    setShowPublishNewVariant,
+  ] =
+    useState(
+      false
+    );
+
+  const [
     publishSuccess,
     setPublishSuccess,
   ] =
     useState(
       null
+    );
+
+  const [
+    activateConfirming,
+    setActivateConfirming,
+  ] =
+    useState(
+      false
+    );
+
+  const [
+    activateBusy,
+    setActivateBusy,
+  ] =
+    useState(
+      false
+    );
+
+  const [
+    activateError,
+    setActivateError,
+  ] =
+    useState(
+      ""
+    );
+
+  const [
+    activateDone,
+    setActivateDone,
+  ] =
+    useState(
+      false
     );
 
   // Staged asset replacements/uploads, keyed by the dotted content
@@ -2446,6 +2498,104 @@ export default function AdminData({
     setStagedAssets(
       {}
     );
+
+    setActivateConfirming(
+      false
+    );
+
+    setActivateError(
+      ""
+    );
+
+    setActivateDone(
+      false
+    );
+  }
+
+
+  async function handleActivateToProd() {
+    const targetProfileVariantId =
+      String(
+        publishSuccess
+          ?.profileVariantId ||
+        ""
+      ).trim();
+
+    if (
+      !targetProfileVariantId
+    ) {
+      return;
+    }
+
+    const observed =
+      deriveObservedActivationState(
+        {
+          active:
+            activeProfile,
+
+          activeProfileVariantId,
+        }
+      );
+
+    if (
+      !observed.valid
+    ) {
+      setActivateError(
+        "Current ACTIVE Profile state has an invalid revision. Refresh the active Profile before activating."
+      );
+
+      return;
+    }
+
+    setActivateBusy(
+      true
+    );
+
+    setActivateError(
+      ""
+    );
+
+    try {
+      await activateProfileVariant(
+        {
+          profileVariantId:
+            targetProfileVariantId,
+
+          expectedRevision:
+            observed
+              .expectedRevision,
+        }
+      );
+
+      try {
+        await onRefreshActiveProfile?.();
+      } catch {
+        // Activation already committed -- a refresh failure here
+        // never implies the activation itself failed.
+      }
+
+      setActivateConfirming(
+        false
+      );
+
+      setActivateDone(
+        true
+      );
+    } catch (
+      error
+    ) {
+      setActivateError(
+        String(
+          error
+            ?.message ||
+          error
+        )
+      );
+    } finally {
+      setActivateBusy(
+        false
+      );
+    }
   }
 
 
@@ -2929,7 +3079,9 @@ export default function AdminData({
             )}
           >
             <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-              Published
+              {activateDone
+                ? "Published & activated"
+                : "Published"}
             </div>
 
             <div className="text-xs text-gray-700 dark:text-gray-300">
@@ -2939,20 +3091,86 @@ export default function AdminData({
                   publishSuccess.profileVariantId
                 }
               </span>{" "}
-              is now stored. It is not yet live — activate it from Snapshots when you're ready.
+              {activateDone
+                ? "is now the live PROD Profile."
+                : "is now stored. It is not yet live — activate it now, or from Snapshots later."}
             </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                setPublishSuccess(
-                  null
-                )
-              }
-              className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
-            >
-              Dismiss
-            </button>
+            {activateError ? (
+              <div className="text-xs text-red-600 dark:text-red-400">
+                {
+                  activateError
+                }
+              </div>
+            ) : null}
+
+            {activateConfirming ? (
+              <div className="pt-1 space-y-2">
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  Activate this variant now? This immediately makes it the live PROD Profile.
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={
+                      handleActivateToProd
+                    }
+                    disabled={
+                      activateBusy
+                    }
+                    className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline disabled:opacity-60"
+                  >
+                    {activateBusy
+                      ? "Activating…"
+                      : "Confirm activate"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActivateConfirming(
+                        false
+                      )
+                    }
+                    disabled={
+                      activateBusy
+                    }
+                    className="text-xs font-semibold text-gray-500 dark:text-gray-400 hover:underline disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 pt-1">
+                {!activateDone ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActivateConfirming(
+                        true
+                      )
+                    }
+                    className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
+                  >
+                    Activate to PROD
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPublishSuccess(
+                      null
+                    )
+                  }
+                  className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -2979,6 +3197,41 @@ export default function AdminData({
             }
           />
         ) : null}
+
+        <div>
+          <button
+            type="button"
+            onClick={() =>
+              setShowPublishNewVariant(
+                (
+                  open
+                ) =>
+                  !open
+              )
+            }
+            className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:underline"
+          >
+            {showPublishNewVariant
+              ? "Hide: publish new Profile Variant from existing content"
+              : "Publish new Profile Variant from existing content…"}
+          </button>
+
+          {showPublishNewVariant ? (
+            <div className="mt-3">
+              <ProfileVariantPublicationPanel
+                activeProfileVariantId={
+                  activeProfileVariantId
+                }
+                activeProfile={
+                  activeProfile
+                }
+                onRefreshActiveProfile={
+                  onRefreshActiveProfile
+                }
+              />
+            </div>
+          ) : null}
+        </div>
 
         {!cleanString(
           activeProfileVariantId

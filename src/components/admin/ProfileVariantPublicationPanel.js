@@ -16,8 +16,13 @@ import {
 } from "../../profile/publish";
 
 import {
+  activateProfileVariant,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
+
+import {
+  deriveObservedActivationState,
+} from "./ProfileVariantActivationPanel";
 
 import {
   listProfileVariants,
@@ -81,6 +86,11 @@ function MetadataRow({
 export default function ProfileVariantPublicationPanel({
   activeProfileVariantId =
     "",
+
+  activeProfile =
+    null,
+
+  onRefreshActiveProfile,
 
   loadProfileVariants =
     listProfileVariants,
@@ -172,6 +182,30 @@ export default function ProfileVariantPublicationPanel({
     setPublishResult,
   ] =
     useState(null);
+
+  const [
+    activateConfirming,
+    setActivateConfirming,
+  ] =
+    useState(false);
+
+  const [
+    activateBusy,
+    setActivateBusy,
+  ] =
+    useState(false);
+
+  const [
+    activateError,
+    setActivateError,
+  ] =
+    useState("");
+
+  const [
+    activateDone,
+    setActivateDone,
+  ] =
+    useState(false);
 
 
   useEffect(
@@ -283,7 +317,105 @@ export default function ProfileVariantPublicationPanel({
     setPublishResult(
       null
     );
+
+    setActivateConfirming(
+      false
+    );
+
+    setActivateError(
+      ""
+    );
+
+    setActivateDone(
+      false
+    );
   };
+
+
+  const activateNewVariant =
+    async () => {
+      const targetProfileVariantId =
+        cleanString(
+          publishResult
+            ?.profileVariantId
+        );
+
+      if (
+        !targetProfileVariantId
+      ) {
+        return;
+      }
+
+      const observed =
+        deriveObservedActivationState(
+          {
+            active:
+              activeProfile,
+
+            activeProfileVariantId,
+          }
+        );
+
+      if (
+        !observed.valid
+      ) {
+        setActivateError(
+          "Current ACTIVE Profile state has an invalid revision. Refresh the active Profile before activating."
+        );
+
+        return;
+      }
+
+      setActivateBusy(
+        true
+      );
+
+      setActivateError(
+        ""
+      );
+
+      try {
+        await activateProfileVariant(
+          {
+            profileVariantId:
+              targetProfileVariantId,
+
+            expectedRevision:
+              observed
+                .expectedRevision,
+          }
+        );
+
+        try {
+          await onRefreshActiveProfile?.();
+        } catch {
+          // Activation already committed -- a refresh failure here
+          // never implies the activation itself failed.
+        }
+
+        setActivateConfirming(
+          false
+        );
+
+        setActivateDone(
+          true
+        );
+      } catch (
+        error
+      ) {
+        setActivateError(
+          String(
+            error
+              ?.message ||
+            error
+          )
+        );
+      } finally {
+        setActivateBusy(
+          false
+        );
+      }
+    };
 
 
   const loadSourceVariant =
@@ -1019,7 +1151,9 @@ export default function ProfileVariantPublicationPanel({
         {publishResult ? (
           <div className="rounded-xl border border-emerald-200/70 dark:border-emerald-400/20 bg-emerald-50/50 dark:bg-emerald-500/5 p-4 space-y-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-              Published
+              {activateDone
+                ? "Published & activated"
+                : "Published"}
             </div>
 
             <MetadataRow
@@ -1039,14 +1173,70 @@ export default function ProfileVariantPublicationPanel({
             />
 
             <p className="text-xs text-gray-600 dark:text-gray-400 pt-1">
-              Not yet active. Paste{" "}
-              <span className="font-mono">
-                {
-                  publishResult.profileVariantId
-                }
-              </span>{" "}
-              into Profile activation below to activate it.
+              {activateDone
+                ? "It is now the live PROD Profile."
+                : "Not yet active. Activate it now, or from Snapshots → Profile activation later."}
             </p>
+
+            {activateError ? (
+              <div className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words">
+                {
+                  activateError
+                }
+              </div>
+            ) : null}
+
+            {activateConfirming ? (
+              <div className="space-y-2">
+                <div className="text-xs text-amber-700 dark:text-amber-300">
+                  Activate this variant now? This immediately makes it the live PROD Profile.
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={
+                      activateNewVariant
+                    }
+                    disabled={
+                      activateBusy
+                    }
+                    className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline disabled:opacity-60"
+                  >
+                    {activateBusy
+                      ? "Activating…"
+                      : "Confirm activate"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActivateConfirming(
+                        false
+                      )
+                    }
+                    disabled={
+                      activateBusy
+                    }
+                    className="text-xs font-semibold text-gray-500 dark:text-gray-400 hover:underline disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : !activateDone ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setActivateConfirming(
+                    true
+                  )
+                }
+                className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
+              >
+                Activate to PROD
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -15,6 +15,7 @@ import {
 } from "../../profile/publish";
 
 import {
+  activateProfileVariant,
   getProfileVariant,
 } from "../../utils/snapshots/snapshotsApi";
 
@@ -39,6 +40,9 @@ jest.mock(
   "../../utils/snapshots/snapshotsApi",
   () => ({
     getProfileVariant:
+      jest.fn(),
+
+    activateProfileVariant:
       jest.fn(),
   })
 );
@@ -434,6 +438,191 @@ describe(
         ).toHaveBeenCalledTimes(
           1
         );
+      }
+    );
+
+
+    test(
+      "a shortcut button activates the newly-published variant straight into PROD",
+      async () => {
+        buildProfilePublicationPackage
+          .mockResolvedValue({
+            schema:
+              "tejas-profile.profile-publication-package",
+
+            variant: {
+              profileVariantId:
+                "prv_retargeted",
+            },
+          });
+
+
+        publishProfilePublication
+          .mockResolvedValue({
+            ok:
+              true,
+
+            profileVariantId:
+              "prv_retargeted",
+
+            contentHash:
+              "b".repeat(
+                64
+              ),
+          });
+
+
+        activateProfileVariant
+          .mockResolvedValue({
+            ok:
+              true,
+
+            active: {
+              profileVariantId:
+                "prv_retargeted",
+
+              revision:
+                4,
+            },
+          });
+
+
+        const onRefreshActiveProfile =
+          jest.fn().mockResolvedValue();
+
+
+        render(
+          <ProfileVariantPublicationPanel
+            activeProfileVariantId="prv_test"
+            activeProfile={
+              {
+                profileVariantId:
+                  "prv_test",
+
+                revision:
+                  3,
+              }
+            }
+            onRefreshActiveProfile={
+              onRefreshActiveProfile
+            }
+            loadProfileVariants={stubLoadProfileVariants()}
+          />
+        );
+
+
+        await loadSource();
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target location"
+          ),
+          {
+            target: {
+              value:
+                "Austin, TX",
+            },
+          }
+        );
+
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "New target job role"
+          ),
+          {
+            target: {
+              value:
+                "Platform Engineer",
+            },
+          }
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Validate",
+            }
+          )
+        );
+
+
+        await screen.findByText(
+          "Ready to publish."
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Publish new Profile Variant",
+            }
+          )
+        );
+
+
+        await screen.findByText(
+          "Published"
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Activate to PROD",
+            }
+          )
+        );
+
+
+        fireEvent.click(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Confirm activate",
+            }
+          )
+        );
+
+
+        await waitFor(
+          () => {
+            expect(
+              activateProfileVariant
+            ).toHaveBeenCalledWith(
+              {
+                profileVariantId:
+                  "prv_retargeted",
+
+                expectedRevision:
+                  3,
+              }
+            );
+          }
+        );
+
+
+        expect(
+          onRefreshActiveProfile
+        ).toHaveBeenCalledTimes(
+          1
+        );
+
+
+        expect(
+          await screen.findByText(
+            "Published & activated"
+          )
+        ).toBeInTheDocument();
       }
     );
 
