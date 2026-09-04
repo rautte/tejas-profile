@@ -169,6 +169,123 @@ test(
 
 
 test(
+  "a group's display order follows the flat order, not the stored group array's own sequence",
+  () => {
+    // Simulates the real bug: the owner reordered Resume above Skills
+    // in the flat order (e.g. via the Structure editor's up/down
+    // arrows), but the stored "recruiter" group array still lists
+    // them in their old sequence. The group's effective order must
+    // still come out Resume-before-Skills.
+    const resolved =
+      resolveSiteStructure(
+        {
+          order: [
+            "About Me",
+            "Experience",
+            "Resume",
+            "Skills",
+            "Education",
+            "Projects",
+            "Code Lab",
+            "Fun Zone",
+            "Timeline",
+          ],
+
+          groups: {
+            pinned: [
+              "About Me",
+            ],
+
+            recruiter: [
+              "Experience",
+              "Skills",
+              "Education",
+              "Resume",
+            ],
+
+            hiringManager: [
+              "Projects",
+              "Code Lab",
+              "Fun Zone",
+            ],
+
+            explore: [
+              "Timeline",
+            ],
+          },
+        }
+      );
+
+    expect(
+      resolved.groups
+        .recruiter
+    ).toEqual(
+      [
+        "Experience",
+        "Resume",
+        "Skills",
+        "Education",
+      ]
+    );
+  }
+);
+
+
+test(
+  "recategorizing a section into a new group still respects that group's position in the flat order",
+  () => {
+    // Simulates moving Projects from hiringManager to recruiter: the
+    // raw group array gets Projects appended at the end, but its
+    // effective position among recruiter sections must follow where
+    // "Projects" actually sits in the flat order.
+    const resolved =
+      resolveSiteStructure(
+        {
+          order:
+            PUBLIC_SECTION_ORDER,
+
+          groups: {
+            pinned: [
+              "About Me",
+            ],
+
+            recruiter: [
+              "Experience",
+              "Skills",
+              "Education",
+              "Resume",
+              "Projects",
+            ],
+
+            hiringManager: [
+              "Code Lab",
+              "Fun Zone",
+            ],
+
+            explore: [
+              "Timeline",
+            ],
+          },
+        }
+      );
+
+    expect(
+      resolved.groups
+        .recruiter
+    ).toEqual(
+      [
+        "Experience",
+        "Skills",
+        "Education",
+        "Resume",
+        "Projects",
+      ]
+    );
+  }
+);
+
+
+test(
   "honors a valid owner-declared default section",
   () => {
     const resolved =

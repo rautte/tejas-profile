@@ -251,6 +251,41 @@ export function resolveSiteStructure(
       ];
   }
 
+  // A group's array only decides MEMBERSHIP above -- its display
+  // order must come from the single `order` list, not from
+  // whatever position the stored group array happened to have.
+  // Otherwise moving a section up/down in the owner's flat list
+  // (which only ever edits `order`) has no visible effect on a
+  // grouped navigation menu that reads its own array's order
+  // instead, letting the two silently drift apart.
+  for (
+    const groupId of
+      SITE_STRUCTURE_GROUP_IDS
+  ) {
+    groups[
+      groupId
+    ] =
+      [
+        ...(
+          groups[
+            groupId
+          ] ||
+          []
+        ),
+      ].sort(
+        (
+          a,
+          b
+        ) =>
+          effectiveOrder.indexOf(
+            a
+          ) -
+          effectiveOrder.indexOf(
+            b
+          )
+      );
+  }
+
   const defaultSection =
     typeof source.defaultSection ===
       "string" &&
