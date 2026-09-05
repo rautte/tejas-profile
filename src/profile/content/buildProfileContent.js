@@ -53,6 +53,8 @@ import {
   validateProfileContent,
 } from "../../utils/profileVariant";
 
+import activeSnapshot from "./activeSnapshot.json";
+
 
 /**
  * Repository authoring adapter.
@@ -63,8 +65,25 @@ import {
  *
  * It produces the same canonical ProfileContent DTO that a
  * future Admin → Data editor will eventually produce.
+ *
+ * Prefers activeSnapshot.json (see scripts/sync-repository-
+ * profile.mjs) when present and valid, so the very first paint --
+ * before the Active Profile API resolves -- already matches
+ * whatever Profile Variant is actually live, instead of visibly
+ * flashing older hand-authored content. Falls back to the
+ * hand-authored src/data modules below if the snapshot is ever
+ * missing, empty, or fails validation -- that path is never
+ * allowed to regress.
  */
 export function buildProfileContent() {
+  const fromSnapshot =
+    buildProfileContentFromSnapshot();
+
+  if (fromSnapshot) {
+    return fromSnapshot;
+  }
+
+
   const content =
     createProfileContent({
       hero:
@@ -124,4 +143,49 @@ export function buildProfileContent() {
 
 
   return content;
+}
+
+
+function buildProfileContentFromSnapshot() {
+  try {
+    const snapshotContent =
+      activeSnapshot
+        ?.content;
+
+    if (
+      !snapshotContent ||
+      typeof snapshotContent !==
+        "object"
+    ) {
+      return null;
+    }
+
+
+    const content =
+      createProfileContent({
+        ...snapshotContent,
+
+        structure:
+          snapshotContent.structure ||
+          defaultSiteStructure(),
+      });
+
+
+    const validation =
+      validateProfileContent(
+        content
+      );
+
+
+    if (
+      !validation.valid
+    ) {
+      return null;
+    }
+
+
+    return content;
+  } catch {
+    return null;
+  }
 }

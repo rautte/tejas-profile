@@ -381,7 +381,7 @@ function GameCard({
       className={cx(
         CARD_SURFACE,
         CARD_ROUNDED_2XL,
-        "group w-[320px]"
+        "group w-full max-w-[320px]"
       )}
     >
       <div className="transition-transform duration-300 group-hover:-translate-y-1">

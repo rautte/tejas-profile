@@ -18,6 +18,7 @@ import { cx } from "../utils/cx";
 export default function Hero({
   darkMode,
   hero = {},
+  waveKey,
 }) {
   const particleColor = useMemo(
     () => (darkMode ? "#b4b4b4e4" : "#24013bda"),
@@ -131,18 +132,17 @@ export default function Hero({
         transition={{ duration: 0.8 }}
       >
         <motion.h1
-          className="text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md flex items-center justify-center gap-3"
+          className="text-3xl sm:text-4xl md:text-5xl font-bold font-epilogue bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white drop-shadow-md flex flex-wrap items-center justify-center gap-2 sm:gap-3 px-2"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3, duration: 0.7 }}
         >
-          <motion.span
-            className="inline-block origin-[70%_70%] bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-100 to-white dark:from-white dark:via-gray-200 dark:to-white"
-            animate={{ rotate: [0, 25, -20, 25, -15, 15, 0] }}
-            transition={{ duration: 2.5, ease: "easeInOut" }}
+          <span
+            key={waveKey}
+            className="inline-block animate-wave"
           >
             👋
-          </motion.span>
+          </span>
           {hero.greeting} {hero.name}
         </motion.h1>
       </motion.div>

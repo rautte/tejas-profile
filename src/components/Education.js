@@ -62,7 +62,7 @@ export default function Education({
       <SectionHeader icon={FaGraduationCap} title="Education" />
 
       {/* Cards */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10 px-6 max-w-6xl mx-auto">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-16 gap-y-10 px-6">
         {education.map((edu) => {
           const logoSrc =
             typeof resolveAsset ===

@@ -2907,6 +2907,56 @@ export class SnapshotsStack extends cdk.Stack {
         }
       );
 
+    // Short-TTL edge cache for the public, unauthenticated
+    // GET /profile/active read path. This is the request every
+    // visitor's first paint waits on -- caching it briefly absorbs
+    // Lambda cold starts for most visitors without meaningfully
+    // delaying how soon a freshly-activated Profile Variant becomes
+    // visible (30s is a deliberately short staleness window).
+    //
+    // "origin" is included in the cache key because the handler's
+    // response varies by CORS origin (Access-Control-Allow-Origin);
+    // without this, a cached response for one origin could be
+    // served back to a different one.
+    const activeProfileCachePolicy =
+      new cloudfront.CachePolicy(
+        this,
+        "ActiveProfileCachePolicy",
+        {
+          comment:
+            `tejas-profile-${props.stage}-active-profile-cache`,
+
+          defaultTtl:
+            cdk.Duration.seconds(
+              30
+            ),
+
+          minTtl:
+            cdk.Duration.seconds(
+              0
+            ),
+
+          maxTtl:
+            cdk.Duration.seconds(
+              30
+            ),
+
+          headerBehavior:
+            cloudfront.CacheHeaderBehavior.allowList(
+              "origin"
+            ),
+
+          cookieBehavior:
+            cloudfront.CacheCookieBehavior.none(),
+
+          queryStringBehavior:
+            cloudfront.CacheQueryStringBehavior.none(),
+
+          enableAcceptEncodingGzip:
+            true,
+        }
+      );
+
     const analyticsEdge =
       new cloudfront.Distribution(
         this,
@@ -2933,6 +2983,30 @@ export class SnapshotsStack extends cdk.Stack {
                 .ALL_VIEWER_EXCEPT_HOST_HEADER,
 
             compress: false,
+          },
+
+          additionalBehaviors: {
+            "/profile/active": {
+              origin:
+                analyticsEdgeOrigin,
+
+              viewerProtocolPolicy:
+                cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+
+              allowedMethods:
+                cloudfront.AllowedMethods
+                  .ALLOW_GET_HEAD,
+
+              cachePolicy:
+                activeProfileCachePolicy,
+
+              originRequestPolicy:
+                cloudfront.OriginRequestPolicy
+                  .ALL_VIEWER_EXCEPT_HOST_HEADER,
+
+              compress:
+                true,
+            },
           },
         }
       );

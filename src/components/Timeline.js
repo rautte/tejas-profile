@@ -242,7 +242,7 @@ export default function Timeline({
       </div>
 
       {/* Timeline rail */}
-      <div className="max-w-5xl mx-auto mt-10 px-6">
+      <div className="mt-10 px-6">
         {/* Year labels above markers */}
         <div className="relative h-10">
           {years.map((y, idx) => {
@@ -362,7 +362,7 @@ export default function Timeline({
       </div>
 
       {/* Focused cards BELOW the rail */}
-      <div className="max-w-5xl mx-auto mt-10 px-6">
+      <div className="mt-10 px-6">
         {/* Year heading row */}
         <div className="flex items-center justify-between mb-5">
 

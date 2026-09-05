@@ -38,7 +38,11 @@ export const SECTION_UNDERLINE =
 
 // MOBILE CONSISTENCY
 export const SECTION_SHELL = "w-full py-1 px-1 md:px-4 transition-colors";
-export const SECTION_CONTAINER = "px-0 sm:px-6 md:px-4 max-w-6xl mx-auto";
+// Matches the Admin section's pattern: a constant side gutter, no
+// outer max-width cap, so content fills the same available width
+// the Admin pages use instead of a narrow centered column with
+// large fixed empty margins on wide screens.
+export const SECTION_CONTAINER = "px-0 sm:px-6 md:px-4";
 
 // export const ABOUTME_BODY_TEXT =
 //   "text-gray-800 dark:text-gray-300 leading-relaxed font-epilogue text-[12px] sm:text-md md:text-[15px]";

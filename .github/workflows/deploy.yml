@@ -723,9 +723,21 @@ jobs:
           echo "PROD Active Profile API resolved."
 
 
+          # Route the frontend's Active Profile reads through the
+          # AnalyticsEdgeDistribution's short-TTL cache behavior
+          # (/profile/active) instead of hitting the Lambda directly.
+          # This absorbs Lambda cold starts for real visitors; a
+          # freshly-activated Profile Variant becomes visible after
+          # at most the cache's TTL (see ActiveProfileCachePolicy in
+          # snapshots-stack.ts). DEV intentionally keeps calling the
+          # Lambda directly so activate-then-verify testing there
+          # stays instant.
+          ACTIVE_PROFILE_EDGE_URL="${EDGE_URL}/profile/active"
+
+
           echo "api_url=${API_URL}" >> "${GITHUB_OUTPUT}"
           echo "edge_url=${EDGE_URL}" >> "${GITHUB_OUTPUT}"
-          echo "active_profile_url=${ACTIVE_PROFILE_URL}" >> "${GITHUB_OUTPUT}"
+          echo "active_profile_url=${ACTIVE_PROFILE_EDGE_URL}" >> "${GITHUB_OUTPUT}"
 
 
       # ------------------------------------------------------------

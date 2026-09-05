@@ -38,6 +38,8 @@
     "sync:assets": "bash scripts/sync-assets.sh",
     "cdn:invalidate": "bash scripts/cdn-invalidate.sh",
     "assets:push": "npm run assets:publish",
+    "profile:sync-repository": "node scripts/sync-repository-profile.mjs",
+    "profile:sync-repository:dev": "node scripts/sync-repository-profile.mjs --stage=dev",
     "profile:formal": "node scripts/formal-profile-control.cjs",
     "profile:formal:test": "node --test scripts/formal-profile-control.test.cjs",
     "platform:formal:test": "node --test scripts/formal-platform-control.test.mjs"

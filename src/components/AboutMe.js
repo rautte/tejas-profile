@@ -111,6 +111,7 @@ export default function AboutMe({
           <div
             className="
               hidden md:grid md:grid-cols-3 md:gap-10
+              mt-8
               text-[14px] lg:text-[15px]
               leading-[1.7]
               text-gray-800 dark:text-gray-300

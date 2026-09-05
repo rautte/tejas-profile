@@ -1046,7 +1046,7 @@ export default function CodeLab({
       className="py-0 px-4 transition-colors"
       style={{ overflowAnchor: "none" }}
     >
-      <div className="px-6 max-w-6xl mx-auto">
+      <div className="px-6">
         <div className="mb-10 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div>
             <h2 className="text-3xl font-bold text-purple-700 dark:text-purple-300 font-epilogue drop-shadow-md flex items-center gap-3">

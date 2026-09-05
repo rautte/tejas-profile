@@ -892,7 +892,7 @@ export default function Resume({
       />
 
 
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="space-y-6">
 
         {/* Quick Info -- always first, not part of the reorderable set */}
         <SectionCard

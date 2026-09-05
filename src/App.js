@@ -246,16 +246,6 @@ function AppContent() {
     ]
   );
 
-  const LABELS = useMemo(
-    () => [
-      ...effectiveStructure.order,
-      ...ADMIN_SECTION_ORDER,
-    ],
-    [
-      effectiveStructure,
-    ]
-  );
-
   const [ownerPromptOpen, setOwnerPromptOpen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(() =>
@@ -267,6 +257,21 @@ function AppContent() {
       () =>
         isOwnerBrowserSessionActive()
     );
+
+  // Admin sections only exist in the navigable order for the owner --
+  // otherwise "next section" past the last public section (Timeline)
+  // would land on an admin id (e.g. "Analytics") with no panel
+  // rendered for a non-owner, showing a blank page.
+  const LABELS = useMemo(
+    () => [
+      ...effectiveStructure.order,
+      ...(isOwner ? ADMIN_SECTION_ORDER : []),
+    ],
+    [
+      effectiveStructure,
+      isOwner,
+    ]
+  );
 
   const [ownerError, setOwnerError] = useState("");
 
@@ -1643,6 +1648,7 @@ function AppContent() {
               <Hero
                 darkMode={darkMode}
                 hero={profileContent.hero}
+                waveKey={activeProfileVariantId || "repository"}
               />
             </div>
 

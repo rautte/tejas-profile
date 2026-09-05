@@ -23,6 +23,35 @@
     animation: glow 20s linear infinite;
   }
 
+  @keyframes wave {
+    0% {
+      transform: rotate(0deg);
+    }
+    16.67% {
+      transform: rotate(25deg);
+    }
+    33.33% {
+      transform: rotate(-20deg);
+    }
+    50% {
+      transform: rotate(25deg);
+    }
+    66.67% {
+      transform: rotate(-15deg);
+    }
+    83.33% {
+      transform: rotate(15deg);
+    }
+    100% {
+      transform: rotate(0deg);
+    }
+  }
+
+  .animate-wave {
+    transform-origin: 70% 70%;
+    animation: wave 2.5s ease-in-out;
+  }
+
   .bg-gradient-radial {
     background-image: radial-gradient(circle at center, var(--tw-gradient-stops));
   }

@@ -1,0 +1,1253 @@
+{
+  "syncedAt": "2026-09-05T08:12:33.222Z",
+  "profileVariantId": "prv_bangalore_india_backend_infrastructure_engineer_20260905T072856Z",
+  "contentSchemaVersion": 1,
+  "content": {
+    "aboutMe": {
+      "desktop": {
+        "paragraphs": [
+          "Most recently, I worked on large-scale AWS systems where I built and operated event-driven services processing more than 90M records each month and helped migrate over 3,500 production workflows to an AWS-native architecture. My experience spans distributed processing, APIs, OpenSearch, asynchronous systems, cloud infrastructure, and the reliability patterns that keep production systems running when things do not go as planned.",
+          "Outside of my day-to-day work, I like building systems that push me into new areas of engineering. My recent projects have included developer tooling and a smart voice reasoning system, giving me a chance to explore applied AI while staying close to the backend, infrastructure, and system-design problems I enjoy most. I care about understanding why a system works, not just getting it to work.",
+          "I’m currently looking for backend, platform, and distributed systems opportunities where I can take meaningful ownership and work on technically challenging products at scale. I’m especially drawn to teams that value strong engineering fundamentals, thoughtful design, reliability, and engineers who are encouraged to contribute beyond the boundaries of an assigned task."
+        ],
+        "quote": "“I’m a software engineer focused on backend and distributed systems. I enjoy building systems that operate reliably at scale, thinking through failure modes, and turning complex infrastructure problems into simple, dependable software.”"
+      },
+      "mobile": {
+        "paragraphs": [
+          "I am a software engineer focused on backend and distributed systems. My experience spans AWS and Azure, event-driven services, cloud infrastructure, data platforms, and production systems built to run reliably at scale.",
+          "I have worked on large-scale ingestion, processing, and orchestration systems, including AWS workloads processing 90M+ records per month and migration of 3,500+ production workflows. I care about performance, correctness, observability, and clear system ownership.",
+          "Outside of work, I build independent projects to explore infrastructure, automation, and applied AI. I enjoy taking an idea from a rough concept to something dependable and production-ready.",
+          "I am looking for backend, platform, and distributed systems roles where I can solve meaningful technical problems, take ownership, and keep growing alongside strong engineers."
+        ],
+        "quote": "“I like building systems that are easy to understand, reliable in production, and calm to debug when things go wrong.”"
+      },
+      "name": "Tejas Raut",
+      "profilePhotoAssetId": "profile.primary"
+    },
+    "codeLab": [
+      {
+        "code": "# Sanitized example: mount ADLS Gen2 using SP creds from Key Vault-backed secrets.\n    # Scope/key names are placeholders. Keep real names in workspace config, not in public code.\n\n    from dataclasses import dataclass\n    from typing import Dict, Tuple\n\n    @dataclass(frozen=True)\n    class MountResult:\n      mount_point: str\n      did_mount: bool\n\n    class Mounts:\n      def __init__(self, secrets_scope: str = \"<SECRETS_SCOPE_PLACEHOLDER>\"):\n        # Dummy placeholders so nothing internal leaks.\n        client_id = dbutils.secrets.get(scope=secrets_scope, key=\"<SP_CLIENT_ID_KEY>\")\n        tenant_id = dbutils.secrets.get(scope=secrets_scope, key=\"<TENANT_ID_KEY>\")\n        client_secret = dbutils.secrets.get(scope=secrets_scope, key=\"<SP_SECRET_KEY>\")\n\n        self._configs: Dict[str, str] = {\n          \"fs.azure.account.auth.type\": \"OAuth\",\n          \"fs.azure.account.oauth.provider.type\":\n            \"org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider\",\n          \"fs.azure.account.oauth2.client.id\": client_id,\n          \"fs.azure.account.oauth2.client.secret\": client_secret,\n          \"fs.azure.account.oauth2.client.endpoint\":\n            f\"https://login.microsoftonline.com/{tenant_id}/oauth2/token\",\n        }\n\n      def mount(self, storage_account: str, container: str, mount_name: str, *, force: bool = False) -> MountResult:\n        if not storage_account or not container or not mount_name:\n          raise ValueError(\"storage_account/container/mount_name are required\")\n\n        source = f\"abfss://{container}@{storage_account}.dfs.core.windows.net/\"\n        mount_point = f\"/mnt/{mount_name}\"\n\n        existing = {m.mountPoint: m.source for m in dbutils.fs.mounts()}\n\n        # If it exists and matches, we're done.\n        if mount_point in existing and existing[mount_point] == source and not force:\n          print(f\"[mounts] already mounted: {mount_point}\")\n          return MountResult(mount_point=mount_point, did_mount=False)\n\n        # If it exists but points elsewhere, don't silently stomp it.\n        if mount_point in existing and existing[mount_point] != source and not force:\n          raise RuntimeError(f\"mount point exists but source differs: {mount_point}\")\n\n        if mount_point in existing and force:\n          print(f\"[mounts] remounting (force): {mount_point}\")\n          dbutils.fs.unmount(mount_point)\n\n        print(f\"[mounts] mounting: {mount_point}\")  # no secrets printed\n        dbutils.fs.mount(source=source, mount_point=mount_point, extra_configs=self._configs)\n        return MountResult(mount_point=mount_point, did_mount=True)",
+        "concepts": [
+          "Secrets Management",
+          "Resource Isolation"
+        ],
+        "domain": [
+          "Data Platform"
+        ],
+        "from": "Formula1 Databricks Project",
+        "id": "databricks-adls-keyvault-mount",
+        "lang": "python",
+        "technology": [
+          "Databricks",
+          "Azure"
+        ],
+        "title": "Databricks: ADLS Gen2 mount via Key Vault secrets (idempotent + safe logs)",
+        "why": "Mounts ADLS the right way: secrets stay out of code, mounts are idempotent, and reruns are predictable across jobs/notebooks."
+      },
+      {
+        "code": "from pyspark.sql.types import (\n      StructType, StructField, StringType, IntegerType, LongType, DoubleType, BooleanType, ArrayType\n    )\n\n    # schema_dict format (example):\n    # {\n    #   \"driverId\": \"int\",\n    #   \"name\": {\"forename\": \"string\", \"surname\": \"string\"},\n    #   \"laps\": [{\"lap\": \"int\", \"time\": \"string\"}]\n    # }\n\n    _ALLOWED = {\n      \"string\": StringType(),\n      \"int\": IntegerType(),\n      \"long\": LongType(),\n      \"double\": DoubleType(),\n      \"boolean\": BooleanType(),\n    }\n\n    def define_schema(schema_dict: dict, *, nullable: bool = True) -> StructType:\n      def to_type(t: str):\n        if t not in _ALLOWED:\n          raise ValueError(f\"unknown type '{t}'. allowed: {sorted(_ALLOWED.keys())}\")\n        return _ALLOWED[t]\n\n      fields = []\n      for key, val in schema_dict.items():\n        if isinstance(val, dict):\n          fields.append(StructField(key, define_schema(val, nullable=nullable), nullable))\n        elif isinstance(val, list) and len(val) == 1 and isinstance(val[0], dict):\n          fields.append(StructField(key, ArrayType(define_schema(val[0], nullable=nullable)), nullable))\n        else:\n          fields.append(StructField(key, to_type(val), nullable))\n\n      return StructType(fields)",
+        "concepts": [
+          "Schema Management",
+          "Data Contracts"
+        ],
+        "domain": [
+          "Data Ingestion"
+        ],
+        "from": "Formula1 Ingestion Utilities",
+        "id": "spark-schema-builder",
+        "lang": "python",
+        "technology": [
+          "Spark"
+        ],
+        "title": "Spark: Programmatic schema builder (nested StructType + strict types)",
+        "why": "Stops schema drift early. I’d rather fail with a clean message than silently ingest the wrong types."
+      },
+      {
+        "code": "from typing import Optional\n\n    class Extract:\n      def read_json(\n        self,\n        path: str,\n        schema=None,\n        *,\n        multiline: bool = False,\n        bad_records_path: Optional[str] = None,\n      ):\n        reader = spark.read\n        if schema is not None:\n          reader = reader.schema(schema)\n\n        if bad_records_path:\n          reader = reader.option(\"badRecordsPath\", bad_records_path)\n\n        return (\n          reader\n            .option(\"multiline\", \"true\" if multiline else \"false\")\n            .json(path)\n        )\n\n      def read_csv(\n        self,\n        path: str,\n        schema=None,\n        *,\n        header: bool = True,\n        bad_records_path: Optional[str] = None,\n      ):\n        reader = spark.read\n        if schema is not None:\n          reader = reader.schema(schema)\n\n        if bad_records_path:\n          reader = reader.option(\"badRecordsPath\", bad_records_path)\n\n        return (\n          reader\n            .option(\"header\", \"true\" if header else \"false\")\n            .csv(path)\n        )",
+        "concepts": [
+          "Schema Management",
+          "Error Evidence Preservation"
+        ],
+        "domain": [
+          "Data Ingestion"
+        ],
+        "from": "Formula1 Ingestion Utilities",
+        "id": "spark-typed-read-wrappers",
+        "lang": "python",
+        "technology": [
+          "Spark"
+        ],
+        "title": "Spark: Typed read wrappers (consistent options + bad records path)",
+        "why": "Same read behavior everywhere: schema on demand, consistent options, and a place to park bad records when needed."
+      },
+      {
+        "code": "from pyspark.sql.functions import col, current_timestamp, lit\n\n    class Transform:\n      def add_audit_cols(self, df, source_name: str):\n        return (\n          df\n            .withColumn(\"ingested_at\", current_timestamp())\n            .withColumn(\"source\", lit(source_name))\n        )\n\n      def select_rename(self, df, mapping: dict, *, strict: bool = True):\n        # mapping: {\"oldName\": \"new_name\", ...}\n        if strict:\n          missing = [src for src in mapping.keys() if src not in df.columns]\n          if missing:\n            raise ValueError(f\"missing columns for rename: {missing}\")\n\n        exprs = [col(src).alias(dst) for src, dst in mapping.items() if src in df.columns]\n        return df.select(*exprs)\n\n      def drop_columns(self, df, cols: list[str], *, ignore_missing: bool = True):\n        for c in cols:\n          if ignore_missing and c not in df.columns:\n            continue\n          df = df.drop(c)\n        return df",
+        "concepts": [
+          "Auditability",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Analytics Engineering"
+        ],
+        "from": "Formula1 Ingestion Utilities",
+        "id": "spark-transform-helpers",
+        "lang": "python",
+        "technology": [
+          "Spark"
+        ],
+        "title": "Spark: Transform helpers (audit columns + safe rename + drop)",
+        "why": "Keeps notebook transforms boring and reusable: audit columns are consistent, and renames don’t hide missing columns."
+      },
+      {
+        "code": "class Load:\n      def write_parquet(\n        self,\n        df,\n        path: str,\n        *,\n        mode: str = \"overwrite\",\n        partition_by: list[str] | None = None,\n        compression: str = \"snappy\",\n      ):\n        allowed = {\"overwrite\", \"append\", \"errorifexists\", \"ignore\"}\n        if mode.lower() not in allowed:\n          raise ValueError(f\"invalid mode '{mode}'. allowed: {sorted(allowed)}\")\n\n        writer = df.write.mode(mode).option(\"compression\", compression)\n\n        if partition_by:\n          writer = writer.partitionBy(*partition_by)\n\n        writer.parquet(path)\n        return path",
+        "concepts": [
+          "Write Semantics",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Data Platform"
+        ],
+        "from": "Formula1 Ingestion Utilities",
+        "id": "spark-parquet-write-wrapper",
+        "lang": "python",
+        "technology": [
+          "Spark"
+        ],
+        "title": "Spark: Parquet write wrapper (mode validation + partition support)",
+        "why": "Centralizes write behavior so jobs don’t slowly diverge. Defaults are intentional and easy to audit."
+      },
+      {
+        "code": "from datetime import date\n    from decimal import Decimal\n    from uuid import UUID\n\n    from fastapi import BackgroundTasks, HTTPException, Response\n    from pydantic import BaseModel, Field, conint, constr\n\n    # ---------- Contracts ----------\n\n    class ReconciliationRequest(BaseModel):\n      reconciliation_id: UUID\n      business_date: date\n      source_system: constr(min_length=1, max_length=64)\n      target_system: constr(min_length=1, max_length=64)\n      transactions_uri: constr(min_length=1, max_length=2048)  # keep creds out of URIs\n      expected_total: Decimal\n      currency: constr(min_length=3, max_length=3)\n      idempotency_key: constr(min_length=8, max_length=128) = Field(\n        ..., description=\"Idempotency key to avoid duplicate runs\"\n      )\n\n    class ReconciliationResult(BaseModel):\n      reconciliation_id: UUID\n      status: str  # PENDING | SUCCESS | PARTIAL | FAILED\n      reconciled_total: Decimal\n      delta: Decimal\n      unmatched_count: conint(ge=0)\n      processed_at: str\n\n    # ---------- Control plane ----------\n\n    @app.post(\"/v1/reconciliation/cash\", response_model=ReconciliationResult, status_code=202)\n    def reconcile_cash(req: ReconciliationRequest, response: Response, bg: BackgroundTasks):\n      \"\"\"\n      I keep the API thin: validate, enforce idempotency, enqueue work.\n      The heavy compute stays in workers.\n      \"\"\"\n\n      # Durable idempotency is the whole point here (db/redis). In-memory doesn't count.\n      existing = idempotency_lookup(req.idempotency_key)  # returns None or a cached result blob\n      if existing:\n        response.status_code = 200\n        return existing\n\n      # Claim the key before enqueue so concurrent callers don't double-run.\n      if not idempotency_claim(req.idempotency_key, reconciliation_id=req.reconciliation_id):\n        cached = idempotency_lookup(req.idempotency_key)\n        response.status_code = 200\n        return cached\n\n      # Async orchestration. Worker updates the final result later.\n      bg.add_task(\n        enqueue_reconciliation_job,\n        reconciliation_id=req.reconciliation_id,\n        payload=req.model_dump(),\n      )\n\n      # Pollable location is nice for clients.\n      response.headers[\"Location\"] = f\"/v1/reconciliation/cash/{req.reconciliation_id}\"\n\n      return ReconciliationResult(\n        reconciliation_id=req.reconciliation_id,\n        status=\"PENDING\",\n        reconciled_total=Decimal(\"0.00\"),\n        delta=Decimal(\"0.00\"),\n        unmatched_count=0,\n        processed_at=utc_now(),\n      )",
+        "concepts": [
+          "Data Contracts",
+          "Defensive Programming",
+          "API Design"
+        ],
+        "domain": [
+          "FinTech",
+          "Backend Systems"
+        ],
+        "from": "Production Reconciliation Platform",
+        "id": "cash-reconciliation-idempotent-api",
+        "lang": "python",
+        "technology": [
+          "Python"
+        ],
+        "title": "API Design: Idempotent cash reconciliation endpoint (202 + poll URL)",
+        "why": "Clean API boundary: strict request/response contracts, real idempotency, and async orchestration without blocking the API layer."
+      },
+      {
+        "code": "var rootCmd = &cobra.Command{\n      Use:           \"syz\",\n      Short:         \"syzmaniac — developer environment manager\",\n      SilenceUsage:  true,  // usage on validation errors only\n      SilenceErrors: true,  // main() owns formatting\n    }\n\n    func Execute() {\n      if err := rootCmd.Execute(); err != nil {\n        fmt.Fprintln(os.Stderr, err)\n        os.Exit(1)\n      }\n    }\n\n    func init() {\n      rootCmd.PersistentFlags().BoolVarP(&verbose, \"verbose\", \"v\", false, \"verbose output\")\n      rootCmd.PersistentFlags().StringVar(&configPath, \"config\", \"\", \"path to config file\")\n\n      // Default config path is optional; keep it simple.\n      rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {\n        if configPath != \"\" {\n          return config.Load(configPath) // placeholder: load + validate once\n        }\n        return nil\n      }\n    }",
+        "concepts": [
+          "Defensive Programming",
+          "Resource Isolation"
+        ],
+        "domain": [
+          "Developer Tooling"
+        ],
+        "from": "syzmaniac CLI",
+        "id": "go-cobra-root-command",
+        "lang": "go",
+        "technology": [
+          "Go"
+        ],
+        "title": "Go CLI: Cobra root command (global flags + clean error behavior)",
+        "why": "A predictable CLI contract: global flags, consistent help, and errors formatted in one place."
+      },
+      {
+        "code": "var installCmd = &cobra.Command{\n      Use:   \"install <app>\",\n      Short: \"Install a tool (idempotent)\",\n      Args:  cobra.ExactArgs(1),\n      RunE: func(cmd *cobra.Command, args []string) error {\n        app := args[0]\n\n        version, _ := cmd.Flags().GetString(\"version\")\n        force, _ := cmd.Flags().GetBool(\"force\")\n\n        inst, err := installer.Resolve(app) // registry/factory\n        if err != nil { return err }\n\n        ctx := installer.Context{\n          Version: version,\n          Force:   force,\n          Verbose: verbose,\n        }\n\n        // cmd.Context() carries cancellation/timeouts; keep it flowing through.\n        return inst.Install(cmd.Context(), ctx)\n      },\n    }\n\n    func init() {\n      installCmd.Flags().String(\"version\", \"\", \"pin a version\")\n      installCmd.Flags().Bool(\"force\", false, \"force reinstall\")\n      rootCmd.AddCommand(installCmd)\n    }",
+        "concepts": [
+          "Defensive Programming",
+          "Resource Isolation"
+        ],
+        "domain": [
+          "Developer Tooling"
+        ],
+        "from": "syzmaniac CLI",
+        "id": "go-install-command",
+        "lang": "go",
+        "technology": [
+          "Go"
+        ],
+        "title": "Go CLI: install command (flags + installer routing + context propagation)",
+        "why": "Single entrypoint for installs. Flags stay consistent and routing stays extensible as new installers land."
+      },
+      {
+        "code": "import { loadLinksPreset } from \"tsparticles-preset-links\";\n    import { loadExternalGrabInteraction } from \"tsparticles-interaction-external-grab\";\n    import { loadExternalPushInteraction } from \"tsparticles-interaction-external-push\";\n    import { useCallback } from \"react\";\n\n    const particlesInit = useCallback(async (engine) => {\n      await loadLinksPreset(engine);             // links preset\n      await loadExternalGrabInteraction(engine); // grab on hover\n      await loadExternalPushInteraction(engine); // push on click\n    }, []);",
+        "concepts": [
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Frontend"
+        ],
+        "from": "Portfolio Hero Section",
+        "id": "tsparticles-init",
+        "lang": "javascript",
+        "technology": [
+          "React",
+          "tsParticles"
+        ],
+        "title": "Frontend: tsParticles init (links preset + grab/push interactions)",
+        "why": "Reusable init that keeps the config small, and interactions feel deliberate instead of noisy."
+      },
+      {
+        "code": "// Save a tiny resume blob on tab close. Best-effort only.\n    React.useEffect(() => {\n      const onBeforeUnload = () => {\n        if (!roomCode || !roomRef.current) return;\n\n        try {\n          saveLocalResume(roomCode, roleRef.current, {\n            v: 1, // version tag so future schema changes don't break resumes\n            exp: Date.now() + RESUME_WINDOW_MS,\n            playerGrid: playerGridRef.current,\n            playerFleet: playerFleetRef.current,\n            iAmReady: iAmReadyRef.current ?? false,\n            turn: turnRef.current,\n          });\n        } catch {\n          // I don't block unload for storage issues.\n        }\n      };\n\n      window.addEventListener(\"beforeunload\", onBeforeUnload);\n      return () => window.removeEventListener(\"beforeunload\", onBeforeUnload);\n    }, [roomCode, saveLocalResume]);",
+        "concepts": [
+          "State Synchronization",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Game Engineering"
+        ],
+        "from": "Battleship Multiplayer UX",
+        "id": "battleship-quick-resume",
+        "lang": "typescript",
+        "technology": [
+          "React",
+          "TypeScript"
+        ],
+        "title": "Battleship: Save quick-resume blob on tab close (TTL + version tag)",
+        "why": "Prevents the ‘lost game’ moment: saves just enough state to resume, but expires it so stale sessions don’t hang around."
+      },
+      {
+        "code": "const applyStateSnapshot = React.useCallback((s: any) => {\n      // Remote snapshots can be partial or weird. I treat them as untrusted input.\n      try {\n        if (typeof s?.phase === \"string\") setPhase(s.phase);\n        if (typeof s?.turn === \"string\") setTurn(s.turn);\n\n        if (s?.playerGrid) setPlayerGrid(s.playerGrid);\n        if (s?.playerFleet) setPlayerFleet(s.playerFleet);\n\n        // During placement, keep remaining fleet sizes aligned with what's already placed.\n        if (s?.playerFleet && phaseRef.current === \"place\") {\n          try {\n            const placedCount = Object.keys(s.playerFleet).length\n            setToPlace(FLEET_SIZES.slice(placedCount));\n          } catch {}\n        }\n\n        if (s?.playerShots) setPlayerShots(s.playerShots);\n        if (s?.enemyGrid) setEnemyGrid(s.enemyGrid);\n        if (s?.enemyFleet) setEnemyFleet(s.enemyFleet);\n        if (s?.enemyShots) setEnemyShots(s.enemyShots);\n\n        if (typeof s?.msg === \"string\") setMsg(s.msg);\n\n        setEnemyRevealed(false);\n      } catch {\n        // Never crash the UI because of a bad snapshot.\n      }\n    }, []);",
+        "concepts": [
+          "State Synchronization",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Game Engineering"
+        ],
+        "from": "Battleship State Management",
+        "id": "battleship-defensive-snapshot",
+        "lang": "typescript",
+        "technology": [
+          "React",
+          "TypeScript"
+        ],
+        "title": "Battleship: Apply state snapshot defensively (shape guards + no-crash sync)",
+        "why": "Sync stays robust: partial snapshots won’t crash the UI, and placement stays consistent with fleet size."
+      },
+      {
+        "code": "#!/usr/bin/env bash\n    set -euo pipefail\n\n    # Local env is optional. Keep real bucket/profile out of public code.\n    [ -f .env.local ] && set -a && . ./.env.local && set +a\n\n    ASSETS_DIR=\"${ASSETS_DIR:-src/assets/ships/sprites}\"\n    BUCKET=\"${ASSETS_BUCKET:?ASSETS_BUCKET not set (put it in .env.local)}\"\n    PREFIX=\"${ASSETS_PREFIX:-ships/sprites/}\"\n    REGION=\"${AWS_REGION:-us-east-1}\"\n    PROFILE=\"${AWS_PROFILE:-}\"\n\n    export AWS_SDK_LOAD_CONFIG=1\n\n    command_exists() { command -v \"$1\" >/dev/null 2>&1; }\n\n    ensure_aws_session() {\n      command_exists aws || { echo \"[sync:assets] ERROR: aws CLI not found.\" >&2; return 1; }\n\n      if aws sts get-caller-identity >/dev/null 2>&1; then return 0; fi\n\n      if [[ -n \"$PROFILE\" ]]; then\n        echo \"[sync:assets] Session invalid. Trying SSO login for '${PROFILE}'…\"\n        aws sso login --profile \"$PROFILE\"\n        aws sts get-caller-identity >/dev/null 2>&1 || return 1\n        return 0\n      fi\n\n      echo \"[sync:assets] ERROR: Not authenticated and AWS_PROFILE is empty.\" >&2\n      return 1\n    }\n\n    ensure_aws_session\n\n    # Idempotent sync. Keep logs quiet; callers can add --dryrun if they want.\n    aws s3 sync \"$ASSETS_DIR\" \"s3://$BUCKET/$PREFIX\" --region \"$REGION\" \\\n      ${PROFILE:+--profile \"$PROFILE\"} --only-show-errors",
+        "concepts": [
+          "Reliability",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "DevOps"
+        ],
+        "from": "Battleship Asset Pipeline",
+        "id": "battleship-s3-asset-sync-session",
+        "lang": "bash",
+        "technology": [
+          "AWS"
+        ],
+        "title": "DevOps: S3 asset sync with session validation (SSO fallback + quiet logs)",
+        "why": "Reliable uploads on real teams: validates session, supports SSO re-login, and keeps output CI-friendly."
+      },
+      {
+        "code": "#!/usr/bin/env bash\n    set -euo pipefail\n\n    # Local env is optional. Keep real distribution IDs out of public code.\n    [ -f .env.local ] && set -a && . ./.env.local && set +a\n\n    DISTRIBUTION_ID=\"${CDN_DISTRIBUTION_ID:?CDN_DISTRIBUTION_ID not set in .env.local}\" # do not commit real IDs\n    PATTERNS=\"${CDN_INVALIDATE_PATHS:-/ships/sprites/*}\" # space-separated is allowed: \"/a/* /b/*\"\n    PROFILE=\"${AWS_PROFILE:-}\"\n    REGION=\"${AWS_REGION:-us-east-1}\"\n\n    export AWS_SDK_LOAD_CONFIG=1\n\n    command_exists() { command -v \"$1\" >/dev/null 2>&1; }\n\n    ensure_aws_session() {\n      command_exists aws || { echo \"[cdn:invalidate] ERROR: aws CLI not found.\" >&2; return 1; }\n\n      if aws sts get-caller-identity >/dev/null 2>&1; then return 0; fi\n\n      if [[ -n \"$PROFILE\" ]]; then\n        echo \"[cdn:invalidate] Session invalid. Trying SSO login for '${PROFILE}'…\"\n        aws sso login --profile \"$PROFILE\"\n        aws sts get-caller-identity >/dev/null 2>&1 || return 1\n        return 0\n      fi\n\n      echo \"[cdn:invalidate] ERROR: Not authenticated and AWS_PROFILE is empty.\" >&2\n      return 1\n    }\n\n    ensure_aws_session\n\n    # Split patterns safely into args.\n    read -r -a PATHS <<< \"$PATTERNS\"\n\n    aws cloudfront create-invalidation \\\n      --distribution-id \"$DISTRIBUTION_ID\" \\\n      --paths \"${PATHS[@]}\" \\\n      ${PROFILE:+--profile \"$PROFILE\"} \\\n      --region \"$REGION\" >/dev/null",
+        "concepts": [
+          "Reliability",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "DevOps"
+        ],
+        "from": "Battleship CDN Ops",
+        "id": "battleship-cloudfront-invalidation-safe",
+        "lang": "bash",
+        "technology": [
+          "AWS"
+        ],
+        "title": "DevOps: CloudFront invalidation (paths + SSO fallback + safe arg parsing)",
+        "why": "Makes cache busting predictable: env-driven paths, SSO-friendly auth, and no weird quoting issues."
+      },
+      {
+        "code": "# Run:\n    # <BLENDER_BIN_PLACEHOLDER> -b -P scripts/blender_fbx_to_glb.py\n    # Keep your local Blender path out of git; docs/env is enough.\n\n    import bpy\n    import os\n\n    ROOT = os.path.abspath(\"src/assets/ships/raw\")\n    OUT  = os.path.abspath(\"src/assets/ships/glb\")\n    os.makedirs(OUT, exist_ok=True)\n\n    def process(ship: str) -> None:\n      bpy.ops.wm.read_factory_settings(use_empty=True)\n\n      fbx = os.path.join(ROOT, ship, f\"{ship}.fbx\")\n      tex = os.path.join(ROOT, ship, \"textures\")\n      glb = os.path.join(OUT, f\"{ship}.glb\")\n\n      if not os.path.isfile(fbx):\n        print(f\"[skip] {ship}: missing {fbx}\")\n        return\n\n      bpy.ops.import_scene.fbx(filepath=fbx)\n\n      if os.path.isdir(tex):\n        bpy.ops.file.find_missing_files(directory=tex)\n\n      bpy.ops.export_scene.gltf(\n        filepath=glb,\n        export_format=\"GLB\",\n        export_apply=True,\n        export_materials=\"EXPORT\",\n      )\n\n    ships = [\"visby\", \"k130\", \"saar6\", \"lcs-freedom\", \"lcs-independence\"]\n    for s in ships:\n      process(s)\n\n    print(\"[done]\")",
+        "concepts": [
+          "Reliability",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Game Engineering"
+        ],
+        "from": "Battleship 3D Asset Pipeline",
+        "id": "blender-fbx-glb-batch",
+        "lang": "python",
+        "technology": [
+          "Blender"
+        ],
+        "title": "3D Assets: Batch FBX → GLB via Blender CLI (deterministic exports)",
+        "why": "Reproducible asset builds: clean scene per file, auto texture relink, and consistent GLB export settings."
+      },
+      {
+        "code": "let closestIndex = 0;\n    let closestDistance = Infinity;\n\n    // Only consider actual timeline cards.\n    const cards = Array.from(container.children).filter(child =>\n      child.classList.contains(\"timeline-card\")\n    );\n\n    cards.forEach((card, i) => {\n      const cardCenter = card.offsetLeft + card.offsetWidth / 2;\n      const distance = Math.abs(center - cardCenter);\n\n      if (distance < closestDistance) {\n        closestDistance = distance;\n        closestIndex = i;\n      }\n    });\n\n    setActiveIndex(closestIndex);\n\n    // Discrete progress; guard empty data.\n    const total = Math.max(1, timelineData.length);\n    const progress = ((closestIndex + 1) / total) * 100;\n    setScrollProgress(progress);",
+        "concepts": [
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Frontend"
+        ],
+        "from": "Timeline Carousel UX",
+        "id": "timeline-active-card-progress",
+        "lang": "javascript",
+        "technology": [
+          "React"
+        ],
+        "title": "UI: Timeline active-card detection + discrete progress (snappy + bounded)",
+        "why": "Keeps the carousel feeling intentional: centered card detection and progress that doesn’t do weird partial fills."
+      },
+      {
+        "code": "{starter === null && (\n      <div className=\"w-full rounded-2xl bg-gray-100 dark:bg-gray-800 ring-1 ring-black/10 dark:ring-white/10 p-5\">\n        <div className=\"mb-3 font-semibold text-gray-800 dark:text-gray-100\">\n          Who starts first?\n        </div>\n\n        {/* Keep the board locked until we pick a starter. */}\n        <div className=\"grid grid-cols-2 gap-3\">\n          <button\n            onClick={() => {\n              setBoard(emptyBoard());\n              setStrike(null);\n              setOver(false);\n              setStarter(\"HUMAN\");\n              setTurn(HUMAN);\n            }}\n            className=\"px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90\"\n          >\n            Player starts\n          </button>\n\n          <button\n            onClick={() => {\n              setBoard(emptyBoard());\n              setStrike(null);\n              setOver(false);\n              setStarter(\"AI\");\n              setTurn(AI);\n            }}\n            className=\"px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-700 via-indigo-800 to-indigo-900 text-white shadow hover:opacity-90\"\n          >\n            AI starts\n          </button>\n        </div>\n      </div>\n    )}",
+        "concepts": [
+          "Defensive Programming",
+          "State Synchronization"
+        ],
+        "domain": [
+          "Frontend",
+          "Game Engineering"
+        ],
+        "from": "Tic Tac Toe Web",
+        "id": "tictactoe-starter-gate",
+        "lang": "tsx",
+        "technology": [
+          "React"
+        ],
+        "title": "UI: Starter chooser gates board interaction (prevents weird states)",
+        "why": "Small UX thing, big impact: you choose the starter first, then the board becomes interactive."
+      },
+      {
+        "code": "#!/bin/bash\n    set -euo pipefail\n\n    SCRIPT_NAME=\"$(basename \"$0\")\"\n    LOG_DIR=\"$HOME/sys_managed/logs/script_logs/dotfiles_migration_logs/ide_dotfiles_migration_logs\"\n    LOG_FILE=\"$LOG_DIR/${SCRIPT_NAME%.sh}.log\"\n    VSCODE_BASE=\"$HOME/sys_managed/etc/config/ide/vscode\"\n\n    mkdir -p \"$VSCODE_BASE\" \"$LOG_DIR\"\n\n    {\n      echo \"🕒 $(date) — VS Code dotfile migration start\"\n\n      # Prefer the VS Code CLI; if it's missing, don't guess paths.\n      VSCODE_VERSION=$(code --version 2>/dev/null | head -n1 || true)\n      if [[ -z \"$VSCODE_VERSION\" ]]; then\n        echo \"⚠️ VS Code CLI not found (code). Skipping migration.\"\n        exit 1\n      fi\n\n      VSCODE_DEST=\"$VSCODE_BASE/$VSCODE_VERSION\"\n      mkdir -p \"$VSCODE_DEST\"\n\n      VSCODE_VERSIONED_DOTFILES=(\n        \"Library/Application Support/Code/User/settings.json\"\n        \"Library/Application Support/Code/User/keybindings.json\"\n        \"Library/Application Support/Code/User/snippets\"\n      )\n\n      for file in \"${VSCODE_VERSIONED_DOTFILES[@]}\"; do\n        src=\"$HOME/$file\"\n        dest=\"$VSCODE_DEST/$(basename \"$file\")\"\n\n        if [[ -e \"$src\" && ! -L \"$src\" ]]; then\n          echo \"📦 Move: $src → $dest\"\n          mv \"$src\" \"$dest\"\n          ln -s \"$dest\" \"$src\"\n          echo \"🔗 Link: $src → $dest\"\n        elif [[ -L \"$src\" ]]; then\n          echo \"🔁 Already linked: $src\"\n        else\n          echo \"➖ Missing: $file\"\n        fi\n      done\n\n      echo \"✅ VS Code dotfile migration done\"\n    } | tee \"$LOG_FILE\"",
+        "concepts": [
+          "Auditability",
+          "Resource Isolation"
+        ],
+        "domain": [
+          "Developer Tooling"
+        ],
+        "from": "sys_managed dotfiles migration",
+        "id": "dotfiles-vscode-migration",
+        "lang": "bash",
+        "technology": [
+          "Bash",
+          "VS Code"
+        ],
+        "title": "Dotfiles: VS Code config migration (version-aware + safe symlinks)",
+        "why": "Idempotent migration with versioned layout + logging. Reads like ops hygiene, not a one-off script."
+      },
+      {
+        "code": "#!/bin/zsh\n    healthcheck_dotfiles() {\n      local LOG_DIR=\"$HOME/sys_managed/logs/healthcheck_logs/dir_file_status_logs\"\n      mkdir -p \"$LOG_DIR\"\n      local TIMESTAMP=$(date \"+%Y-%m-%d_%H-%M-%S\")\n      local LOG_FILE=\"$LOG_DIR/health_dir_files_$TIMESTAMP.log\"\n\n      local match=0 diff=0 src_missing=0 main_missing=0\n\n      {\n        echo \"🔍 Dotfile healthcheck — $(date)\"\n        echo \"-------------------------------------\"\n\n        # Single-file: template vs live.\n        if [[ -f \"$HOME/.zshrc\" && -f \"$HOME/dotfiles/.zshrc.template\" ]]; then\n          if diff -q \"$HOME/.zshrc\" \"$HOME/dotfiles/.zshrc.template\" &>/dev/null; then\n            echo \"✅ Match: ~/.zshrc\"; ((match++))\n          else\n            echo \"❌ Difference: ~/.zshrc\"; ((diff++))\n          fi\n        else\n          [[ -f \"$HOME/.zshrc\" ]] || { echo \"❌ Source missing: ~/.zshrc\"; ((src_missing++)); }\n          [[ -f \"$HOME/dotfiles/.zshrc.template\" ]] || { echo \"❌ Main missing: dotfiles/.zshrc.template\"; ((main_missing++)); }\n        fi\n\n        # Tree diff: dotfiles/requirements ⇆ sys_managed/requirements.\n        if [[ -d \"$HOME/dotfiles/requirements\" && -d \"$HOME/sys_managed/requirements\" ]]; then\n          while IFS= read -r -d '' file; do\n            rel_path=\"${file#$HOME/dotfiles/requirements/}\"\n            sys_file=\"$HOME/sys_managed/requirements/$rel_path\"\n\n            if [[ -e \"$sys_file\" ]]; then\n              if diff -q \"$file\" \"$sys_file\" &>/dev/null; then\n                echo \"✅ Match: requirements/$rel_path\"; ((match++))\n              else\n                echo \"❌ Difference: requirements/$rel_path\"; ((diff++))\n              fi\n            else\n              echo \"❌ Main missing: requirements/$rel_path\"; ((main_missing++))\n            fi\n          done < <(find \"$HOME/dotfiles/requirements\" -type f -print0)\n        else\n          [[ -d \"$HOME/dotfiles/requirements\" ]] || { echo \"❌ Source missing: dotfiles/requirements/\"; ((src_missing++)); }\n          [[ -d \"$HOME/sys_managed/requirements\" ]] || { echo \"❌ Main missing: sys_managed/requirements/\"; ((main_missing++)); }\n        fi\n\n        echo \"-------------------------------------\"\n        echo \"📊 Summary: match=$match diff=$diff source_missing=$src_missing main_missing=$main_missing\"\n      } | tee \"$LOG_FILE\"\n    }",
+        "concepts": [
+          "Auditability",
+          "Error Evidence Preservation"
+        ],
+        "domain": [
+          "Developer Tooling"
+        ],
+        "from": "sys_managed healthcheck",
+        "id": "dotfiles-drift-healthcheck",
+        "lang": "bash",
+        "technology": [
+          "Bash"
+        ],
+        "title": "Healthcheck: Dotfiles drift detection (structured diff results + logs)",
+        "why": "High signal: systematic drift detection with diffs and clean output you can actually scan during fixes."
+      },
+      {
+        "code": "#!/usr/bin/env bash\n    set -euo pipefail\n\n    # Env-driven so this hook works across machines.\n    # Defaults are placeholders. Real values should come from your shell or repo env files.\n    BUCKET=\"${BUCKET:-<S3_BUCKET_PLACEHOLDER>}\"                 # dummy value\n    CF_DIST=\"${CF_DIST:-<CF_DISTRIBUTION_ID_PLACEHOLDER>}\"      # dummy value\n    AWS_REGION=\"${AWS_REGION:-us-east-1}\"\n    AWS_PROFILE=\"${AWS_PROFILE:-<AWS_PROFILE_PLACEHOLDER>}\"     # dummy value\n\n    if [[ \"${SKIP_ASSET_SYNC:-0}\" == \"1\" || \"${CI:-}\" == \"true\" ]]; then\n      echo \"[pre-push] Skipping asset sync.\"\n      exit 0\n    fi\n\n    aws sts get-caller-identity >/dev/null 2>&1 || {\n      echo \"[pre-push] ERROR: Not authenticated to AWS.\" >&2\n      exit 1\n    }\n\n    echo \"[pre-push] Sync sprites → s3://${BUCKET}/ships/sprites/\"\n    aws s3 sync src/assets/ships/sprites \"s3://${BUCKET}/ships/sprites/\" \\\n      --exclude \"*/top/*\" \\\n      --cache-control \"public,max-age=86400\" \\\n      --delete\n\n    echo \"[pre-push] Invalidate CloudFront paths\"\n    aws cloudfront create-invalidation \\\n      --distribution-id \"${CF_DIST}\" \\\n      --paths \"/ships/sprites/*\" \"/ships/glb/*\" >/dev/null\n\n    echo \"[pre-push] Done.\"",
+        "concepts": [
+          "CI/CD",
+          "Reliability"
+        ],
+        "domain": [
+          "CI/CD"
+        ],
+        "from": "Battleship asset pipeline",
+        "id": "battleship-prepush-asset-cdn",
+        "lang": "bash",
+        "technology": [
+          "AWS"
+        ],
+        "title": "Git Hook: Pre-push asset sync + CloudFront invalidation (fast fail + cache headers)",
+        "why": "Deploy hygiene tied to workflow: sync correctness, caching headers, and a clean invalidation step."
+      },
+      {
+        "code": "#!/usr/bin/env bash\n    set -euo pipefail\n\n    [ -f .env.local ] && set -a && . ./.env.local && set +a\n\n    ASSETS_DIR=\"${ASSETS_DIR:-src/assets/ships/sprites}\"\n    BUCKET=\"${ASSETS_BUCKET:?ASSETS_BUCKET not set (put it in .env.local)}\"\n    PREFIX=\"${ASSETS_PREFIX:-ships/sprites/}\"\n    REGION=\"${AWS_REGION:-us-east-1}\"\n    PROFILE=\"${AWS_PROFILE:-}\"\n\n    export AWS_SDK_LOAD_CONFIG=1\n\n    aws sts get-caller-identity >/dev/null 2>&1 || {\n      echo \"[sync:assets] ERROR: Not authenticated to AWS.\" >&2\n      exit 1\n    }\n\n    aws s3 sync \"$ASSETS_DIR\" \"s3://$BUCKET/$PREFIX\" --region \"$REGION\" \\\n      ${PROFILE:+--profile \"$PROFILE\"} --only-show-errors",
+        "concepts": [
+          "Reliability",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "DevOps"
+        ],
+        "from": "Battleship assets / sync-assets.sh",
+        "id": "battleship-s3-sync",
+        "lang": "bash",
+        "technology": [
+          "AWS"
+        ],
+        "title": "Bash: Asset sync to S3 (env-driven + auth check + quiet output)",
+        "why": "Production-ish scripting: strict mode, env injection, auth check, and quiet logs that won’t spam CI."
+      },
+      {
+        "code": "#!/usr/bin/env bash\n    set -euo pipefail\n\n    [ -f .env.local ] && set -a && . ./.env.local && set +a\n\n    DISTRIBUTION_ID=\"${CDN_DISTRIBUTION_ID:?CDN_DISTRIBUTION_ID not set in .env.local}\" # dummy placeholder\n    PATTERNS=\"${CDN_INVALIDATE_PATHS:-/ships/sprites/*}\"\n    PROFILE=\"${AWS_PROFILE:-}\"\n    REGION=\"${AWS_REGION:-us-east-1}\"\n\n    export AWS_SDK_LOAD_CONFIG=1\n\n    aws sts get-caller-identity >/dev/null 2>&1 || {\n      echo \"[cdn:invalidate] ERROR: Not authenticated to AWS.\" >&2\n      exit 1\n    }\n\n    aws cloudfront create-invalidation \\\n      --distribution-id \"$DISTRIBUTION_ID\" \\\n      --paths $PATTERNS \\\n      ${PROFILE:+--profile \"$PROFILE\"} \\\n      --region \"$REGION\" >/dev/null",
+        "concepts": [
+          "Reliability",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "DevOps"
+        ],
+        "from": "Battleship CDN / cdn-invalidate.sh",
+        "id": "battleship-cdn-invalidate",
+        "lang": "bash",
+        "technology": [
+          "AWS"
+        ],
+        "title": "Bash: CloudFront invalidation (CDN cache bust after deploy)",
+        "why": "Small script, big impact: env-driven invalidation paths, explicit auth behavior, and predictable deploy hygiene."
+      },
+      {
+        "code": "-- Dedicated warehouse for BI/ELT: idle cost control + concurrency scaling.\n    CREATE OR REPLACE WAREHOUSE WH_ANALYTICS\n      WAREHOUSE_SIZE = 'MEDIUM'\n      WAREHOUSE_TYPE = 'STANDARD'\n      AUTO_SUSPEND = 120          -- seconds; short on purpose so we don't pay for idle\n      AUTO_RESUME = TRUE\n      INITIALLY_SUSPENDED = TRUE  -- start cold after deploys\n      MIN_CLUSTER_COUNT = 1\n      MAX_CLUSTER_COUNT = 3       -- cap scaling so spend stays predictable\n      SCALING_POLICY = 'STANDARD'\n      STATEMENT_TIMEOUT_IN_SECONDS = 1800\n      COMMENT = 'Dedicated analytics warehouse with cost + concurrency guardrails';\n\n    -- Optional safety net: credit quota + auto suspend.\n    -- NOTE: CREDIT_QUOTA is a placeholder; set to your org-approved budget.\n    -- CREATE OR REPLACE RESOURCE MONITOR RM_ANALYTICS\n    --   WITH CREDIT_QUOTA = <CREDIT_QUOTA_PLACEHOLDER> -- dummy value\n    --   TRIGGERS ON 80 PERCENT DO NOTIFY\n    --            ON 100 PERCENT DO SUSPEND;\n    -- ALTER WAREHOUSE WH_ANALYTICS SET RESOURCE_MONITOR = RM_ANALYTICS;",
+        "concepts": [
+          "Reliability",
+          "Resource Isolation"
+        ],
+        "domain": [
+          "Data Platform"
+        ],
+        "from": "Data Platform Ops (Snowflake)",
+        "id": "snowflake-multicluster-warehouse",
+        "lang": "sql",
+        "technology": [
+          "Snowflake"
+        ],
+        "title": "Snowflake: Dedicated multi-cluster warehouse (guardrails + predictable scaling)",
+        "why": "Warehouse settings that behave in prod: autosuspend for cost, multi-cluster for concurrency, and sane timeouts."
+      },
+      {
+        "code": "-- Roles: keep objects granted to roles (not users).\n    CREATE OR REPLACE ROLE ROLE_PLATFORM_ADMIN;\n    CREATE OR REPLACE ROLE ROLE_ANALYST;\n    CREATE OR REPLACE ROLE ROLE_ETL;\n\n    -- Admin inherits functional roles.\n    GRANT ROLE ROLE_ANALYST TO ROLE ROLE_PLATFORM_ADMIN;\n    GRANT ROLE ROLE_ETL     TO ROLE ROLE_PLATFORM_ADMIN;\n\n    -- Analyst: read-only on curated marts.\n    -- NOTE: Replace placeholders with your real DB/schema names.\n    GRANT USAGE ON DATABASE <DB_ANALYTICS_PLACEHOLDER> TO ROLE ROLE_ANALYST;\n    GRANT USAGE ON SCHEMA <DB_ANALYTICS_PLACEHOLDER>.<SCHEMA_MART_PLACEHOLDER> TO ROLE ROLE_ANALYST;\n    GRANT SELECT ON ALL TABLES IN SCHEMA <DB_ANALYTICS_PLACEHOLDER>.<SCHEMA_MART_PLACEHOLDER> TO ROLE ROLE_ANALYST;\n    GRANT SELECT ON FUTURE TABLES IN SCHEMA <DB_ANALYTICS_PLACEHOLDER>.<SCHEMA_MART_PLACEHOLDER> TO ROLE ROLE_ANALYST;\n\n    -- ETL: write permissions only where we load/build.\n    GRANT USAGE, CREATE TABLE, CREATE VIEW, CREATE STAGE, CREATE FILE FORMAT\n      ON SCHEMA <DB_ANALYTICS_PLACEHOLDER>.<SCHEMA_STAGING_PLACEHOLDER> TO ROLE ROLE_ETL;\n\n    -- User assignment: still no direct object grants to users.\n    -- NOTE: <USER_EMAIL_PLACEHOLDER> is a dummy value.\n    -- CREATE OR REPLACE USER <USER_EMAIL_PLACEHOLDER> DEFAULT_ROLE = ROLE_ANALYST MUST_CHANGE_PASSWORD = TRUE;\n    -- GRANT ROLE ROLE_ANALYST TO USER <USER_EMAIL_PLACEHOLDER>;",
+        "concepts": [
+          "Resource Isolation",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Security",
+          "Data Platform"
+        ],
+        "from": "Security / Access Control",
+        "id": "snowflake-rbac-baseline",
+        "lang": "sql",
+        "technology": [
+          "Snowflake"
+        ],
+        "title": "Snowflake: RBAC baseline (role hierarchy + least privilege grants)",
+        "why": "Scalable access control: privileges go to roles, roles go to users, and onboarding/offboarding stays safe."
+      },
+      {
+        "code": "-- Storage integration: preferred over access keys. Created once by an admin.\n    CREATE OR REPLACE STORAGE INTEGRATION S3_INT_ANALYTICS\n      TYPE = EXTERNAL_STAGE\n      STORAGE_PROVIDER = S3\n      ENABLED = TRUE\n      STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::<AWS_ACCOUNT_ID_PLACEHOLDER>:role/<SNOWFLAKE_ASSUME_ROLE_PLACEHOLDER>' -- dummy values\n      STORAGE_ALLOWED_LOCATIONS = ('s3://<S3_BUCKET_PLACEHOLDER>/<S3_PREFIX_PLACEHOLDER>/'); -- dummy values\n\n    -- Use these outputs to finalize AWS trust (external ID + Snowflake IAM user).\n    DESC INTEGRATION S3_INT_ANALYTICS;\n\n    -- File format (CSV example). Keep defaults explicit.\n    CREATE OR REPLACE FILE FORMAT FF_CSV_STD\n      TYPE = CSV\n      SKIP_HEADER = 1\n      FIELD_OPTIONALLY_ENCLOSED_BY = '\"'\n      NULL_IF = ('', 'NULL', 'null')\n      EMPTY_FIELD_AS_NULL = TRUE;\n\n    -- Stage wired to the integration (no credentials in SQL).\n    CREATE OR REPLACE STAGE STG_S3_RAW\n      URL = 's3://<S3_BUCKET_PLACEHOLDER>/<S3_PREFIX_PLACEHOLDER>/' -- dummy values\n      STORAGE_INTEGRATION = S3_INT_ANALYTICS\n      FILE_FORMAT = FF_CSV_STD;\n\n    LIST @STG_S3_RAW;",
+        "concepts": [
+          "Secrets Management",
+          "Resource Isolation"
+        ],
+        "domain": [
+          "External Data Access",
+          "Data Platform"
+        ],
+        "from": "External Data Access (S3 → Snowflake)",
+        "id": "snowflake-s3-storage-integration",
+        "lang": "sql",
+        "technology": [
+          "Snowflake",
+          "AWS"
+        ],
+        "title": "Snowflake: S3 storage integration + external stage (no access keys in SQL)",
+        "why": "Secure S3 access without embedding keys. Easier audits, safer rotation, and less accidental credential leakage."
+      },
+      {
+        "code": "-- Raw landing table (minimal typing; keep payload as VARIANT).\n    CREATE OR REPLACE TABLE STG_EVENTS_RAW (\n      event_id STRING,\n      event_ts STRING,\n      payload VARIANT\n    );\n\n    -- Snowpipe: stage -> raw. ON_ERROR CONTINUE so bad rows don't block the pipe.\n    CREATE OR REPLACE PIPE PIPE_EVENTS_RAW\n      AUTO_INGEST = TRUE\n    AS\n    COPY INTO STG_EVENTS_RAW (event_id, event_ts, payload)\n    FROM (\n      SELECT\n        $1:event_id::STRING,\n        $1:event_ts::STRING,\n        $1\n      FROM @STG_S3_RAW\n    )\n    FILE_FORMAT = (TYPE = JSON)\n    ON_ERROR = 'CONTINUE';\n\n    -- Stream: incremental view of inserts into the raw table.\n    CREATE OR REPLACE STREAM STRM_EVENTS_RAW\n      ON TABLE STG_EVENTS_RAW;\n\n    -- Error sink: keep it queryable and time-bound.\n    CREATE OR REPLACE TABLE PIPE_LOAD_ERRORS (\n      file_name STRING,\n      line_number INT,\n      error_message STRING,\n      error_category STRING,\n      error_phase STRING,\n      inserted_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()\n    );\n\n    -- Capture recent pipe errors. Use placeholders so nothing internal leaks.\n    CREATE OR REPLACE TASK T_CAPTURE_PIPE_ERRORS\n      WAREHOUSE = '<WAREHOUSE_NAME_PLACEHOLDER>' -- dummy value\n      SCHEDULE = 'USING CRON * * * * * UTC'\n    AS\n    INSERT INTO PIPE_LOAD_ERRORS (file_name, line_number, error_message, error_category, error_phase)\n    SELECT\n      FILE AS file_name,\n      ROW_NUMBER AS line_number,\n      ERROR AS error_message,\n      CATEGORY AS error_category,\n      'Pipe Load Error' AS error_phase\n    FROM TABLE(VALIDATE_PIPE_LOAD(\n      PIPE_NAME => '<PIPE_NAME_PLACEHOLDER>', -- dummy value\n      START_TIME => DATEADD(MINUTE, -5, CURRENT_TIMESTAMP())\n    ))\n    WHERE ERROR IS NOT NULL;\n\n    -- Curated table.\n    CREATE OR REPLACE TABLE EVENTS_CURATED (\n      event_id STRING,\n      event_time TIMESTAMP_NTZ,\n      payload VARIANT,\n      ingested_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()\n    );\n\n    -- Process stream only when it has data (saves warehouse cycles).\n    CREATE OR REPLACE TASK T_PROCESS_EVENTS\n      WAREHOUSE = '<WAREHOUSE_NAME_PLACEHOLDER>' -- dummy value\n      AFTER T_CAPTURE_PIPE_ERRORS\n      WHEN SYSTEM$STREAM_HAS_DATA('STRM_EVENTS_RAW')\n    AS\n    INSERT INTO EVENTS_CURATED (event_id, event_time, payload)\n    SELECT\n      event_id,\n      TRY_TO_TIMESTAMP_NTZ(event_ts),\n      payload\n    FROM STRM_EVENTS_RAW\n    WHERE METADATA$ACTION = 'INSERT';\n\n    -- Enable when you're ready.\n    -- ALTER TASK T_CAPTURE_PIPE_ERRORS RESUME;\n    -- ALTER TASK T_PROCESS_EVENTS RESUME;",
+        "concepts": [
+          "Orchestration",
+          "Error Evidence Preservation",
+          "Write Semantics"
+        ],
+        "domain": [
+          "Data Ingestion",
+          "Data Platform"
+        ],
+        "from": "Orchestration / Near-Real-Time Ingestion",
+        "id": "snowflake-snowpipe-stream-tasks",
+        "lang": "sql",
+        "technology": [
+          "Snowflake"
+        ],
+        "title": "Snowflake: Snowpipe + Stream + Tasks (error capture + stream-gated processing)",
+        "why": "End-to-end ingest pattern: auto-ingest into raw, capture pipe errors for ops, then stream-gated load into curated."
+      },
+      {
+        "code": "-- Capture rejected payloads so we can debug/replay later.\n    CREATE OR REPLACE TABLE REJECTED_RECORDS (\n      rejects STRING,\n      first_seen_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()\n    );\n\n    -- Error metadata is useful for trend + RCA.\n    CREATE OR REPLACE TABLE LOAD_ERROR_INFO (\n      file_name STRING,\n      line_number INT,\n      error_message STRING,\n      column_name STRING,\n      error_category STRING,\n      error_phase STRING,\n      inserted_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()\n    );\n\n    -- Pull recent pipe errors (last 10 minutes).\n    -- NOTE: PIPE_NAME is a placeholder so we don't leak internal identifiers.\n    INSERT INTO LOAD_ERROR_INFO (file_name, line_number, error_message, column_name, error_category, error_phase)\n    SELECT\n      FILE AS file_name,\n      ROW_NUMBER AS line_number,\n      ERROR AS error_message,\n      SPLIT_PART(COLUMN_NAME,'\"',4) AS column_name,\n      CATEGORY AS error_category,\n      'Pipe Load Error' AS error_phase\n    FROM TABLE(VALIDATE_PIPE_LOAD(\n      PIPE_NAME => '<PIPE_NAME_PLACEHOLDER>', -- dummy value\n      START_TIME => DATEADD(MINUTE, -10, CURRENT_TIMESTAMP())\n    ))\n    WHERE ERROR IS NOT NULL;\n\n    -- Dedup rejects via MERGE (more reliable than relying on constraints).\n    MERGE INTO REJECTED_RECORDS t\n    USING (\n      SELECT DISTINCT REJECTED_RECORD AS rejects\n      FROM TABLE(VALIDATE_PIPE_LOAD(\n        PIPE_NAME => '<PIPE_NAME_PLACEHOLDER>', -- dummy value\n        START_TIME => DATEADD(MINUTE, -10, CURRENT_TIMESTAMP())\n      ))\n      WHERE REJECTED_RECORD IS NOT NULL\n    ) s\n    ON t.rejects = s.rejects\n    WHEN NOT MATCHED THEN\n      INSERT (rejects) VALUES (s.rejects);",
+        "concepts": [
+          "Data Quality",
+          "Error Evidence Preservation",
+          "Auditability"
+        ],
+        "domain": [
+          "Data Quality"
+        ],
+        "from": "Data Quality / Cleaning",
+        "id": "snowflake-rejected-row-quarantine",
+        "lang": "sql",
+        "technology": [
+          "Snowflake"
+        ],
+        "title": "Snowflake: Quarantine rejected rows + deduped evidence (pipe validate pattern)",
+        "why": "I keep rejects and error metadata instead of dropping rows. Makes RCA and replay possible when formats change upstream."
+      },
+      {
+        "code": "import time\n    import logging\n    import random\n    import requests\n    from urllib.parse import urlencode\n    from datetime import datetime, timedelta\n\n    TOKEN = {\"access_token\": None}\n    EXPIRATION_DATE = datetime.min\n\n    def get_tabular_access_token(tabular_credential: str) -> dict | None:\n        # Real secret comes from Airflow Variables/Secrets backend (client_id:client_secret).\n        # Example format only (do not hardcode): \"YOUR_CLIENT_ID:YOUR_CLIENT_SECRET\"\n        token_url = \"https://api.tabular.io/ws/v1/oauth/tokens\"\n        client_id, client_secret = tabular_credential.split(\":\", 1)\n\n        headers = {\"Content-Type\": \"application/x-www-form-urlencoded\"}\n        body = urlencode(\n            {\"grant_type\": \"client_credentials\", \"client_id\": client_id, \"client_secret\": client_secret}\n        )\n\n        try:\n            resp = requests.post(token_url, headers=headers, data=body, timeout=15)\n            resp.raise_for_status()\n            return resp.json()\n        except requests.RequestException as e:\n            logging.error(f\"token error: {e}\")\n            return None\n\n    def refresh_token_if_needed(tabular_credential: str) -> None:\n        global TOKEN, EXPIRATION_DATE\n\n        if (not TOKEN.get(\"access_token\")) or (EXPIRATION_DATE <= datetime.now()):\n            token = get_tabular_access_token(tabular_credential)\n            if not token:\n                raise RuntimeError(\"failed to refresh Tabular access token\")\n\n            TOKEN = token\n            expires_in = int(token.get(\"expires_in\", 3600))\n            EXPIRATION_DATE = datetime.now() + timedelta(seconds=max(300, expires_in - 60))\n\n    def query_table_partitions(table_name: str, partition_path: str, tabular_credential: str, warehouse: str) -> bool:\n        refresh_token_if_needed(tabular_credential)\n\n        database, table = table_name.split(\".\", 1)\n        access_token = TOKEN[\"access_token\"]\n\n        url = (\n            f\"https://api.tabular.io/ws/v1/ice/warehouses/{warehouse}\"\n            f\"/namespaces/{database}/tables/{table}\"\n        )\n        headers = {\"Content-Type\": \"application/json\", \"Authorization\": f\"Bearer {access_token}\"}\n\n        try:\n            resp = requests.get(url, headers=headers, timeout=20)\n            resp.raise_for_status()\n            payload = resp.json()\n\n            full_partition_path = f\"partitions.{partition_path}\"\n\n            snapshots = payload.get(\"metadata\", {}).get(\"snapshots\", []) or []\n            for snapshot in snapshots:\n                summary = snapshot.get(\"summary\", {}) or {}\n                if full_partition_path in summary:\n                    logging.info(f\"partition found: table={table_name} partition={partition_path}\")\n                    return True\n\n            return False\n        except requests.RequestException as e:\n            logging.error(f\"partition query error: table={table_name} err={e}\")\n            return False\n\n    def poke_tabular_partition(\n        table: str,\n        partition: str,\n        tabular_credential: str,\n        warehouse: str,\n        max_retries: int = 10,\n        wait_time: int = 60,\n    ) -> bool:\n        # Bounded polling with jitter so retries don't thump the API in lockstep.\n        for attempt in range(1, max_retries + 1):\n            if query_table_partitions(table, partition, tabular_credential, warehouse):\n                logging.info(f\"partition ready after {attempt} attempt(s)\")\n                return True\n\n            sleep_s = wait_time + random.randint(0, min(10, wait_time // 4))\n            logging.warning(f\"attempt {attempt}/{max_retries}: not ready, retrying in {sleep_s}s\")\n            time.sleep(sleep_s)\n\n        logging.error(f\"partition not found after {max_retries} attempts\")\n        return False",
+        "concepts": [
+          "Reliability",
+          "Error Handling",
+          "Defensive Programming"
+        ],
+        "domain": [
+          "Data Orchestration",
+          "Data Platform"
+        ],
+        "from": "Tabular Iceberg API - Backoff & Retry",
+        "id": "airflow-tabular-partition-sensor",
+        "lang": "python",
+        "technology": [
+          "Airflow",
+          "Iceberg"
+        ],
+        "title": "Airflow Partition Sensor (Tabular Iceberg API) — token refresh + bounded retries",
+        "why": "Polling sensor as a callable: refreshes OAuth, queries table metadata, and retries with bounds + logs you can use in incidents."
+      },
+      {
+        "code": "from airflow.decorators import dag\n    from airflow.operators.python_operator import PythonOperator\n    from airflow.utils.dates import datetime, timedelta\n    from airflow.models import Variable\n\n    from include.eczachly.poke_tabular_partition import poke_tabular_partition\n    from include.eczachly.trino_queries import run_trino_query_dq_check, execute_trino_query\n\n    TABULAR_CREDENTIAL = Variable.get(\"TABULAR_CREDENTIAL\")  # stored in Variables/Secrets backend\n\n    @dag(\n        description=\"Incremental SCD load into Iceberg using Trino; partition-gated with DQ checks\",\n        default_args={\n            \"owner\": \"Tejas Raut\",\n            \"start_date\": datetime(2020, 1, 1),  # sane baseline; catchup does the rest\n            \"retries\": 1,\n            \"execution_timeout\": timedelta(hours=1),\n        },\n        max_active_runs=1,\n        schedule_interval=\"@yearly\",\n        catchup=True,\n        tags=[\"orchestration\", \"iceberg\", \"scd\"],\n    )\n    def actors_history_scd_dag():\n        run_ds = \"{{ ds }}\"\n\n        upstream_table = \"bootcamp.actor_films\"\n        production_table = \"YOUR_SCHEMA.actors_history_scd\"   # placeholder\n        staging_table = \"YOUR_SCHEMA.actors_history_stg\"      # placeholder\n\n        wait_for_upstream_partition = PythonOperator(\n            task_id=\"wait_for_upstream_partition\",\n            python_callable=poke_tabular_partition,\n            op_kwargs={\n                \"tabular_credential\": TABULAR_CREDENTIAL,\n                \"table\": upstream_table,\n                \"partition\": \"year = YEAR(DATE('{run_ds}'))\",\n            },\n            provide_context=True,\n        )\n\n        create_prod = PythonOperator(\n            task_id=\"create_prod\",\n            depends_on_past=True,\n            python_callable=execute_trino_query,\n            op_kwargs={\n                \"query\": f\"\"\"\n                CREATE OR REPLACE TABLE {production_table} (\n                    actor_id VARCHAR,\n                    actor_name VARCHAR,\n                    is_active BOOLEAN,\n                    start_year INTEGER,\n                    end_year INTEGER,\n                    current_year INTEGER\n                )\n                WITH (\n                    FORMAT = 'PARQUET',\n                    partitioning = ARRAY['current_year']\n                )\n                \"\"\"\n            },\n        )\n\n        create_stg = PythonOperator(\n            task_id=\"create_stg\",\n            depends_on_past=True,\n            python_callable=execute_trino_query,\n            op_kwargs={\n                \"query\": f\"\"\"\n                CREATE OR REPLACE TABLE {staging_table} (\n                    actor_id VARCHAR,\n                    actor VARCHAR,\n                    year INTEGER\n                )\n                \"\"\"\n            },\n        )\n\n        clear_prod_partition = PythonOperator(\n            task_id=\"clear_prod_partition\",\n            depends_on_past=True,\n            python_callable=execute_trino_query,\n            op_kwargs={\"query\": f\"DELETE FROM {production_table} WHERE current_year = YEAR(DATE('{run_ds}'))\"},\n        )\n\n        clear_stg_partition = PythonOperator(\n            task_id=\"clear_stg_partition\",\n            depends_on_past=True,\n            python_callable=execute_trino_query,\n            op_kwargs={\"query\": f\"DELETE FROM {staging_table} WHERE year = YEAR(DATE('{run_ds}'))\"},\n        )\n\n        load_stg = PythonOperator(\n            task_id=\"load_stg\",\n            depends_on_past=True,\n            python_callable=execute_trino_query,\n            op_kwargs={\n                \"query\": f\"\"\"\n                SELECT\n                    CASE WHEN u.actor_id IS NULL THEN p.actor_id ELSE u.actor_id END AS actor_id,\n                    CASE WHEN u.actor IS NULL THEN p.actor_name ELSE u.actor END AS actor,\n                    year\n                FROM {upstream_table} u\n                LEFT JOIN {production_table} p\n                  ON u.actor_id = p.actor_id OR u.actor = p.actor_name\n                WHERE u.year = YEAR(DATE('{run_ds}'))\n                GROUP BY 1,2,3\n                \"\"\"\n            },\n        )\n\n        pre_dq_check = PythonOperator(\n            task_id=\"pre_dq_check\",\n            depends_on_past=True,\n            python_callable=run_trino_query_dq_check,\n            op_kwargs={\n                \"query\": f\"\"\"\n                SELECT CASE WHEN COUNT(1) > 0 THEN 1 ELSE 0 END AS data_exists\n                FROM {staging_table}\n                WHERE year = YEAR(DATE('{run_ds}'))\n                \"\"\"\n            },\n        )\n\n        scd_step = PythonOperator(\n            task_id=\"scd_step\",\n            depends_on_past=True,\n            python_callable=execute_trino_query,\n            op_kwargs={\n                \"query\": f\"\"\"\n                -- SCD merge/update logic goes here (Type-2 style history table).\n                -- Read from {staging_table} for YEAR(DATE('{run_ds}')) and write into {production_table}\n                -- scoped to current_year = YEAR(DATE('{run_ds}')).\n                \"\"\"\n            },\n        )\n\n        wait_for_upstream_partition >> create_prod >> create_stg\n        create_stg >> clear_prod_partition >> clear_stg_partition >> load_stg >> pre_dq_check >> scd_step\n\n    actors_history_scd_dag()",
+        "concepts": [
+          "Orchestration",
+          "Change Data Capture (CDC / SCD)",
+          "Data Quality",
+          "Error Handling"
+        ],
+        "domain": [
+          "Analytics Engineering",
+          "Data Platform"
+        ],
+        "from": "Airflow Orchestration SCD Type-II",
+        "id": "airflow-scd-history-dag",
+        "lang": "python",
+        "technology": [
+          "Airflow",
+          "Snowflake"
+        ],
+        "title": "Airflow Orchestration — SCD history build with partition gate + DQ check (Trino + Iceberg)",
+        "why": "Yearly DAG: wait for upstream partition, build staging, run a DQ gate, then apply SCD mutations. Good template for safe backfills."
+      },
+      {
+        "code": "# profiles.yml\n    # Keep secrets out of this file. Use env vars or a secrets manager in CI/CD.\n    haunted_houses:\n      target: dev\n      outputs:\n        dev:\n          type: snowflake\n\n          # Placeholder only. Real account locator/region should come from env.\n          account: \"{{ env_var('SNOWFLAKE_ACCOUNT') }}\"  # dummy in public snippets\n\n          # Prefer keypair auth / SSO in real setups.\n          user: \"{{ env_var('SNOWFLAKE_USER') }}\"\n          role: \"{{ env_var('SNOWFLAKE_ROLE') }}\"\n          database: \"{{ env_var('SNOWFLAKE_DATABASE') }}\"\n          warehouse: \"{{ env_var('SNOWFLAKE_WAREHOUSE') }}\"\n\n          # Schema via env var so branches/users can isolate cleanly.\n          schema: \"{{ env_var('DBT_SCHEMA') }}\"\n          threads: 1\n          client_session_keep_alive: false\n          query_tag: \"{{ env_var('DBT_SCHEMA') }}\"\n\n          connect_timeout: 10\n          connect_retries: 0\n          retry_on_database_errors: false\n          reuse_connections: true\n\n\n    # dbt_project.yml\n    name: \"haunted_houses\"\n    config-version: 2\n    version: \"0.1\"\n    profile: \"haunted_houses\"\n\n    model-paths: [\"models\"]\n    seed-paths: [\"seeds\"]\n    test-paths: [\"tests\", \"data-tests\"]\n    analysis-paths: [\"analysis\"]\n    macro-paths: [\"macros\"]\n\n    target-path: \"target\"\n    clean-targets: [\"target\", \"dbt_modules\", \"logs\"]\n\n    require-dbt-version: [\">=1.0.0\", \"<2.0.0\"]\n\n    models:\n      haunted_houses:\n        +materialized: table\n        staging:\n          +materialized: view\n\n\n    # packages.yml\n    # Keep versions pinned; update intentionally.\n    packages:\n      - package: dbt-labs/dbt_utils\n        version: 1.3.0\n      - package: calogica/dbt_expectations\n        version: 0.10.4\n      - package: dbt-labs/codegen\n        version: 0.12.1\n      - package: calogica/dbt_date\n        version: 0.10.1",
+        "concepts": [
+          "Configuration Management",
+          "Secrets Management",
+          "Resource Isolation",
+          "CI/CD"
+        ],
+        "domain": [
+          "Analytics Engineering"
+        ],
+        "from": "dbt Snowflake Configuration",
+        "id": "dbt-snowflake-config",
+        "lang": "yaml",
+        "technology": [
+          "dbt",
+          "Snowflake"
+        ],
+        "title": "dbt (Snowflake) — profiles + project + packages (CI-friendly defaults)",
+        "why": "Clean dbt baseline: env-driven schema, conservative threads, pinned packages, and no secrets committed."
+      },
+      {
+        "code": "from airflow.decorators import dag\n    from airflow.utils.task_group import TaskGroup\n    from airflow.operators.bash import BashOperator\n    from airflow.utils.dates import datetime, timedelta\n\n    DBT_PROJECT_DIR = \"/path/to/dbt/project\"  # placeholder: set via env/Variable\n    DBT_TARGET = \"dev\"                       # maps to profiles.yml target\n\n    @dag(\n        schedule=\"@daily\",\n        start_date=datetime(2024, 1, 1),\n        catchup=False,\n        default_args={\"retries\": 1, \"retry_delay\": timedelta(minutes=5)},\n        tags=[\"dbt\", \"orchestration\"],\n    )\n    def dbt_daily_pipeline():\n        with TaskGroup(group_id=\"dbt\") as dbt_tg:\n            dbt_deps = BashOperator(\n                task_id=\"deps\",\n                bash_command=f\"set -euo pipefail; cd {DBT_PROJECT_DIR} && dbt deps\",\n            )\n\n            dbt_run = BashOperator(\n                task_id=\"run\",\n                bash_command=f\"set -euo pipefail; cd {DBT_PROJECT_DIR} && dbt run --target {DBT_TARGET} --fail-fast\",\n            )\n\n            dbt_test = BashOperator(\n                task_id=\"test\",\n                bash_command=f\"set -euo pipefail; cd {DBT_PROJECT_DIR} && dbt test --target {DBT_TARGET}\",\n            )\n\n            dbt_deps >> dbt_run >> dbt_test\n\n    dbt_daily_pipeline()",
+        "concepts": [
+          "Orchestration",
+          "CI/CD",
+          "Data Quality",
+          "Reliability"
+        ],
+        "domain": [
+          "Analytics Engineering",
+          "Data Orchestration"
+        ],
+        "from": "Airflow dbt Orchestration Taskgroup",
+        "id": "airflow-dbt-taskgroup",
+        "lang": "python",
+        "technology": [
+          "Airflow",
+          "dbt"
+        ],
+        "title": "Airflow → dbt orchestration (deps → run → test) — TaskGroup template",
+        "why": "Simple Airflow pattern that reads like prod: idempotent deps, fail-fast build, and tests as a real gate."
+      }
+    ],
+    "contactLinks": [
+      {
+        "href": "https://www.linkedin.com/in/tejas-raut/",
+        "key": "linkedin",
+        "label": "LinkedIn"
+      },
+      {
+        "href": "https://github.com/rautte/rautte.github.io",
+        "key": "github",
+        "label": "GitHub"
+      },
+      {
+        "href": "https://rautte.github.io/tejas-profile",
+        "key": "portfolio",
+        "label": "Portfolio"
+      },
+      {
+        "href": "mailto:raut.tejas@outlook.com",
+        "key": "email",
+        "label": "Email"
+      }
+    ],
+    "education": [
+      {
+        "coursework": [
+          "Engineering Probability and Statistics",
+          "Deterministic Operations Research",
+          "Economic Decision Analysis",
+          "Blockchain & DeFi",
+          "Data Management for Analytics",
+          "Data Mining Engineering Apps",
+          "Project Management",
+          "Managing Global Enterprises (D’Amore-McKim)",
+          "Financial Engineering & Management (D’Amore-McKim)"
+        ],
+        "degree": "Master of Science (MS), Engineering Management",
+        "duration": "Sep 2021 – May 2023",
+        "highlights": [
+          "Cross-disciplinary focus combining engineering systems with business and financial decision-making.",
+          "Completed graduate-level business coursework through D’Amore-McKim School of Business."
+        ],
+        "location": "Boston, MA",
+        "logoAssetId": "education.neu",
+        "school": "Northeastern University"
+      },
+      {
+        "coursework": [
+          "Python for Data Science",
+          "Statistical Methods for Decision Making",
+          "Data Mining",
+          "Predictive Modeling",
+          "Machine Learning",
+          "Time Series Forecasting",
+          "Optimization Techniques",
+          "Marketing & Retail Analytics",
+          "Finance and Risk Analytics"
+        ],
+        "degree": "Postgraduate Certificate (Online), Data Science & Business Analytics",
+        "duration": "Sep 2020 – Jul 2021",
+        "highlights": [
+          "Applied, industry-oriented program focused on analytics, ML, and decision science.",
+          "Built a strong foundation in translating business problems into data-driven models, with emphasis on practical forecasting, optimization, and decision-making."
+        ],
+        "location": "Online",
+        "logoAssetId": "education.utaustin",
+        "school": "The University of Texas at Austin"
+      },
+      {
+        "activities": [
+          "Formula SAE",
+          "Soccer",
+          "Badminton"
+        ],
+        "attachment": {
+          "assetId": "education.student-special-achiever-2018-2019",
+          "title": "Student Special Achiever (2018–2019)"
+        },
+        "badge": "Student Special Achiever",
+        "coursework": [
+          "Differential & Difference Equations",
+          "Applied Numerical Methods",
+          "Operations Research & Optimization",
+          "Computational Statistics & Probability",
+          "Statistical Quality Control"
+        ],
+        "degree": "Bachelor of Technology (BTech), Mechanical Engineering",
+        "duration": "Jun 2016 – Apr 2020",
+        "highlights": [
+          "Student Special Achiever (2018–2020) for two consecutive years.",
+          "Formula Student team member (Pravega Racing); participated in multiple international Formula-SAE competitions."
+        ],
+        "location": "India",
+        "logoAssetId": "education.vit",
+        "school": "Vellore Institute of Technology"
+      }
+    ],
+    "experience": [
+      {
+        "company": "CloudBig Technology",
+        "duration": "Jun 2024 – Mar 2026",
+        "employmentType": "Full-time",
+        "highlights": [
+          "Architected high-throughput event-driven pipelines processing 90M+ records per month using SNS, SQS, and OpenSearch, reducing query latency by ~40% and improving throughput under peak production load.",
+          "Led zero-downtime migration of a large-scale monitoring and notification platform (3500+ workflows) to AWS-native architecture, redesigning scheduling and execution using EventBridge and Lambda, improving alert accuracy by ~35% and system reliability.",
+          "Engineered fault-tolerant asynchronous processing systems using DLQs, retries, visibility timeouts, and idempotent consumers, achieving 99.9%+ processing success and reducing duplicate processing failures by ~90%.",
+          "Designed end-to-end CI/CD pipelines with automated integration, load, and canary testing (Hydra), enabling safe production deployments through automated validation and rollback mechanisms.",
+          "Built LLM-driven autonomous remediation agents to analyze production failures and execute runbook actions, reducing on-call effort by ~20% and decreasing MTTR by ~50% across distributed systems.",
+          "Drove architectural decisions across compute and scheduling layers, evaluating compute and orchestration tradeoffs (Lambda vs Fargate) and scheduling strategies to reduce infrastructure cost by ~25% while improving latency and scalability."
+        ],
+        "location": "Remote · Seattle, WA",
+        "role": "Software Engineer",
+        "tags": [
+          "AWS",
+          "Event-Driven Systems",
+          "AWS CDK",
+          "Lambda",
+          "ECS Fargate",
+          "EventBridge",
+          "SQS / SNS",
+          "OpenSearch",
+          "CI/CD",
+          "LLM",
+          "Reliability Engineering"
+        ]
+      },
+      {
+        "company": "Mystry Inc.",
+        "duration": "Oct 2023 – Jun 2024",
+        "employmentType": "Full-time",
+        "highlights": [
+          "Led migration from on-prem to Azure, redesigning storage and query patterns to improve performance by 35% and reduce platform cost by 25%.",
+          "Built automated Azure ETL pipelines processing 2TB+ daily, improving deployment throughput by 40% and reducing downtime by 30% through stronger CI/CD and operational safeguards.",
+          "Designed analytics-ready data marts and segmentation models in Python, improving customer targeting and increasing marketing engagement by 15%."
+        ],
+        "location": "Remote · Seattle, WA",
+        "role": "Software Engineer",
+        "tags": [
+          "Azure",
+          "ETL Pipelines",
+          "Data Warehousing",
+          "Data Modeling",
+          "Python",
+          "CI/CD",
+          "Inventory Optimization"
+        ]
+      },
+      {
+        "company": "Highbar Technologies Ltd.",
+        "duration": "May 2020 – Jun 2021",
+        "employmentType": "Full-time",
+        "highlights": [
+          "Delivered an 11% revenue uplift by building KPI-driven Tableau dashboards and optimizing SAP HANA queries for faster, decision-grade reporting across finance and operations.",
+          "Improved risk planning accuracy by 20% by building Python/Excel variance and stress-testing tools for credit and operational risk models.",
+          "Automated reporting workflows using Azure Data Factory, reducing refresh latency and improving reliability of scheduled reporting runs."
+        ],
+        "location": "Mumbai, India · On-site",
+        "role": "Business Intelligence Engineer – Investment Risk Analysis",
+        "tags": [
+          "Business Intelligence",
+          "Tableau",
+          "Risk Analytics",
+          "SQL",
+          "SAP HANA",
+          "Azure Data Factory",
+          "Automation"
+        ]
+      }
+    ],
+    "funZone": {
+      "games": [
+        {
+          "enabled": true,
+          "githubUrl": "https://github.com/rautte/Minesweeper",
+          "id": "minesweeper",
+          "title": "Minesweeper"
+        },
+        {
+          "enabled": true,
+          "githubUrl": "https://github.com/rautte/Battleship",
+          "id": "battleship",
+          "title": "Battleship"
+        },
+        {
+          "enabled": true,
+          "githubUrl": "https://github.com/rautte/TicTacToe_AI",
+          "id": "tictactoe",
+          "title": "Tic Tac Toe (AI)"
+        }
+      ],
+      "subtitle": "If you’ve reached this far, take a break and enjoy some simple mini-games I built just for fun!"
+    },
+    "hero": {
+      "greeting": "I’m",
+      "name": "Tejas Raut",
+      "rotatingTitles": [
+        {
+          "id": "full-stack",
+          "text": "Full-Stack • Python, TypeScript, SQL, React, JavaScript, Node.js"
+        },
+        {
+          "id": "cloud",
+          "text": "Cloud • AWS, Azure"
+        },
+        {
+          "id": "big-data",
+          "text": "Big Data • SQL, Python, Airflow, dbt, Spark, Hadoop"
+        },
+        {
+          "id": "business-intelligence",
+          "text": "Business Intelligence • Tableau, Power BI, MATLAB, Minitab"
+        },
+        {
+          "id": "artificial-intelligence",
+          "text": "Artificial Intelligence • Python, TensorFlow, PyTorch, OpenCV, Scikit-learn"
+        }
+      ]
+    },
+    "projects": [
+      {
+        "description": "An end-to-end conversational AI system built using Python and PyTorch, inspired by NeuralNine’s chatbot architecture. The project implements intent classification and response selection using NLP techniques such as tokenization, stemming, and bag-of-words with a custom training pipeline. Focused on understanding model behavior, training workflows, and inference logic rather than just UI integration.",
+        "domain": "AI/ML",
+        "github": "",
+        "id": "smart-chatbot",
+        "industry": "Tech",
+        "status": "Completed",
+        "techStack": [
+          "React",
+          "Python",
+          "PyTorch",
+          "NLTK"
+        ],
+        "title": "Smart Chatbot"
+      },
+      {
+        "demo": "https://rautte.github.io/tejas-profile",
+        "description": "A fully responsive personal portfolio built with React and Tailwind CSS, designed to showcase projects, experience, and system-level thinking. The site emphasizes modular UI architecture, reusable components, dark and light mode theming, and scalable data-driven sections. Deployed via GitHub Pages with a focus on maintainability and iterative improvement.",
+        "domain": "Frontend",
+        "github": "https://github.com/rautte/tejas-profile",
+        "id": "portfolio-website",
+        "industry": "Tech",
+        "status": "Deployed",
+        "techStack": [
+          "React",
+          "TailwindCSS",
+          "JavaScript",
+          "GitHub Pages"
+        ],
+        "title": "Portfolio Website"
+      },
+      {
+        "demo": "https://rautte.github.io/tejas-profile/#/fun-zone/battleship",
+        "description": "A real-time multiplayer Battleship game built in React and TypeScript with Firebase-backed room management, turn synchronization, and game state recovery. Implemented full game logic, compass-based ship placement, and an AI bot using hit-streak heuristics. Designed the system with a strong focus on state consistency, latency handling, and predictable gameplay behavior.",
+        "domain": "Backend",
+        "github": "",
+        "id": "battleship-web-game",
+        "industry": "Tech",
+        "status": "Deployed",
+        "techStack": [
+          "React",
+          "JavaScript",
+          "AWS"
+        ],
+        "title": "Battleship Web Game"
+      },
+      {
+        "description": "An end-to-end data engineering project that ingests Formula 1 race data from public APIs into a cloud-based analytics platform. Built PySpark ETL pipelines with partitioning, incremental loads, and schema evolution, orchestrated through Azure Data Factory. The system supports near real-time analytics and reporting through Power BI, with an emphasis on data correctness and scalable processing.",
+        "domain": "Data Engineering",
+        "github": "",
+        "id": "formula1-data-platform",
+        "industry": "Automobile",
+        "status": "Completed",
+        "techStack": [
+          "Azure",
+          "Python"
+        ],
+        "title": "Formula 1 Data Platform"
+      },
+      {
+        "description": "A Go-based developer automation CLI that rebuilds an entire macOS development environment from scratch using a single command. The tool manages application installs, dotfile migration, health checks, versioned requirements, logging, and snapshot-style workflows. Designed with a production mindset, emphasizing idempotency, rollback safety, and long-term maintainability.",
+        "domain": "Backend",
+        "github": "",
+        "id": "syzmaniac",
+        "industry": "Tech",
+        "status": "In-Progress",
+        "techStack": [
+          "Go(Lang)",
+          "GitHub"
+        ],
+        "title": "SyzManiac"
+      },
+      {
+        "description": "A cloud-backed voice and reasoning system connecting a FastAPI orchestrator with a GPT-based planning layer and an XTTS voice server running on EC2. Deployed using AWS CDK, the system focuses on orchestration, request routing, and infrastructure ownership rather than model usage alone, highlighting end-to-end system design and automation.",
+        "domain": "AI/ML",
+        "github": "",
+        "id": "voice-assistant",
+        "industry": "Tech",
+        "status": "In-Progress",
+        "techStack": [
+          "FastAPI",
+          "Python",
+          "AWS"
+        ],
+        "title": "Voice Assistant (Orchestrator + XTTS + GPT)"
+      }
+    ],
+    "resume": {
+      "education": [
+        {
+          "date": "May 2023",
+          "degree": "Master of Science",
+          "location": "Boston, MA",
+          "program": "Engineering Management - Database Management",
+          "school": "Northeastern University"
+        },
+        {
+          "date": "Apr 2020",
+          "degree": "Bachelor of Technology",
+          "location": "Vellore, India",
+          "program": "Mechanical Engineering",
+          "school": "Vellore Institute of Technology"
+        }
+      ],
+      "experience": [
+        {
+          "bullets": [
+            "Architected high-throughput event-driven pipelines processing 90M+ records per month using SNS, SQS, and OpenSearch, reducing query latency by ~40% and improving throughput under peak production load",
+            "Led zero-downtime migration of a large-scale monitoring and notification platform (3500+ workflows) to AWS-native architecture, redesigning scheduling and execution using EventBridge and Lambda, improving alert accuracy by ~35% and system reliability",
+            "Engineered fault-tolerant asynchronous processing systems using DLQs, retries, visibility timeouts, and idempotent consumers, achieving 99.9%+ processing success and reducing duplicate processing failures by ~90%",
+            "Designed end-to-end CI/CD pipelines with automated integration, load, and canary testing (Hydra), enabling safe production deployments through automated validation and rollback mechanisms",
+            "Built LLM-driven autonomous remediation agents to analyze production failures and execute runbook actions, reducing on-call effort by ~20% and decreasing MTTR by ~50% across distributed systems",
+            "Drove architectural decisions across compute and scheduling layers, evaluating compute and orchestration tradeoffs (Lambda vs Fargate) and scheduling strategies to reduce infrastructure cost by ~25% while improving latency and scalability"
+          ],
+          "company": "CloudBig Technology",
+          "dates": "Jun 2024 - Mar 2026",
+          "location": "Seattle, WA",
+          "title": "Software Engineer"
+        },
+        {
+          "bullets": [
+            "Owned the migration of on-premises data systems to Azure Cloud, redesigning storage layouts and query patterns to improve analytical performance by 35% while reducing infrastructure costs by 25%",
+            "Orchestrated Azure-based ETL pipelines processing 2TB+ daily, implementing CI/CD-driven data workflows that increased deployment throughput by 40% and reduced downtime by 30%",
+            "Developed Python-based data marts and clustering models to support customer segmentation and downstream analytics, increasing marketing engagement by 15% through improved data accessibility"
+          ],
+          "company": "Mystry Inc.",
+          "dates": "Oct 2023 - Jun 2024",
+          "location": "Seattle, WA",
+          "title": "Software Engineer (Data Migration)"
+        },
+        {
+          "bullets": [
+            "Enabled an 11% revenue uplift by designing KPI-driven Tableau dashboards and optimizing SAP HANA queries to deliver near-real-time insights across finance and operations teams",
+            "Improved credit and operational risk modeling accuracy by 20% by building Python and Excel-based variance analysis and stress testing tools used in investment planning workflows",
+            "Automated financial ETL pipelines using Azure Data Factory, automating reporting workflows to significantly reduce data refresh latency and manual intervention"
+          ],
+          "company": "Highbar Technologies",
+          "dates": "May 2020 - Jun 2021",
+          "location": "Mumbai, India",
+          "title": "BI Engineer"
+        }
+      ],
+      "header": {
+        "email": "raut.tejas@outlook.com",
+        "linkedin": "linkedin.com/in/tejas-raut",
+        "linkedinURL": "linkedin.com/in/tejas-raut",
+        "location": "Pune, India",
+        "name": "Tejas Rajendra Raut",
+        "phone": "+91 7057733771",
+        "website": "rautte.github.io",
+        "websiteURL": "github.com/rautte/rautte.github.io"
+      },
+      "pdfAssetId": "resume.primary",
+      "projects": [
+        {
+          "bullets": [
+            "Created a real-time 1v1 multiplayer Battleship web game in React and TypeScript using Firebase for room coordination, turn synchronization, and fault-tolerant session recovery, including AI bot logic with hit-streak heuristics",
+            "Engineered a CDN-backed asset pipeline using AWS S3 and CloudFront to serve 240-frame ship animations, optimizing GPU rendering paths and z-layering for improved runtime responsiveness"
+          ],
+          "dates": "Jan 2024 - Apr 2024",
+          "name": "Battleship Multiplayer Web Game",
+          "stack": [
+            "React",
+            "TypeScript",
+            "Firebase",
+            "AWS S3",
+            "CloudFront"
+          ]
+        },
+        {
+          "bullets": [
+            "Designed and built a Go-based automation framework to deterministically provision and restore an entire macOS development environment, including dependency installs, versioned dotfile migration, and lifecycle orchestration via a custom syz CLI",
+            "Implemented idempotent workflows, fast system state scanning, structured logging, and healthchecks to enable one-command bootstrap and recovery, treating a developer workstation as a reproducible, self-healing system"
+          ],
+          "dates": "May 2023 - Dec 2024",
+          "name": "SyzManiac – Developer Environment Automation CLI Platform",
+          "stack": [
+            "Go",
+            "Shell",
+            "GitHub"
+          ]
+        },
+        {
+          "bullets": [
+            "Engineered a PySpark ETL pipeline on Azure to ingest Formula 1 data from the Ergast API into Delta Lake, implementing partitioning, schema evolution, and incremental loads for efficient querying",
+            "Orchestrated Azure Data Factory workflows with automated triggers and monitoring for near-real-time Power BI analytics"
+          ],
+          "dates": "Jan 2023 - May 2023",
+          "name": "Formula-1 Data for Reporting",
+          "stack": [
+            "Azure",
+            "PySpark",
+            "Spark SQL",
+            "Power BI"
+          ]
+        }
+      ],
+      "skills": {
+        "AWS": [
+          "Lambda",
+          "ECS Fargate",
+          "Step Functions",
+          "CloudFormation",
+          "CDK",
+          "S3",
+          "SQS",
+          "EventBridge",
+          "API Gateway",
+          "SES",
+          "KMS",
+          "CloudWatch",
+          "RDS",
+          "EC2",
+          "VPC"
+        ],
+        "Data & ML Libraries": [
+          "NumPy",
+          "Pandas",
+          "PySpark",
+          "TensorFlow",
+          "Scikit-learn",
+          "Matplotlib",
+          "Seaborn"
+        ],
+        "Data Platforms & Distributed Systems": [
+          "PostgreSQL",
+          "MySQL",
+          "MongoDB",
+          "Azure Cosmos",
+          "Kafka",
+          "Spark",
+          "Hive",
+          "Airflow"
+        ],
+        "Frameworks & Tools": [
+          "React",
+          "Node.js",
+          "Databricks",
+          "Snowflake",
+          "Git",
+          "Angular",
+          "Tableau",
+          "Power BI",
+          "Minitab",
+          "MATLAB"
+        ],
+        "Programming Languages": [
+          "Python",
+          "SQL",
+          "JavaScript",
+          "TypeScript",
+          "Java",
+          "R",
+          "Transact-SQL",
+          "HTML/CSS"
+        ]
+      }
+    },
+    "skills": [
+      {
+        "category": "Programming Languages",
+        "skills": [
+          "Python",
+          "R",
+          "SQL",
+          "T-SQL",
+          "Scala",
+          "Java",
+          "JavaScript",
+          "TypeScript",
+          "HTML/CSS"
+        ]
+      },
+      {
+        "category": "Python Libraries & ML/AI",
+        "skills": [
+          "NumPy",
+          "Pandas",
+          "TensorFlow",
+          "Scikit-learn",
+          "Matplotlib",
+          "Seaborn",
+          "PySpark"
+        ]
+      },
+      {
+        "category": "AWS",
+        "skills": [
+          "Lambda",
+          "ECS Fargate",
+          "Step Functions",
+          "CloudFormation",
+          "CDK",
+          "S3",
+          "SQS",
+          "EventBridge",
+          "API Gateway",
+          "SES",
+          "KMS",
+          "CloudWatch",
+          "RDS",
+          "EC2",
+          "VPC"
+        ]
+      },
+      {
+        "category": "Databases & Big Data",
+        "skills": [
+          "PostgreSQL",
+          "MySQL",
+          "MongoDB",
+          "Azure Cosmos",
+          "Airflow",
+          "Spark",
+          "Hive"
+        ]
+      },
+      {
+        "category": "Cloud & DevOps",
+        "skills": [
+          "AWS",
+          "Azure",
+          "Databricks",
+          "Snowflake",
+          "GIT",
+          "GitHub"
+        ]
+      },
+      {
+        "category": "Frameworks & Web",
+        "skills": [
+          "React",
+          "Node.js",
+          "Express.js",
+          "Angular"
+        ]
+      },
+      {
+        "category": "Visualization & ERP",
+        "skills": [
+          "Tableau",
+          "Power BI",
+          "MATLAB",
+          "Minitab",
+          "MS Excel",
+          "SAP HANA",
+          "MS Dynamics"
+        ]
+      }
+    ],
+    "structure": {
+      "defaultSection": "About Me",
+      "groups": {
+        "explore": [
+          "Timeline"
+        ],
+        "hiringManager": [
+          "Code Lab",
+          "Fun Zone"
+        ],
+        "pinned": [
+          "About Me"
+        ],
+        "recruiter": [
+          "Experience",
+          "Skills",
+          "Education",
+          "Resume",
+          "Projects"
+        ]
+      },
+      "order": [
+        "About Me",
+        "Experience",
+        "Resume",
+        "Skills",
+        "Education",
+        "Projects",
+        "Code Lab",
+        "Fun Zone",
+        "Timeline"
+      ]
+    },
+    "timeline": [
+      {
+        "company": "CloudBig Technology",
+        "description": "Designed and built production-grade data and backend systems on AWS, including event-driven pipelines, real-time notification workflows, and reliability-focused error handling. Worked closely with cloud infra, APIs, and distributed services used by external customers and vendors.",
+        "duration": "2024 – Present",
+        "role": "Software Engineer"
+      },
+      {
+        "company": "Mystry Inc.",
+        "description": "Owned data migration and orchestration workflows across cloud systems. Built and maintained ETL pipelines, OLAP-style analytics models, and backend services handling high-volume event data. Focused on correctness, performance, and system behavior under load.",
+        "duration": "2023 – 2024",
+        "role": "Data Engineer"
+      },
+      {
+        "company": "Voice + Reasoning System",
+        "description": "Built a cloud-backed voice and reasoning system combining a FastAPI orchestrator, GPT-5 for planning, XTTS voice synthesis on EC2, and an AWS CDK-based deployment flow. Focused on orchestration, system boundaries, reliability, and predictable behavior across components.",
+        "duration": "2025 - Present",
+        "role": "Independent Project"
+      },
+      {
+        "company": "Zack Wilson",
+        "description": "Completed a production-oriented analytics engineering program focused on building reliable, analytics-ready data systems. Designed dimensional models using star schemas, implemented dbt transformations with incremental and snapshot strategies, and orchestrated analytics workflows using Airflow. Enforced data quality through tests and version-controlled pipelines, with emphasis on SQL performance, warehouse optimization, metric definitions, and BI-ready analytics layers used in real team environments.",
+        "duration": "2024 - 2025",
+        "role": "Analytics Engineering Bootcamp"
+      },
+      {
+        "company": "SyzManiac",
+        "description": "Created a Go-based developer automation tool that can rebuild an entire Mac development environment from scratch using a single command. Handles installs, dotfile migration, snapshots, healthchecks, and idempotent workflows with production-style logging and recovery.",
+        "duration": "2023 - 2024",
+        "role": "Independent Project"
+      },
+      {
+        "company": "Northeastern University",
+        "description": "Completed an MS with a focus on operations research, data systems, and cloud computing. Worked on distributed systems, big data processing, and applied engineering projects alongside industry-focused coursework.",
+        "duration": "2021 – 2023",
+        "role": "Graduate Student"
+      },
+      {
+        "company": "Highbar Technology",
+        "description": "Worked on data reporting and analytics pipelines, supporting business teams with reliable dashboards and structured data models. Gained early exposure to production data workflows and stakeholder-driven engineering.",
+        "duration": "2020 - 2021",
+        "role": "Business Intelligence Engineer"
+      },
+      {
+        "company": "Pravega Racing (VIT)",
+        "description": "Spent three years progressing from vehicle dynamics engineer to technical lead. Worked on suspension, steering, aerodynamics, simulations, and system-level design. Represented the team at international competitions in Germany and Australia.",
+        "duration": "2017 – 2020",
+        "role": "Vehicle Dynamics Engineer - Formula-SAE"
+      },
+      {
+        "company": "Vellore Institute of Technology",
+        "description": "Strong foundation in engineering fundamentals, system design, and applied problem solving. Early exposure to modeling, simulation, and large-scale system thinking that later translated naturally into software and data engineering.",
+        "duration": "2016 – 2020",
+        "role": "B.Tech in Mechanical Engineering"
+      }
+    ]
+  }
+}
