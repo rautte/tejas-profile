@@ -277,16 +277,31 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const playerGridRef = React.useRef(playerGrid);
   const playerFleetRef = React.useRef(playerFleet);
   const playerShotsRef = React.useRef(playerShots);
+  const enemyGridRef = React.useRef(enemyGrid);
+  const enemyFleetRef = React.useRef(enemyFleet);
+  const enemyShotsRef = React.useRef(enemyShots);
+  const msgRef = React.useRef(msg);
   React.useEffect(() => { phaseRef.current = phase; }, [phase]);
   React.useEffect(() => { roleRef.current = role; }, [role]);
   React.useEffect(() => { playerGridRef.current = playerGrid; }, [playerGrid]);
   React.useEffect(() => { playerFleetRef.current = playerFleet; }, [playerFleet]);
   React.useEffect(() => { playerShotsRef.current = playerShots; }, [playerShots]);
+  React.useEffect(() => { enemyGridRef.current = enemyGrid; }, [enemyGrid]);
+  React.useEffect(() => { enemyFleetRef.current = enemyFleet; }, [enemyFleet]);
+  React.useEffect(() => { enemyShotsRef.current = enemyShots; }, [enemyShots]);
+  React.useEffect(() => { msgRef.current = msg; }, [msg]);
 
   // reveal + AI
   const [enemyRevealed, setEnemyRevealed] = React.useState(false);
   const sentRevealRef = React.useRef(false);
   const aiRef = React.useRef(makeAIState());
+
+  // counts opponent ships confirmed sunk via `result` messages — the
+  // attacker never learns the opponent's real fleet layout, but
+  // FLEET_SIZES.length (total ship count) is always known, so counting
+  // "sunk" results is enough to detect a multiplayer win on the attacker's
+  // side without needing the opponent's fleet data.
+  const enemyShipsSunkRef = React.useRef(0);
 
   const crisisWarnedRef = React.useRef<{ me: boolean; them: boolean }>({
     me: false,
@@ -308,13 +323,23 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   const lastHelloAckSentAtRef = React.useRef(0);
 
   // local resume keys
-  const resumeKey = (code: string, role: Role) => `bs:${code}:${role}:resume-v1` as const;
+  // v2: captures full match state (not just placement) so a self-refresh
+  // mid-match doesn't drop the player back into ship placement or lose
+  // their shot history — see resume restoration below.
+  const resumeKey = (code: string, role: Role) => `bs:${code}:${role}:resume-v2` as const;
   type ResumeBlob = {
     exp: number;
+    phase: Phase;
     playerGrid: Grid;
     playerFleet: Fleet;
+    playerShots: Shots;
+    enemyGrid: Grid;
+    enemyFleet: Fleet;
+    enemyShots: Shots;
     iAmReady: boolean;
+    peerReady: boolean;
     turn: "player" | "ai";
+    msg: string;
   };
 
   // resume helpers
@@ -351,22 +376,18 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     lastSnapshotRef.current = buildStateSnapshot();
   }, [buildStateSnapshot]);
 
+  // Only `phase` is safe to copy verbatim from a peer's pushed snapshot.
+  // Every other field a snapshot could carry (playerGrid/playerFleet/
+  // playerShots/enemyGrid/enemyFleet/enemyShots/turn/iAmReady/peerReady) is
+  // perspective-relative — what the SENDER calls "my board" is the
+  // RECEIVER's "opponent's board", so copying it as-is would silently
+  // overwrite the receiver's own fleet/ready-state with the sender's,
+  // rather than helping it resume. `phase` ("place"/"play"/"over") means
+  // the same thing to both sides, so it's the only field actually pushed
+  // (see onPeerHello's `roomRef.current?.state(...)` call).
   const applyStateSnapshot = React.useCallback((s: any) => {
     try {
-      if (s.phase) setPhase(s.phase);
-      if (s.turn) setTurn(s.turn);
-      if (s.playerGrid) setPlayerGrid(s.playerGrid);
-      if (s.playerFleet) setPlayerFleet(s.playerFleet);
-      if (s.playerFleet && phaseRef.current === "place") {
-        try { setToPlace(FLEET_SIZES.slice(Object.keys(s.playerFleet).length)); } catch {}
-      }
-      if (s.playerShots) setPlayerShots(s.playerShots);
-      if (s.enemyGrid) setEnemyGrid(s.enemyGrid);
-      if (s.enemyFleet) setEnemyFleet(s.enemyFleet);
-      if (s.enemyShots) setEnemyShots(s.enemyShots);
-      if (typeof s.iAmReady === "boolean") setIAmReady(s.iAmReady);
-      if (typeof s.peerReady === "boolean") setPeerReady(s.peerReady);
-      if (typeof s.msg === "string") setMsg(s.msg);
+      if (typeof s?.phase === "string") setPhase(s.phase);
       setEnemyRevealed(false);
     } catch {}
   }, []);
@@ -378,10 +399,17 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
       try {
         saveLocalResume(roomCode, roleRef.current, {
           exp: Date.now() + RESUME_WINDOW_MS,
+          phase: phaseRef.current,
           playerGrid: playerGridRef.current,
           playerFleet: playerFleetRef.current,
+          playerShots: playerShotsRef.current,
+          enemyGrid: enemyGridRef.current,
+          enemyFleet: enemyFleetRef.current,
+          enemyShots: enemyShotsRef.current,
           iAmReady: iAmReadyRef.current ?? false,
+          peerReady: peerReadyRef.current ?? false,
           turn: turnRef.current,
+          msg: msgRef.current,
         });
       } catch {}
     };
@@ -398,7 +426,19 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
   }, [mode]);
 
   // local reset
-  const resetLocal = React.useCallback(() => {
+  //
+  // `modeOverride` lets a caller that is switching modes in the SAME click
+  // handler (e.g. "Open Theater": setMode("mp") then resetLocal()) tell
+  // resetLocal what mode it's switching TO. Without it, `mode` here would
+  // still read the OLD value — setMode() doesn't take effect until the next
+  // render — so a click on "Open Theater" or "Join Theater" would run this
+  // with a stale mode === "bot" closure and wrongly seed a random AI fleet
+  // into enemyGrid/enemyFleet even though we're entering a real MP room.
+  // That stray fleet then never gets legitimately overwritten during play
+  // (correctly — you shouldn't see the opponent's real layout mid-game),
+  // so it's what silently gets shown once the board reveals ships.
+  const resetLocal = React.useCallback((modeOverride?: MPMode) => {
+    const effectiveMode = modeOverride ?? mode;
     setPeerState(prev => (prev === "quit" ? (peerPresent ? "present" : "left") : prev));
     setPhase("place"); setOrientation("H");
     setIntelLog([]);
@@ -410,6 +450,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     setToPlace([...FLEET_SIZES]);
     setTurn("player");
     aiRef.current = makeAIState();
+    enemyShipsSunkRef.current = 0;
     setMsg("Deploy your fleet (press R to rotate)");
     setIAmReady(false); setPeerReady(false);
     setEnemyRevealed(false);
@@ -417,7 +458,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
     lastSnapshotRef.current = null;
     crisisWarnedRef.current = { me: false, them: false };
 
-    if (mode === "bot") {
+    if (effectiveMode === "bot") {
       const { grid, fleet } = randomFleet(); setEnemyGrid(grid); setEnemyFleet(fleet);
     }
   }, [mode, peerPresent]);
@@ -471,6 +512,19 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
           setEnemyRevealed(true);
           setMsg("Enemy fleet prevails—mission failed.");
           roomRef.current?.phase("over");
+          // Natural game-over (not a surrender) previously never triggered a
+          // reveal, so this side's "Enemy Waters" board stayed on whatever
+          // placeholder grid it had (blank, or a leftover bot fleet) instead
+          // of the real opponent layout. Reveal our own board now so the
+          // winner can see it too.
+          if (!sentRevealRef.current) {
+            sentRevealRef.current = true;
+            try {
+              roomRef.current?.reveal(
+                roleRef.current, playerGridRef.current as any, playerFleetRef.current as any
+              );
+            } catch {}
+          }
         } else {
           setTurn("player");
           setMsg(res.result === "miss" ? "Their salvo splashed—your move!" : "We’re hit—return fire!");
@@ -482,20 +536,39 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
         const myRole = roleRef.current;
         if (to !== myRole) return;
 
+        // The attacker never learns the opponent's real fleet layout, so we
+        // can't call allSunk() on it directly — but FLEET_SIZES.length (the
+        // total ship count) is always known, so counting "sunk" results is
+        // enough to detect a win here. Previously this handler never checked
+        // for a win at all: the attacker who lands the final shot just sat
+        // at "Passing initiative..." forever, waiting on a turn that would
+        // never come, even though the defender's client had already ended
+        // the match on its side.
+        let justWon = false;
+        if (result === "sunk") {
+          enemyShipsSunkRef.current += 1;
+          if (enemyShipsSunkRef.current >= FLEET_SIZES.length) {
+            justWon = true;
+          }
+        }
+
         setEnemyShots(prev => {
           const next = prev.map(row => row.slice());
           next[r][c] = result === "miss" ? 1 : 2;
 
-          // Flavor with UPDATED shots
-          const enemyLeft = countRemainingCells(enemyGrid, next);
-          if (!crisisWarnedRef.current.them && enemyLeft <= 3) {
+          // Flavor with UPDATED shots (use the ref, not the `enemyGrid`
+          // state closure — this handler is created once and never
+          // recreated, so the closed-over `enemyGrid` variable would
+          // otherwise always be the initial empty grid).
+          const enemyLeft = countRemainingCells(enemyGridRef.current, next);
+          if (!justWon && !crisisWarnedRef.current.them && enemyLeft <= 3) {
             crisisWarnedRef.current.them = true;
             maybeFlavor([
               "They’re listing—press the advantage!",
               "Enemy frames buckling; recommend continuous fire.",
             ], "Gunnery", 1.0);
           }
-          if (result === "sunk") {
+          if (result === "sunk" && !justWon) {
             maybeFlavor([
               "Enemy hull breached—she’s going under.",
               "Target struck below the waterline—confirming loss.",
@@ -505,12 +578,27 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
           return next;
         });
 
-        setMsg(
-          result === "sunk" ? "Ship down! Passing initiative..." :
-          result === "hit"  ? "Direct hit! Opponent’s turn..." :
-                              "Shot wide—opponent’s turn..."
-        );
-        setTurn("ai");
+        if (justWon) {
+          setPhase("over");
+          setEnemyRevealed(true);
+          setMsg("Enemy fleet sunk—victory! 🎖️");
+          roomRef.current?.phase("over");
+          if (!sentRevealRef.current) {
+            sentRevealRef.current = true;
+            try {
+              roomRef.current?.reveal(
+                roleRef.current, playerGridRef.current as any, playerFleetRef.current as any
+              );
+            } catch {}
+          }
+        } else {
+          setMsg(
+            result === "sunk" ? "Ship down! Passing initiative..." :
+            result === "hit"  ? "Direct hit! Opponent’s turn..." :
+                                "Shot wide—opponent’s turn..."
+          );
+          setTurn("ai");
+        }
         captureStateSnapshot();
       },
 
@@ -602,6 +690,17 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
           try { roomRef.current?.hello(roleRef.current); } catch {}
           lastHelloAckSentAtRef.current = now;
         }
+
+        // Nudge a reconnecting/rejoining guest onto the correct phase. A
+        // guest whose own local resume expired (or was never saved, e.g. a
+        // fresh tab) would otherwise get stuck re-placing ships in a match
+        // that's already in "play" (or already "over") — this was
+        // previously dead code: Room.state() was defined and onState/
+        // applyStateSnapshot could receive it, but nothing ever called
+        // roomRef.current?.state(...) to actually send one.
+        if (roleRef.current === "host") {
+          try { roomRef.current?.state("host", { phase: phaseRef.current }); } catch {}
+        }
       },
 
       onQuit: () => {
@@ -667,15 +766,21 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
       const blobH = loadLocalResume(code, "host");
       if (blobH) {
+        setPhase(blobH.phase);
         setPlayerGrid(blobH.playerGrid);
         setPlayerFleet(blobH.playerFleet);
+        setPlayerShots(blobH.playerShots);
+        setEnemyGrid(blobH.enemyGrid);
+        setEnemyFleet(blobH.enemyFleet);
+        setEnemyShots(blobH.enemyShots);
         setToPlace(FLEET_SIZES.slice(Object.keys(blobH?.playerFleet ?? {}).length));
         setIAmReady(!!blobH.iAmReady);
+        setPeerReady(!!blobH.peerReady);
         setTurn(blobH.turn);
         try { if (blobH.iAmReady) roomRef.current?.ready("host", true); } catch {}
         clearLocalResume(code, "host");
         resumedWithinGraceRef.current = true;
-        setMsg("Your fleet restored—awaiting enemy.");
+        setMsg(blobH.msg || "Your fleet restored—awaiting enemy.");
       }
 
     } else {
@@ -684,15 +789,21 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
 
       const blob = loadLocalResume(code, "guest");
       if (blob) {
+        setPhase(blob.phase);
         setPlayerGrid(blob.playerGrid);
         setPlayerFleet(blob.playerFleet);
+        setPlayerShots(blob.playerShots);
+        setEnemyGrid(blob.enemyGrid);
+        setEnemyFleet(blob.enemyFleet);
+        setEnemyShots(blob.enemyShots);
         setToPlace(FLEET_SIZES.slice(Object.keys(blob?.playerFleet ?? {}).length));
         setIAmReady(!!blob.iAmReady);
+        setPeerReady(!!blob.peerReady);
         setTurn(blob.turn);
         try { if (blob.iAmReady) roomRef.current?.ready("guest", true); } catch {}
         clearLocalResume(code, "guest");
         resumedWithinGraceRef.current = true;
-        setMsg("Your fleet restored—checking contact...");
+        setMsg(blob.msg || "Your fleet restored—checking contact...");
       }
     }
     try { roomRef.current?.hello(roleRef.current); } catch {}
@@ -897,7 +1008,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
             <div className="mt-4 flex justify-center">
               <button
                 className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-purple-600 via-purple-700 to-purple-800 text-white"
-                onClick={() => { setEntry("bot"); setMode("bot"); resetLocal(); }}
+                onClick={() => { setEntry("bot"); setMode("bot"); resetLocal("bot"); }}
               >
                 <span className="inline-flex items-center gap-2">
                   <IconCpu className="w-4 h-4 opacity-90" aria-hidden="true" />
@@ -921,7 +1032,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
               <div className="mt-4 flex items-center justify-center gap-8">
                 <button
                   className="px-4 py-2 rounded-lg text-sm bg-gradient-to-r from-emerald-600 via-emerald-700 to-emerald-800 text-white"
-                  onClick={() => { setEntry("mp"); setMode("mp"); resetLocal(); ensureRoom(true); }}
+                  onClick={() => { setEntry("mp"); setMode("mp"); resetLocal("mp"); ensureRoom(true); }}
                 >
                   <span className="inline-flex items-center gap-2">
                     <IconSignal className="w-4 h-4 opacity-90" aria-hidden="true" />
@@ -965,7 +1076,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                       setMode("mp");
                       setRole("guest");
                       setRoomCode(joinCode);
-                      resetLocal();
+                      resetLocal("mp");
                       ensureRoom(false);
                       setMsg("Directing comms...");
                     }}
@@ -1408,7 +1519,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
             <div className="mt-6 flex items-center justify-between">
               {mode === "bot" ? (
                 <button
-                  onClick={resetLocal}
+                  onClick={() => resetLocal("bot")}
                   className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
                 >
                   Refit
@@ -1417,7 +1528,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                 phase === "over" ? (
                   <button
                     onClick={() => {
-                      try { roomRef.current?.rematch("propose", roleRef.current); } catch {}
+                      try { roomRef.current?.rematchSignal("propose", roleRef.current); } catch {}
                       setMsg("Requesting re-engagement...");
                     }}
                     className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-purple-600 to-purple-700 text-white shadow hover:opacity-90"
@@ -1439,7 +1550,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                 <button
                   className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
                   onClick={() => {
-                    try { roomRef.current?.rematch("accept", roleRef.current); } catch {}
+                    try { roomRef.current?.rematchSignal("accept", roleRef.current); } catch {}
                     setRematchAskFromPeer(null);
                     resetLocal();
                     setMsg("Rematch starting. Place your ships.");
@@ -1450,7 +1561,7 @@ export default function BattleshipWeb({ onRegisterReset }: Props) {
                 <button
                   className="px-3 py-1.5 rounded-lg bg-gray-600 text-white"
                   onClick={() => {
-                    try { roomRef.current?.rematch("decline", roleRef.current); } catch {}
+                    try { roomRef.current?.rematchSignal("decline", roleRef.current); } catch {}
                     setRematchAskFromPeer(null);
                     setMsg("Rematch declined.");
                   }}
