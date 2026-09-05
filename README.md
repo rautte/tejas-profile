@@ -169,36 +169,31 @@ Owner-facing runtime composition, Profile activation, immutable Profile/Platform
 
 ### Public Profile Sections
 
-Detailed documentation will be added one section at a time as each section is reviewed against its current implementation.
+Every public section is now documented:
 
-Planned:
-
-```text
-About Me
-Experience
-Skills
-Education
-Resume
-Projects
-Code Lab
-Fun Zone
-Timeline
-```
-
-We intentionally do **not** create empty documentation files before reviewing the actual implementation.
+> **[About Me](./docs/sections/about-me.md)** · **[Experience](./docs/sections/experience.md)** · **[Skills](./docs/sections/skills.md)** · **[Education](./docs/sections/education.md)** · **[Resume](./docs/sections/resume.md)** · **[Projects](./docs/sections/projects.md)** · **[Code Lab](./docs/sections/code-lab.md)** · **[Fun Zone](./docs/sections/fun-zone.md)** · **[Timeline](./docs/sections/timeline.md)**
 
 ---
 
 ### Other Admin Sections
 
-Planned / future implementation:
+#### Data
 
-```text
-Data
-Settings
-```
+Owner-facing draft/publish content authoring for every content group, structure editing, and asset staging:
 
-The future Data editor is already structurally supported by the canonical ProfileContent → immutable Profile Variant architecture documented in the Snapshots architecture guide.
+> **[Data — Complete Feature Guide](./docs/sections/data.md)**
+
+#### Settings
+
+Owner passcode rotation:
+
+> **[Settings — Complete Feature Guide](./docs/sections/settings.md)**
+
+#### Usage
+
+AWS cost tracking, epochs, and configuration-attributed cost reports:
+
+> **[Usage — Complete Feature Guide](./docs/sections/usage.md)**
 
 ---
 
@@ -220,14 +215,29 @@ Profile Variant, activation, Platform Release, Platform Deployment, Deployment C
 
 > **[Snapshots and Profile Platform Architecture](./docs/architecture/snapshots-architecture.md)**
 
-### Additional Architecture Documentation
+---
 
-May be added later when useful:
+### Usage Cost
 
-```text
-Asset/CDN Architecture
-deeper standalone Deployment Architecture
-```
+EventBridge-triggered aggregation, Usage Epoch attribution, and Configuration Analytics Report generation for cost data:
+
+> **[Usage Cost Architecture](./docs/architecture/usage-architecture.md)**
+
+---
+
+### Whole-System Specification
+
+Functional/non-functional requirements, core entities, the full API surface, and high/low-level design, covering the system end to end rather than one feature at a time:
+
+> **[Project Specification](./docs/specification/README.md)**
+
+---
+
+### Infrastructure (CDK)
+
+Stack names, environment variables, and CDK-specific commands for `infra/cdk/`:
+
+> **[Infra CDK README](./infra/cdk/README.md)**
 
 [Back to Index](#index)
 

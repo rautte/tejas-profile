@@ -19,13 +19,18 @@ This documentation answers a different question:
 - [3. Admin Sections](#admin-sections)
   - [Analytics](#analytics)
   - [Snapshots](#snapshots)
+  - [Data](#data)
+  - [Settings](#settings)
+  - [Usage](#usage)
 - [4. Architecture Documentation](#architecture-documentation)
   - [Analytics Architecture](#analytics-architecture)
   - [Snapshots Architecture](#snapshots-architecture)
+  - [Usage Cost Architecture](#usage-architecture)
 - [5. Documentation Status](#documentation-status)
 - [6. How New Documentation Should Be Added](#adding-documentation)
 - [7. Documentation Standards](#documentation-standards)
 - [8. Relationship to the Root README](#root-readme)
+- [9. Project Specification (Requirements & Design)](#project-specification)
 
 ---
 
@@ -33,7 +38,7 @@ This documentation answers a different question:
 
 # 1. Documentation Structure
 
-The intended structure is:
+The structure is:
 
 ```text
 tejas-profile/
@@ -47,13 +52,35 @@ tejas-profile/
     ├── sections/
     │   ├── analytics.md
     │   ├── snapshots.md
-    │   └── <future feature docs>
+    │   ├── data.md
+    │   ├── settings.md
+    │   ├── usage.md
+    │   ├── about-me.md
+    │   ├── experience.md
+    │   ├── skills.md
+    │   ├── education.md
+    │   ├── resume.md
+    │   ├── projects.md
+    │   ├── code-lab.md
+    │   ├── fun-zone.md
+    │   └── timeline.md
     │
-    └── architecture/
-        ├── analytics-architecture.md
-        ├── snapshots-architecture.md
-        └── <future architecture docs>
+    ├── architecture/
+    │   ├── analytics-architecture.md
+    │   ├── snapshots-architecture.md
+    │   └── usage-architecture.md
+    │
+    └── specification/
+        ├── README.md
+        ├── functional-requirements.md
+        ├── non-functional-requirements.md
+        ├── core-entities.md
+        ├── api-reference.md
+        ├── high-level-design.md
+        └── low-level-design.md
 ```
+
+`docs/specification/` is a whole-system requirements/design document set, distinct from the per-feature guides below it — see [Section 9](#project-specification).
 
 The three documentation levels have deliberately different responsibilities.
 
@@ -135,39 +162,23 @@ What should not be changed accidentally?
 
 # 2. Public Profile Sections
 
-The public profile currently contains sections such as:
+All nine public profile sections are documented:
 
-```text
-About Me
-Experience
-Skills
-Education
-Resume
-Projects
-Code Lab
-Fun Zone
-Timeline
-```
+| Section | Feature Guide |
+|---|---|
+| About Me | **[about-me.md](./sections/about-me.md)** |
+| Experience | **[experience.md](./sections/experience.md)** |
+| Skills | **[skills.md](./sections/skills.md)** |
+| Education | **[education.md](./sections/education.md)** |
+| Resume | **[resume.md](./sections/resume.md)** |
+| Projects | **[projects.md](./sections/projects.md)** |
+| Code Lab | **[code-lab.md](./sections/code-lab.md)** |
+| Fun Zone | **[fun-zone.md](./sections/fun-zone.md)** |
+| Timeline | **[timeline.md](./sections/timeline.md)** |
 
-These documents will be added **one at a time after reviewing the actual current implementation**.
+Each covers: what the section renders, its exact data model, how its content is authored (repository `src/data/*` vs. an active Profile Variant via Admin → Data, converging through `buildProfileContent()`), whether an owner-facing editor already exists for it, and where to find its source files.
 
-This prevents documentation from becoming speculative or stale.
-
-Planned structure:
-
-```text
-docs/sections/about-me.md
-docs/sections/experience.md
-docs/sections/skills.md
-docs/sections/education.md
-docs/sections/resume.md
-docs/sections/projects.md
-docs/sections/code-lab.md
-docs/sections/fun-zone.md
-docs/sections/timeline.md
-```
-
-Do not create empty placeholder files yet.
+None of these sections has a dedicated architecture document — they are all thin, stateless renderers of one field of the canonical `ProfileContent` DTO. The relevant architecture lives in the [Snapshots and Profile Platform Architecture](#snapshots-architecture) document instead.
 
 [Back to Index](#index)
 
@@ -184,6 +195,7 @@ Analytics
 Snapshots
 Data
 Settings
+Usage
 ```
 
 ---
@@ -263,39 +275,81 @@ It covers:
 - truthful historical classification
 - redeploy compatibility
 - DEV/PROD behavior
-- future Admin → Data authoring boundary
+- Admin → Data authoring boundary
 
 ---
+
+<a id="data"></a>
 
 ## Data
 
 Status:
 
 ```text
-NOT YET DOCUMENTED
+DOCUMENTED
 ```
 
-Future:
+Complete feature/user documentation:
 
-```text
-docs/sections/data.md
-```
+> **[Data — Feature Guide](./sections/data.md)**
+
+It covers:
+
+- draft-then-publish authoring model (never edits the active Variant in place)
+- autosaved, resumable local drafts
+- the generic, metadata-driven field/collection editor shared by every content group
+- Structure editing (section order, groups, default landing section)
+- Asset staging and upload
+- Publish review and the resulting new immutable Profile Variant
+- unified activate / retarget-only-republish flow, including the "Activate to PROD" shortcut
+- the repository-vs-active-Variant authoring duality and `activeSnapshot.json`
 
 ---
+
+<a id="settings"></a>
 
 ## Settings
 
 Status:
 
 ```text
-NOT YET DOCUMENTED
+DOCUMENTED
 ```
 
-Future:
+Complete feature/user documentation:
+
+> **[Settings — Feature Guide](./sections/settings.md)**
+
+It covers:
+
+- owner login passcode rotation (distinct from the CI/CD master credential)
+- the email-verified two-step change flow and its rate limiting
+- why the passcode-change endpoints must remain reachable without a prior owner session (recovery)
+- SES email delivery and DEV/PROD secret isolation
+
+---
+
+<a id="usage"></a>
+
+## Usage
+
+Status:
 
 ```text
-docs/sections/settings.md
+DOCUMENTED
 ```
+
+Complete feature/user documentation:
+
+> **[Usage — Feature Guide](./sections/usage.md)**
+
+It covers:
+
+- AWS $ cost and resource usage, aggregated day/week/month
+- the owner-configurable refresh schedule and "Refresh now"
+- cost alert emails and their once-per-period dedupe guarantee
+- the full-width, 5-row-capped resource usage cards
+- DEV/PROD isolation
 
 [Back to Index](#index)
 
@@ -379,7 +433,38 @@ effective runtime identity
 Usage Epoch relationship
 legacy Snapshot compatibility
 historical truth
-future Data authoring integration
+Admin → Data authoring integration (implemented)
+```
+
+---
+
+<a id="usage-architecture"></a>
+
+## Usage Cost Architecture
+
+Status:
+
+```text
+DOCUMENTED
+```
+
+Complete architecture documentation:
+
+> **[Usage Cost Architecture](./architecture/usage-architecture.md)**
+
+It covers:
+
+```text
+scheduled aggregator (EventBridge + Lambda) and its due-ness gating
+Cost Explorer cost collection and day/week/month derivation
+CloudWatch resource-usage collection
+DynamoDB storage model (config + period snapshots, one table)
+cost-alert email path and its once-per-period dedupe guarantee
+API surface (owner-only routes on the shared API handler)
+CDK-wide resource tagging as the Cost Allocation Tags prerequisite
+IAM (including the dedicated-Policy workaround for a known
+    CDK minimizePolicies pitfall)
+DEV/PROD isolation
 ```
 
 ---
@@ -402,20 +487,22 @@ A separate architecture document may be added later if deeper design documentati
 
 | Area | Feature Guide | Architecture |
 |---|---:|---:|
-| About Me | Planned | N/A |
-| Experience | Planned | N/A |
-| Skills | Planned | N/A |
-| Education | Planned | N/A |
-| Resume | Planned | N/A |
-| Projects | Planned | N/A |
-| Code Lab | Planned | N/A |
-| Fun Zone | Planned | N/A |
-| Timeline | Planned | N/A |
+| About Me | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Experience | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Skills | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Education | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Resume | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Projects | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Code Lab | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Fun Zone | ✅ Complete | N/A (covered by Snapshots architecture) |
+| Timeline | ✅ Complete | N/A (covered by Snapshots architecture) |
 | Analytics | ✅ Complete | ✅ Complete |
 | Snapshots | ✅ Complete | ✅ Complete |
-| Data | Future editor | Covered structurally by Snapshots architecture |
-| Settings | Planned | TBD |
+| Data | ✅ Complete | Covered structurally by Snapshots architecture |
+| Settings | ✅ Complete | Covered by Root README (owner auth) |
+| Usage | ✅ Complete | ✅ Complete |
 | Deployment | Root README | Control-plane model covered by Snapshots architecture |
+| Whole-system specification | See [Project Specification](#project-specification) | See [Project Specification](#project-specification) |
 
 This table should be updated whenever a documentation area is completed.
 
@@ -547,12 +634,43 @@ Navigation:
 
 > **[← Root README](../README.md)**
 
-> **[Analytics Feature Guide](./sections/analytics.md)**
+> **[Analytics Feature Guide](./sections/analytics.md)** · **[Analytics Architecture](./architecture/analytics-architecture.md)**
 
-> **[Analytics Architecture](./architecture/analytics-architecture.md)**
+> **[Snapshots Feature Guide](./sections/snapshots.md)** · **[Snapshots Architecture](./architecture/snapshots-architecture.md)**
 
-> **[Snapshots Feature Guide](./sections/snapshots.md)**
+> **[Data Feature Guide](./sections/data.md)**
 
-> **[Snapshots Architecture](./architecture/snapshots-architecture.md)**
+> **[Settings Feature Guide](./sections/settings.md)**
+
+> **[Usage Feature Guide](./sections/usage.md)** · **[Usage Cost Architecture](./architecture/usage-architecture.md)**
+
+> **[Project Specification](./specification/README.md)**
+
+[Back to Index](#index)
+
+---
+
+<a id="project-specification"></a>
+
+# 9. Project Specification (Requirements & Design)
+
+The documents above are per-feature guides and per-feature architecture. They answer *how does this one feature work*.
+
+`docs/specification/` is different: it is a single, whole-system requirements and design specification, covering the project as one system rather than one section at a time.
+
+> **[Project Specification — Index](./specification/README.md)**
+
+It is organized as:
+
+| Document | Answers |
+|---|---|
+| **[Functional Requirements](./specification/functional-requirements.md)** | What must the system do? |
+| **[Non-Functional Requirements](./specification/non-functional-requirements.md)** | How well must it do it (reliability, security, performance, cost, privacy)? |
+| **[Core Entities](./specification/core-entities.md)** | What are the fundamental objects in this system, and how do they relate? |
+| **[API Reference](./specification/api-reference.md)** | Every HTTP endpoint the backend exposes, request/response shape, and auth requirement |
+| **[High-Level Design](./specification/high-level-design.md)** | What are the major components/services, and how do they fit together? |
+| **[Low-Level Design](./specification/low-level-design.md)** | How is each component actually implemented — data flow, algorithms, storage layout, state machines? |
+
+Use the specification when you need the whole picture at once (e.g. onboarding, a design review, or preparing to explain the system to someone else). Use the per-feature guides and architecture docs above when you are working on one specific feature.
 
 [Back to Index](#index)

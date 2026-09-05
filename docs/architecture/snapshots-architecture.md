@@ -44,7 +44,7 @@ buildProfileContent()
 canonical ProfileContent
 ```
 
-Future owner UI authoring:
+Owner UI authoring (Admin → Data, implemented):
 
 ```text
 Admin → Data
@@ -381,26 +381,31 @@ over guessing or reconstructing missing formal state.
 
 ---
 
-## 21. Future Admin → Data Editor
+## 21. Admin → Data Editor
 
-The future Data editor must plug in above the canonical ProfileContent boundary.
+The Data editor plugs in above the canonical ProfileContent boundary, as originally intended, and is now implemented (`src/components/admin/Data.js`, `src/components/admin/data-editor/`, `src/profile/draft/`, `src/profile/editor/`).
 
-It may provide:
+It provides:
 
 ```text
-draft creation
-field editing
-validation
-revision history
-preview
-asset selection
-publish
-optional activation
+draft creation (autosaved to localStorage, resumable across sessions)
+generic, metadata-driven field/collection editing for every
+    content group (hero, aboutMe, experience, education, skills,
+    resume, projects, codeLab, funZone, timeline, contactLinks)
+structure editing (section order, groups, default landing section)
+asset staging and upload
+publish review (diff against the base Variant)
+publish → new immutable Profile Variant
+optional, separate, explicit activation (including an
+    "Activate to PROD" shortcut and retarget-only republish,
+    unified into one confirmation flow)
 ```
 
-but must not introduce a second Profile runtime model.
+It does not introduce a second Profile runtime model. Both repository (`src/data/*`) and UI (Admin → Data) authoring continue to publish through the same Profile Variant contract — `createProfileContent()` / `validateProfileContent()` — and the public runtime does not know or care which one produced a given Variant.
 
-Both repository and UI authoring must continue to publish the same Profile Variant contract.
+See the full feature guide for user-facing behavior:
+
+> **[Data Feature Guide](../sections/data.md)**
 
 ---
 

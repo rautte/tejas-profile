@@ -339,7 +339,7 @@ Never infer PROD state from DEV state.
 
 ---
 
-## 15. Future Admin → Data Authoring
+## 15. Admin → Data Authoring
 
 The architecture intentionally supports two Profile authoring sources:
 
@@ -351,9 +351,7 @@ Repository / src/data
 Admin → Data editor
 ```
 
-The Admin → Data editor is future functionality.
-
-When implemented, it must use the existing downstream model:
+The Admin → Data editor is implemented (`src/components/admin/Data.js`, `src/components/admin/data-editor/`) and uses the downstream model shared by both authoring sources:
 
 ```text
 Profile Draft
@@ -365,7 +363,9 @@ new immutable Profile Variant
 optional explicit activation
 ```
 
-The editor must never mutate an existing published Profile Variant or directly overwrite ACTIVE public content.
+The editor never mutates an existing published Profile Variant or directly overwrites ACTIVE public content — see the full feature guide:
+
+> **[Data — Complete Feature Guide](./data.md)**
 
 ---
 
