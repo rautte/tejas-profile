@@ -341,11 +341,43 @@ function ResourceUsageTable({
         {title}
       </div>
 
-      <div className="rounded-lg border border-gray-200/70 dark:border-white/10 max-h-[248px] overflow-y-auto overflow-x-auto">
-        <table className="w-full min-w-[420px]">
+      <div className="rounded-lg border border-gray-200/70 dark:border-white/10 max-h-[216px] overflow-y-auto">
+        <table className="w-full table-fixed">
+          <colgroup>
+            <col
+              style={{
+                width:
+                  `${Math.max(
+                    30,
+                    100 -
+                    columns.length *
+                    22
+                  )}%`,
+              }}
+            />
+
+            {columns.map(
+              (
+                col
+              ) => (
+                <col
+                  key={
+                    col.key
+                  }
+                  style={{
+                    width:
+                      `${22}%`,
+                  }}
+                />
+              )
+            )}
+          </colgroup>
+
           <thead className="sticky top-0 z-10 bg-gray-100 dark:bg-[#121224]">
-            <tr className="text-left text-[11px] text-gray-500 dark:text-gray-400">
-              <th className="py-2.5 px-4 font-semibold">
+            <tr
+              className="h-9 text-left text-[11px] text-gray-500 dark:text-gray-400"
+            >
+              <th className="px-3 font-semibold">
                 Name
               </th>
 
@@ -357,7 +389,7 @@ function ResourceUsageTable({
                     key={
                       col.key
                     }
-                    className="py-2.5 px-4 font-semibold text-right"
+                    className="px-3 font-semibold text-right"
                   >
                     {col.label}
                   </th>
@@ -375,9 +407,14 @@ function ResourceUsageTable({
                   key={
                     entry.name
                   }
-                  className="border-t border-gray-200/60 dark:border-white/10"
+                  className="h-9 border-t border-gray-200/60 dark:border-white/10"
                 >
-                  <td className="py-2 px-4 text-xs font-mono text-gray-800 dark:text-gray-200 break-all">
+                  <td
+                    className="py-2 px-3 text-xs font-mono text-gray-800 dark:text-gray-200 truncate"
+                    title={
+                      entry.name
+                    }
+                  >
                     {entry.name}
                   </td>
 
@@ -389,7 +426,7 @@ function ResourceUsageTable({
                         key={
                           col.key
                         }
-                        className="py-2 px-4 text-xs text-right text-gray-700 dark:text-gray-300"
+                        className="py-2 px-3 text-xs text-right text-gray-700 dark:text-gray-300 truncate"
                       >
                         {col.format(
                           entry
