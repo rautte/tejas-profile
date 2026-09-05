@@ -1215,7 +1215,7 @@ export default function AdminUsage() {
                 ) : null}
 
                 {resourceUsage ? (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4">
                     <ResourceUsageTable
                       title="S3 buckets"
                       entries={
